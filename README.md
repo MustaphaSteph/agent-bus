@@ -17,18 +17,57 @@ Two terminals running Claude Code have no built-in way to talk. You either
 copy/paste, or you build a bus. This is the bus — one SQLite file is the
 meeting room, one MCP server is the doorway, one CLI is the cockpit.
 
-## Quickstart
+## How it works
+
+```
+┌──────────────────┐                  ┌──────────────────┐                  ┌──────────────────┐
+│ Claude Code A    │  send / inbox /  │ ~/.agent-bus/    │  send / inbox /  │ Codex Desktop B  │
+│ (any project)    │  ask / reply  ──▶│   bus.db         │ ◀─── ask / reply │ (any chat)       │
+│ MCP: agent-bus   │                  │  (SQLite WAL)    │                  │ MCP: agent-bus   │
+└──────────────────┘                  └────────┬─────────┘                  └──────────────────┘
+                                               │
+                                               │  reads/writes
+                                               ▼
+                                      ┌──────────────────┐
+                                      │ agent-bus watch  │  ← you, in a 3rd terminal
+                                      │ (live tail)      │
+                                      └──────────────────┘
+```
+
+Each session spawns its own MCP server process and reads/writes the same
+SQLite file in WAL mode. Names are addresses. Listeners get push-like
+delivery via blocking `inbox(wait_s)`.
+
+## Install
 
 ```bash
 git clone https://github.com/MustaphaSteph/agent-bus
 cd agent-bus
 npm install && npm run build && npm link
+```
 
-# Claude Code (user scope — every project sees it)
+### Claude Code (all projects)
+
+```bash
 claude mcp add -s user agent-bus -- agent-bus-mcp
 ```
 
-For Codex CLI and Desktop, see [`docs/install.md`](docs/install.md).
+### Codex CLI + Codex Desktop
+
+Both read `~/.codex/config.toml`. Add:
+
+```toml
+[mcp_servers.agent-bus]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/agent-bus/dist/mcp/server.js"]
+```
+
+Absolute paths matter for Codex Desktop — it doesn't inherit your shell
+PATH. Find yours with `readlink -f "$(which node)"` and
+`readlink -f "$(which agent-bus-mcp)"`. After editing, **Cmd+Q + reopen**
+Codex Desktop fully.
+
+Full install details + verification steps: [`docs/install.md`](docs/install.md).
 
 ## Try it
 
