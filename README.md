@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="docs/assets/banner.png" alt="agent-bus — connect AI agent sessions locally" />
+</p>
+
+<p align="center">
+  <strong>Local · Private · Fast · Open source</strong>
+</p>
+
 # agent-bus
 
 A tiny local message bus that lets multiple Claude Code, Codex, and other
