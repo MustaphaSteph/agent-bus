@@ -13,9 +13,43 @@
 
 ---
 
-Two terminals running Claude Code have no built-in way to talk. You either
-copy/paste, or you build a bus. This is the bus — one SQLite file is the
-meeting room, one MCP server is the doorway, one CLI is the cockpit.
+## Why this exists
+
+AI coding agents are powerful — they just don't know about each other.
+Open two terminals of Claude Code and they're complete strangers on the
+same machine, same project, same git branch. Open a Codex window next to
+a Claude window — still strangers. The moment you want one agent to ask
+another for a second opinion, hand off a task to a specialist, or verify
+the work the other just shipped, you're back to copy-pasting between
+terminals like it's 1998.
+
+Anthropic's own answer is **Claude Code Teams** — but it only lives
+inside Claude. Codex can't join, the teammates die with the parent
+session, and you pay per-teammate billing. Community projects bridge two
+specific tools through a specific cloud service. Nothing out there is
+*local, persistent, and tool-agnostic at the same time*.
+
+**agent-bus is that thing.** One SQLite file at `~/.agent-bus/bus.db`
+plus an MCP server every agent already knows how to talk to. Each
+session registers a name. Now they can:
+
+- send fire-and-forget messages or broadcast to whole channels,
+- ask questions and block for answers,
+- delegate first-class tasks with strict state machine and at-least-once delivery,
+- route work by capability without knowing the receiver's name,
+- and keep entire conversation threads addressable across restarts.
+
+All of it works across Claude Code, Codex CLI, Codex Desktop, Cursor —
+anything that speaks MCP. No daemon, no cloud, no auth, no internet. Just
+a file and a process.
+
+### What this unlocks
+
+- **Pair debugging.** Ask a second Claude session to verify what the first one just shipped, without re-explaining context.
+- **Specialist routing.** Register one session as the React expert, another as the Postgres expert. Use `ask_best(capability=…)` and the bus picks.
+- **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
+- **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
+- **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
 
 ## How it works
 
