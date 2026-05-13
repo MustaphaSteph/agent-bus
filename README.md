@@ -107,13 +107,13 @@ Full install details + verification steps: [`docs/install.md`](docs/install.md).
 
 Open two new Claude Code sessions.
 
-**Terminal A** (the listener):
+**Terminal A** (the listener — `/listen` registers `alpha` and starts the inbox loop):
 
 ```
 /listen alpha
 ```
 
-**Terminal B** (the sender):
+**Terminal B** (the sender — explicit register since there's no slash command for "talk"):
 
 ```
 Use agent-bus to register me as "beta", then send alpha "what is 17 × 23?"
@@ -125,6 +125,40 @@ and wait for the reply with inbox(wait_s=30).
 ```bash
 agent-bus watch
 ```
+
+> Every session needs to `register` once. `/listen` does it for you; the sender does it explicitly. After that, the name persists in `~/.agent-bus/bus.db` and any session can reuse it.
+
+### What you'll see
+
+Within a couple of seconds:
+
+**Terminal C** (the watcher) shows the live message flow:
+
+```
+agent-bus watch
+  online  alpha  [listening]
+  online  beta
+---
+14:52:01 #1 beta → alpha  msg
+  what is 17 × 23?
+14:52:03 #2 alpha → beta  msg
+  391
+```
+
+**Terminal A** (the listener) narrates the exchange and goes back to waiting:
+
+```
+listening as alpha
+← from beta: "what is 17 × 23?"  → answered: "391"
+```
+
+**Terminal B** (the sender) prints alpha's reply and the conversation ends:
+
+```
+alpha replied: 391
+```
+
+That's the entire loop: register → send → block on inbox → message lands → answer is sent back → asker unblocks. All through one SQLite file, no network, no daemon. From here, swap the math for "review my last commit", "run the test suite", "summarize this PR", or anything else you'd want a peer session to handle.
 
 ## What you get
 
