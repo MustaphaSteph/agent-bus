@@ -1,0 +1,265 @@
+# Patterns
+
+How to use the bus for real work. Each pattern is a recipe: when to use
+it, the exact tool calls or prompts, and the failure modes.
+
+## 1. Listener mode
+
+**When**: you want a session to act as a long-running responder, like a
+specialist agent that's "always on" and answers questions from other
+sessions.
+
+**How (Claude Code)**: in any new Claude Code session,
+
+```
+/listen alpha
+```
+
+The slash command registers the session as `alpha`, optionally marks it
+as a listener for Stop-hook auto-resume, and enters a blocking
+`inbox(wait_s=110)` loop. It silently handles incoming messages:
+`reply` for asks, `send` for direct messages.
+
+**How (Codex or any MCP agent)**:
+
+```bash
+agent-bus listen-prompt my-codex | pbcopy
+```
+
+Paste into a new chat. Same behavior.
+
+**Failure modes**:
+
+- Claude ends the turn unexpectedly → install the Stop hook to auto-resume.
+- Tool round-trip takes seconds per cycle → that's Claude's reasoning,
+  not the bus. Use a smaller model in the listener session if you can.
+- Listener process killed mid-message → at-most-once delivery means the
+  message is lost. Use the at-least-once pattern below for reliability.
+
+## 2. Synchronous Q&A
+
+**When**: one session asks another a question and waits for the answer
+before continuing.
+
+**How**: the asker calls `ask`, the answerer calls `reply`.
+
+```
+// Asker:
+ask({ from: "human", to: "alpha", question: "...", timeout_s: 60 })
+
+// Answerer (when its inbox returns the ask):
+reply({ from: "alpha", ask_id: <id>, answer: "..." })
+```
+
+`ask` blocks up to 110 s (Claude Code's tool timeout). The answerer must
+be in listener mode or actively polling to respond within that window.
+
+**Failure modes**: `ASK_TIMEOUT` if no reply arrives, `ASK_CYCLE` if the
+answerer has its own pending ask back to you.
+
+## 3. Capability routing (don't know who to ask)
+
+**When**: you want help with X but don't know which agent specializes
+in X.
+
+**How**: registered agents declare capabilities; the asker uses
+`ask_best`.
+
+```
+// Listeners register with capabilities:
+register({ name: "fe-bot", capabilities: ["react", "css", "tailwind"] })
+
+// Asker doesn't need to know the name:
+ask_best({ from: "human", capability: "react", question: "..." })
+```
+
+The bus picks the agent with that capability that has the most recent
+`last_seen`. Refuses matches stale beyond 5 minutes.
+
+**Failure modes**: `UNKNOWN_AGENT` if no registered agent has the
+capability, or the best candidate is stale.
+
+## 4. Broadcast to a team
+
+**When**: an event is relevant to multiple agents (CI failed, PR landed,
+new task available).
+
+**How**: agents subscribe to a channel; broadcasters fan out via
+`send_channel`.
+
+```
+// Each interested agent:
+subscribe({ agent: "alice", channel: "ci-alerts" })
+subscribe({ agent: "bob",   channel: "ci-alerts" })
+
+// Anyone who detects the event:
+send_channel({ from: "ci", channel: "ci-alerts", message: "build failed" })
+```
+
+`send_channel` inserts one message per subscriber. Each subscriber
+receives it in their normal inbox; `m.channel` is set to the channel
+name so they know the source.
+
+**Failure modes**: channel with no subscribers → `send_channel` returns
+an empty array (silent no-op).
+
+## 5. At-least-once delivery
+
+**When**: the recipient does something irreversible or expensive
+(deploys, writes to external systems, calls paid APIs) and must not
+lose messages.
+
+**How**: pass `claim_s` to `inbox`, then `ack` after success.
+
+```js
+while (true) {
+  const msgs = await inbox({ agent: "deployer", wait_s: 110, claim_s: 600 })
+  for (const m of msgs) {
+    try {
+      await runDeploy(m.content)
+      ack({ agent: "deployer", message_id: m.id })
+    } catch (e) {
+      log("will retry: " + e.message)
+      // no ack — claim expires in 600s and the message redelivers
+    }
+  }
+}
+```
+
+Pick `claim_s` to be **longer than your worst-case processing time** so
+you have a chance to ack before the claim expires.
+
+**Failure modes**: if the consumer's work is non-idempotent and it
+crashes after the work but before the ack, the work happens twice.
+Idempotency of the actual work is the consumer's job.
+
+## 6. Conversation threading
+
+**When**: two agents trade multiple messages back and forth and you want
+to read the chain later.
+
+**How**: thread IDs auto-flow. The listener prompt already passes the
+incoming `thread_id` back when it sends a reply, so any chain that
+starts with a single `send` or `ask` stays threaded.
+
+```js
+const first = send({ from: "a", to: "b", message: "..." })
+// first.thread_id is auto-generated
+
+// b's response inherits:
+send({ from: "b", to: "a", message: "...", thread_id: first.thread_id })
+
+// Later, read the whole chain:
+thread({ thread_id: first.thread_id })
+```
+
+`agent-bus log` and `agent-bus watch` don't visually group by thread yet
+(could be a Tier-2 improvement) — use the `thread` MCP tool from any
+session.
+
+## 7. Human-in-the-loop relay
+
+**When**: you're the human and you want to manually pass messages
+between two sessions, with full visibility, no auto-pickup.
+
+**How**: don't use `/listen`. Just register names in each session, and
+use `agent-bus inject` from your shell.
+
+```bash
+agent-bus inject --from human --to alpha "look at src/foo.ts"
+# Then in alpha's session: "check my inbox"
+# Read the response in agent-bus watch
+# Inject the next message
+```
+
+Pair with `agent-bus watch` in a third terminal for visibility.
+
+## 8. Catching up after restart
+
+**When**: you start a fresh Claude Code session and want to know what
+agents and channels exist.
+
+**How**: ask the agent to call `whois` and `recent`.
+
+```
+Call agent-bus whois to list all agents, then recent(limit=20) to see
+the last 20 messages.
+```
+
+Pending messages addressed to your name (if you keep one consistent
+across restarts) are still in the bus and will be returned by your
+first `inbox` call.
+
+## 9. Cross-tool (Claude ↔ Codex)
+
+**When**: you want Claude Code and Codex sessions to collaborate.
+
+**How**: install agent-bus in both, register both with different names,
+then exchange messages just like Claude-to-Claude.
+
+```
+# Claude Code terminal:
+/listen claude-frontend
+
+# Codex Desktop chat (after pasting listen-prompt):
+codex-backend listening on agent-bus.
+
+# A third Claude session:
+"register me as orchestrator, ask claude-frontend for the React patterns,
+ then forward the answer to codex-backend with implementation context."
+```
+
+The bus doesn't care which tool spoke — it's all just MCP messages and
+SQLite rows.
+
+## 10. Delegate and track work
+
+**When**: one session wants another session to implement, verify, or
+investigate something, and a plain message is too hard to track.
+
+**How**: create a task, optionally send the assignee its thread, then let
+workers claim and update state.
+
+```js
+const task = create_task({
+  requested_by: "orchestrator",
+  title: "Verify the current diff",
+  description: "Run the smoke tests and report findings first.",
+  priority: 10,
+  cwd: "/Users/air/Documents/Projects/agent-bus",
+})
+
+send({
+  from: "orchestrator",
+  to: "verifier",
+  message: `Please claim task #${task.id} and verify it.`,
+  thread_id: task.thread_id,
+})
+```
+
+The verifier:
+
+```js
+claim_task({ agent: "verifier", task_id: task.id })
+update_task({ agent: "verifier", task_id: task.id, state: "working" })
+// ...run review/tests...
+update_task({
+  agent: "verifier",
+  task_id: task.id,
+  state: "completed",
+  result: "No findings. npm test passed.",
+})
+```
+
+Use `list_tasks` or `agent-bus tasks --watch` to see pending and active
+work. Active tasks can show `stale: true` if their holder has not
+heartbeated recently; release them explicitly instead of relying on
+automatic requeue.
+
+**Failure modes**:
+
+- Two agents try to claim the same task -> one gets `TASK_NOT_CLAIMABLE`.
+- Holder disappears -> task is marked stale in listings; a human or
+  orchestrator decides whether to release it.
+- Worker hits a dependency -> move to `blocked` with `blocked_reason`
+  and optionally `blocked_on_task_id`.

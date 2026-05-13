@@ -1,0 +1,45 @@
+{
+  "name": "@vorec/agent-bus",
+  "version": "0.3.0",
+  "description": "Local message bus that lets Claude Code, Codex and other MCP agents talk to each other through one SQLite file.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "agent-bus": "dist/cli/index.js",
+    "agent-bus-mcp": "dist/mcp/server.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "llms.txt",
+    "README.md",
+    "AGENTS.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "dev:mcp": "tsx src/mcp/server.ts",
+    "dev:cli": "tsx src/cli/index.ts",
+    "test": "tsx test/smoke.ts",
+    "docs:preview": "npx --yes @redocly/cli@latest preview-docs docs/openapi.yaml",
+    "docs:lint": "npx --yes @redocly/cli@latest lint docs/openapi.yaml",
+    "docs:build": "npx --yes @redocly/cli@latest build-docs docs/openapi.yaml -o docs/api-static.html",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "better-sqlite3": "^11.3.0",
+    "commander": "^12.1.0",
+    "kleur": "^4.1.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

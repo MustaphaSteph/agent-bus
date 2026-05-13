@@ -1,0 +1,1237 @@
+openapi: 3.1.0
+
+info:
+  title: agent-bus
+  version: 0.3.0
+  summary: Local message bus for agent-to-agent communication via MCP
+  description: |
+    `agent-bus` exposes 20 tools over an MCP stdio server. This OpenAPI
+    document maps each tool to a synthetic `POST /tools/<name>` endpoint
+    for documentation, validation, and code-generation purposes. The
+    real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
+
+    Every tool takes a JSON object body and returns a JSON object body.
+    Errors come back as `{ "error": { "code": "<code>", "message": "<text>" } }`
+    with a 4xx status (in this synthetic mapping).
+
+    See the rest of the docs at `docs/` for a friendlier walkthrough.
+  contact:
+    name: agent-bus
+    url: https://github.com/MustaphaSteph/agent-bus
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: mcp://agent-bus
+    description: MCP stdio server (synthetic URL — not HTTP)
+
+security: []
+
+tags:
+  - name: Identity
+    description: Claim a name on the bus and discover other agents.
+  - name: Direct messaging
+    description: One-to-one async messaging, inbox reads, and acknowledgements.
+  - name: Request / response
+    description: Synchronous blocking question/answer flows.
+  - name: Channels
+    description: One-to-many pub/sub broadcasting.
+  - name: Discovery
+    description: Read conversation threads and recent bus traffic.
+  - name: Tasks
+    description: First-class units of work with ownership, state, and stale detection.
+
+paths:
+  /tools/register:
+    post:
+      tags: [Identity]
+      summary: Register an agent
+      description: |
+        Claim a name on the bus, optionally declaring capability tags.
+        Idempotent when `replace: true` is set. Without `replace`, fails
+        with `NAME_TAKEN` if the name was last seen within 60 seconds.
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              minimal:
+                value:
+                  name: alpha
+              with-capabilities:
+                value:
+                  name: frontend-bot
+                  capabilities: [react, css, tailwind]
+              replace:
+                value:
+                  name: alpha
+                  replace: true
+      responses:
+        '200':
+          description: The registered agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/send:
+    post:
+      tags: [Direct messaging]
+      summary: Send a direct message (fire-and-forget)
+      description: |
+        Insert a `msg` row addressed to one agent. Returns immediately.
+        A new `thread_id` is auto-generated unless one is provided.
+      operationId: send
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendRequest'
+            examples:
+              hello:
+                value:
+                  from: alpha
+                  to: beta
+                  message: hello beta
+              continue-thread:
+                value:
+                  from: alpha
+                  to: beta
+                  message: also this
+                  thread_id: t_kxxx_abc123
+      responses:
+        '200':
+          description: The inserted message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/inbox:
+    post:
+      tags: [Direct messaging]
+      summary: Read pending messages
+      description: |
+        Returns messages addressed to the caller with `status='pending'`.
+
+        - Without `wait_s`: returns immediately (may be empty).
+        - With `wait_s`: blocks up to that many seconds (max 110) for
+          the first message to arrive.
+        - Without `claim_s`: returned messages flip to `delivered`
+          (at-most-once).
+        - With `claim_s`: returned messages stay `pending` with a
+          `claim_deadline` set to `now + claim_s*1000`. They become
+          invisible to other inbox calls until either you `ack` them
+          or the claim expires and they become visible again.
+      operationId: inbox
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboxRequest'
+            examples:
+              snapshot:
+                value:
+                  agent: alpha
+              listener:
+                value:
+                  agent: alpha
+                  wait_s: 110
+              at-least-once:
+                value:
+                  agent: alpha
+                  wait_s: 110
+                  claim_s: 300
+      responses:
+        '200':
+          description: Messages addressed to the caller (could be empty).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/ack:
+    post:
+      tags: [Direct messaging]
+      summary: Acknowledge a claimed message
+      description: |
+        Flip a claimed `pending` message to `delivered` and clear its
+        claim. Use after successfully processing a message returned by
+        `inbox(claim_s=...)`.
+      operationId: ack
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AckRequest'
+            examples:
+              ack:
+                value:
+                  agent: alpha
+                  message_id: 42
+      responses:
+        '200':
+          description: The updated message (now `delivered`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/ask:
+    post:
+      tags: [Request / response]
+      summary: Ask a question and block for the reply
+      description: |
+        Inserts an `ask` message and polls for a `reply` row pointing back
+        at it. Blocks up to `timeout_s` seconds (max 110, default 60).
+        Refuses cycles: if the recipient has a pending ask back to the
+        caller, fails with `ASK_CYCLE`.
+      operationId: ask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskRequest'
+            examples:
+              quick:
+                value:
+                  from: alpha
+                  to: beta
+                  question: what is 2+2?
+              longer-timeout:
+                value:
+                  from: alpha
+                  to: beta
+                  question: please review src/api.ts
+                  timeout_s: 100
+      responses:
+        '200':
+          description: The reply message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/ask_best:
+    post:
+      tags: [Request / response]
+      summary: Route an ask to the best capability match
+      description: |
+        Picks the most-recently-active agent that has the given
+        capability tag, then performs `ask`. Refuses matches where the
+        candidate hasn't been seen in 5 minutes.
+      operationId: ask_best
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskBestRequest'
+            examples:
+              react:
+                value:
+                  from: human
+                  capability: react
+                  question: how to memoize this list?
+      responses:
+        '200':
+          description: The reply message from the chosen agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/reply:
+    post:
+      tags: [Request / response]
+      summary: Answer a pending ask
+      description: |
+        Close an `ask` with an answer. Creates a `reply` row pointing at
+        the ask via `reply_to`, inheriting the ask's `thread_id`, and
+        flips the original ask's status to `answered`.
+      operationId: reply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplyRequest'
+            examples:
+              answer:
+                value:
+                  from: beta
+                  ask_id: 42
+                  answer: "4"
+      responses:
+        '200':
+          description: The reply message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/subscribe:
+    post:
+      tags: [Channels]
+      summary: Subscribe an agent to a channel
+      description: |
+        Idempotent — re-subscribing refreshes `subscribed_at`.
+      operationId: subscribe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelMembership'
+            examples:
+              join:
+                value:
+                  agent: carol
+                  channel: frontend-team
+      responses:
+        '200':
+          description: The subscription record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Subscription'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/unsubscribe:
+    post:
+      tags: [Channels]
+      summary: Unsubscribe an agent from a channel
+      description: |
+        No-op if the agent isn't subscribed.
+      operationId: unsubscribe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelMembership'
+            examples:
+              leave:
+                value:
+                  agent: carol
+                  channel: frontend-team
+      responses:
+        '200':
+          description: Acknowledgement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/send_channel:
+    post:
+      tags: [Channels]
+      summary: Broadcast a message to every subscriber of a channel
+      description: |
+        Fans out: inserts one `msg` row per subscriber (sender
+        excluded). Each row carries `channel = <name>` and a shared
+        `thread_id`.
+      operationId: send_channel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendChannelRequest'
+            examples:
+              alert:
+                value:
+                  from: ci
+                  channel: alerts
+                  message: build failed on main
+      responses:
+        '200':
+          description: One message per recipient (empty if no subscribers).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/subscribers:
+    post:
+      tags: [Channels]
+      summary: List the agents subscribed to a channel
+      operationId: subscribers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelOnlyRequest'
+            examples:
+              list:
+                value:
+                  channel: frontend-team
+      responses:
+        '200':
+          description: The list of agent names.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentName'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/thread:
+    post:
+      tags: [Discovery]
+      summary: Read every message in a conversation thread
+      description: |
+        Returns every message that shares the given `thread_id`, in
+        chronological order. Does not mutate status.
+      operationId: thread
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThreadRequest'
+            examples:
+              read:
+                value:
+                  thread_id: t_kxxx_abc123
+              limited:
+                value:
+                  thread_id: t_kxxx_abc123
+                  limit: 50
+      responses:
+        '200':
+          description: The thread's messages in order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/whois:
+    post:
+      tags: [Identity]
+      summary: List every registered agent
+      description: |
+        Returns every row in the `agents` table sorted by `last_seen`
+        descending.
+      operationId: whois
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+            example: {}
+      responses:
+        '200':
+          description: The list of agents.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/recent:
+    post:
+      tags: [Discovery]
+      summary: Read recent messages regardless of recipient
+      description: |
+        Useful for catching up on the bus. Does not mutate status.
+      operationId: recent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecentRequest'
+            examples:
+              last-50:
+                value: {}
+              last-200:
+                value:
+                  limit: 200
+      responses:
+        '200':
+          description: The most recent messages (ascending order).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/create_task:
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      description: |
+        Creates a first-class unit of work in `open` state. Tasks are
+        queryable work items; messages and threads carry the discussion
+        around that work. A `thread_id` is generated unless provided.
+      operationId: create_task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTaskRequest'
+            examples:
+              review:
+                value:
+                  requested_by: orchestrator
+                  title: Verify current diff
+                  description: Run tests and report findings.
+                  priority: 10
+                  cwd: /Users/air/Documents/Projects/agent-bus
+      responses:
+        '200':
+          description: The created task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/claim_task:
+    post:
+      tags: [Tasks]
+      summary: Atomically claim an open task
+      description: |
+        Moves an `open` task to `claimed` and sets `claimed_by`. The
+        update is atomic and only succeeds when the task is still open
+        and unclaimed.
+      operationId: claim_task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimTaskRequest'
+            examples:
+              claim:
+                value:
+                  agent: verifier
+                  task_id: 42
+      responses:
+        '200':
+          description: The claimed task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/update_task:
+    post:
+      tags: [Tasks]
+      summary: Update task state or metadata
+      description: |
+        Updates a task while enforcing the state machine:
+        `open -> claimed|canceled`, `claimed -> working|open|canceled|failed`,
+        `working -> blocked|completed|failed|canceled`, and
+        `blocked -> working|completed|failed|canceled`. Terminal states
+        cannot transition. Only the requester or current holder can update.
+      operationId: update_task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskRequest'
+            examples:
+              working:
+                value:
+                  agent: verifier
+                  task_id: 42
+                  state: working
+              blocked:
+                value:
+                  agent: verifier
+                  task_id: 42
+                  state: blocked
+                  blocked_reason: Waiting for CI logs.
+              completed:
+                value:
+                  agent: verifier
+                  task_id: 42
+                  state: completed
+                  result: No findings.
+      responses:
+        '200':
+          description: The updated task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/release_task:
+    post:
+      tags: [Tasks]
+      summary: Release a held task back to open
+      description: |
+        Clears `claimed_by` and moves a non-terminal task back to `open`
+        so another agent can claim it. The requester or current holder
+        can release.
+      operationId: release_task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseTaskRequest'
+            examples:
+              release:
+                value:
+                  agent: verifier
+                  task_id: 42
+      responses:
+        '200':
+          description: The released task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/list_tasks:
+    post:
+      tags: [Tasks]
+      summary: List tasks
+      description: |
+        Returns tasks sorted by priority descending, then creation order.
+        Terminal tasks are excluded by default unless `include_terminal`
+        is true or a terminal `state` filter is provided. Active tasks
+        may include `stale: true` when their holder has not heartbeated
+        within `AGENT_BUS_TASK_STALE_MS`.
+      operationId: list_tasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListTasksRequest'
+            examples:
+              active:
+                value: {}
+              working:
+                value:
+                  state: working
+              by-agent:
+                value:
+                  claimed_by: verifier
+      responses:
+        '200':
+          description: Matching tasks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/get_task:
+    post:
+      tags: [Tasks]
+      summary: Fetch one task
+      operationId: get_task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetTaskRequest'
+            examples:
+              one:
+                value:
+                  task_id: 42
+      responses:
+        '200':
+          description: The task.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+components:
+  schemas:
+    AgentName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-zA-Z0-9_.-]+$'
+      description: Agent identifier on the bus.
+      example: alpha
+
+    ChannelName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-zA-Z0-9_.:#-]+$'
+      description: Channel name. Slightly looser pattern than agent names — allows `:` and `#`.
+      example: frontend-team
+
+    ThreadId:
+      type: string
+      minLength: 1
+      description: Conversation thread identifier. Auto-generated unless provided.
+      example: t_kxxx_abc123
+
+    MessageKind:
+      type: string
+      enum: [msg, ask, reply]
+      description: |
+        - `msg`: fire-and-forget direct message or channel broadcast.
+        - `ask`: synchronous question expecting a `reply`.
+        - `reply`: answer to a specific `ask`.
+
+    MessageStatus:
+      type: string
+      enum: [pending, delivered, answered]
+      description: |
+        - `pending`: not yet read by the recipient.
+        - `delivered`: inbox returned this row (or it was acked).
+        - `answered`: only for `ask` — set when `reply()` closed the ask.
+
+    TaskState:
+      type: string
+      enum: [open, claimed, working, blocked, completed, failed, canceled]
+      description: |
+        `open` tasks can be claimed. `claimed`, `working`, and `blocked`
+        are active holder states. `completed`, `failed`, and `canceled`
+        are terminal.
+
+    Agent:
+      type: object
+      required: [name, capabilities, registered_at, last_seen, paused]
+      properties:
+        name:
+          $ref: '#/components/schemas/AgentName'
+        capabilities:
+          type: array
+          items: { type: string }
+          description: Capability tags used by `ask_best` routing.
+        registered_at:
+          type: integer
+          format: int64
+          description: First-registered timestamp (ms since epoch).
+        last_seen:
+          type: integer
+          format: int64
+          description: Most recent heartbeat (ms since epoch).
+        paused:
+          type: boolean
+          description: When true, inbox returns empty while messages keep queuing.
+
+    Message:
+      type: object
+      required:
+        - id
+        - from_agent
+        - to_agent
+        - kind
+        - content
+        - status
+        - created_at
+        - thread_id
+      properties:
+        id:
+          type: integer
+          format: int64
+        from_agent:
+          $ref: '#/components/schemas/AgentName'
+        to_agent:
+          $ref: '#/components/schemas/AgentName'
+        kind:
+          $ref: '#/components/schemas/MessageKind'
+        content:
+          type: string
+          description: Message body. No bus-side size cap.
+        reply_to:
+          type: [integer, 'null']
+          format: int64
+          description: For `reply` messages, the id of the `ask` they answer.
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        created_at:
+          type: integer
+          format: int64
+        delivered_at:
+          type: [integer, 'null']
+          format: int64
+        replied_at:
+          type: [integer, 'null']
+          format: int64
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        claim_deadline:
+          type: [integer, 'null']
+          format: int64
+          description: At-least-once claim expiry (ms since epoch). Null when not claimed.
+        claimed_by:
+          type: [string, 'null']
+          description: The agent currently holding the claim.
+        channel:
+          type: [string, 'null']
+          description: Set when the message arrived via `send_channel`.
+
+    Task:
+      type: object
+      required:
+        - id
+        - title
+        - thread_id
+        - requested_by
+        - state
+        - priority
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        requested_by:
+          $ref: '#/components/schemas/AgentName'
+        claimed_by:
+          type: [string, 'null']
+          description: Agent currently holding the task, if any.
+        state:
+          $ref: '#/components/schemas/TaskState'
+        priority:
+          type: integer
+          description: Higher values sort first.
+        cwd:
+          type: [string, 'null']
+          description: Working directory the task targets.
+        blocked_reason:
+          type: [string, 'null']
+        blocked_on_task_id:
+          type: [integer, 'null']
+          format: int64
+          description: Optional soft dependency. No automatic unblock behavior.
+        result:
+          type: [string, 'null']
+          description: Final output or summary on completed/failed tasks.
+        created_at:
+          type: integer
+          format: int64
+        updated_at:
+          type: integer
+          format: int64
+        claimed_at:
+          type: [integer, 'null']
+          format: int64
+        finished_at:
+          type: [integer, 'null']
+          format: int64
+          description: Set when the task enters a terminal state.
+        stale:
+          type: boolean
+          description: True when an active holder has not heartbeated within the stale threshold.
+
+    Subscription:
+      type: object
+      required: [channel, agent, subscribed_at]
+      properties:
+        channel:
+          $ref: '#/components/schemas/ChannelName'
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        subscribed_at:
+          type: integer
+          format: int64
+
+    BusError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - INVALID_INPUT
+                - UNKNOWN_AGENT
+                - NAME_TAKEN
+                - ASK_TIMEOUT
+                - ASK_CYCLE
+                - ASK_NOT_FOUND
+                - TASK_NOT_FOUND
+                - TASK_INVALID_TRANSITION
+                - TASK_NOT_CLAIMABLE
+                - TASK_FORBIDDEN
+                - INTERNAL
+            message:
+              type: string
+
+    Ok:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+
+    RegisterRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          $ref: '#/components/schemas/AgentName'
+        capabilities:
+          type: array
+          items: { type: string }
+          maxItems: 32
+        replace:
+          type: boolean
+          description: Take over the name even if another session holds it.
+
+    SendRequest:
+      type: object
+      required: [from, to, message]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        to:
+          $ref: '#/components/schemas/AgentName'
+        message:
+          type: string
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+
+    InboxRequest:
+      type: object
+      required: [agent]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        wait_s:
+          type: integer
+          minimum: 1
+          maximum: 110
+          description: Block up to N seconds for the first message to arrive.
+        claim_s:
+          type: integer
+          minimum: 1
+          maximum: 3600
+          description: At-least-once claim window. Requires `ack` to finalize each returned message.
+        since_id:
+          type: integer
+          minimum: 0
+          description: Only return messages with id > this.
+        mark_delivered:
+          type: boolean
+          description: Default true. Ignored when `claim_s` is set.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+
+    AckRequest:
+      type: object
+      required: [agent, message_id]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        message_id:
+          type: integer
+          format: int64
+
+    AskRequest:
+      type: object
+      required: [from, to, question]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        to:
+          $ref: '#/components/schemas/AgentName'
+        question:
+          type: string
+        timeout_s:
+          type: integer
+          minimum: 1
+          maximum: 110
+          default: 60
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+
+    AskBestRequest:
+      type: object
+      required: [from, capability, question]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        capability:
+          type: string
+          minLength: 1
+        question:
+          type: string
+        timeout_s:
+          type: integer
+          minimum: 1
+          maximum: 110
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+
+    ReplyRequest:
+      type: object
+      required: [from, ask_id, answer]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        ask_id:
+          type: integer
+          format: int64
+        answer:
+          type: string
+
+    ChannelMembership:
+      type: object
+      required: [agent, channel]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        channel:
+          $ref: '#/components/schemas/ChannelName'
+
+    ChannelOnlyRequest:
+      type: object
+      required: [channel]
+      additionalProperties: false
+      properties:
+        channel:
+          $ref: '#/components/schemas/ChannelName'
+
+    SendChannelRequest:
+      type: object
+      required: [from, channel, message]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        channel:
+          $ref: '#/components/schemas/ChannelName'
+        message:
+          type: string
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+
+    ThreadRequest:
+      type: object
+      required: [thread_id]
+      additionalProperties: false
+      properties:
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+
+    RecentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+
+    CreateTaskRequest:
+      type: object
+      required: [requested_by, title]
+      additionalProperties: false
+      properties:
+        requested_by:
+          $ref: '#/components/schemas/AgentName'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        priority:
+          type: integer
+          default: 0
+        cwd:
+          type: string
+        blocked_on_task_id:
+          type: integer
+          format: int64
+
+    ClaimTaskRequest:
+      type: object
+      required: [agent, task_id]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        task_id:
+          type: integer
+          format: int64
+
+    UpdateTaskRequest:
+      type: object
+      required: [agent, task_id]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        task_id:
+          type: integer
+          format: int64
+        state:
+          $ref: '#/components/schemas/TaskState'
+        blocked_reason:
+          type: [string, 'null']
+        blocked_on_task_id:
+          type: [integer, 'null']
+          format: int64
+        result:
+          type: [string, 'null']
+        priority:
+          type: integer
+
+    ReleaseTaskRequest:
+      type: object
+      required: [agent, task_id]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        task_id:
+          type: integer
+          format: int64
+
+    ListTasksRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        state:
+          oneOf:
+            - $ref: '#/components/schemas/TaskState'
+            - type: array
+              items:
+                $ref: '#/components/schemas/TaskState'
+        claimed_by:
+          $ref: '#/components/schemas/AgentName'
+        requested_by:
+          $ref: '#/components/schemas/AgentName'
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        include_terminal:
+          type: boolean
+          default: false
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+
+    GetTaskRequest:
+      type: object
+      required: [task_id]
+      additionalProperties: false
+      properties:
+        task_id:
+          type: integer
+          format: int64
+
+  responses:
+    BusError:
+      description: A validation, lookup, or flow error from the bus.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/BusError'
+          examples:
+            unknown-agent:
+              value:
+                error:
+                  code: UNKNOWN_AGENT
+                  message: "agent 'ghost' is not registered"
+            ask-timeout:
+              value:
+                error:
+                  code: ASK_TIMEOUT
+                  message: "no reply from 'beta' within 60s (ask_id=42)"
+            ask-cycle:
+              value:
+                error:
+                  code: ASK_CYCLE
+                  message: "'beta' already has a pending ask to 'alpha'; would deadlock"
+            name-taken:
+              value:
+                error:
+                  code: NAME_TAKEN
+                  message: "agent 'alpha' is active (last seen 12s ago); pass replace:true to take over"

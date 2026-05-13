@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>agent-bus API</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <style>
+    body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    #fallback { padding: 24px; max-width: 720px; margin: 40px auto; line-height: 1.6; }
+    #fallback pre { background: #f4f4f6; padding: 12px 16px; border-radius: 6px; overflow-x: auto; }
+    #fallback code { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="redoc-container"></div>
+
+  <div id="fallback" class="hidden">
+    <h1>agent-bus API</h1>
+    <p>
+      This page renders the OpenAPI spec at
+      <code>docs/openapi.yaml</code> using Redoc. Because browsers refuse
+      to <code>fetch()</code> local files via the <code>file://</code>
+      protocol, opening this HTML directly won't work. Run a tiny local
+      server first:
+    </p>
+    <pre><code>npx http-server /Users/air/Documents/Projects/agent-bus/docs -p 8080 -o api.html</code></pre>
+    <p>or, even better:</p>
+    <pre><code>npx @redocly/cli preview-docs /Users/air/Documents/Projects/agent-bus/docs/openapi.yaml</code></pre>
+    <p>
+      The second one opens a polished, interactive preview at
+      <a href="http://127.0.0.1:8080">127.0.0.1:8080</a> with hot reload.
+    </p>
+    <p>
+      You can also import <code>openapi.yaml</code> into Postman, Insomnia,
+      Stoplight, or paste it at <a href="https://editor.swagger.io">editor.swagger.io</a>
+      to explore it as Swagger UI.
+    </p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"></script>
+  <script>
+    (function () {
+      const container = document.getElementById('redoc-container');
+      const fallback = document.getElementById('fallback');
+      try {
+        Redoc.init(
+          'openapi.yaml',
+          {
+            scrollYOffset: 0,
+            hideDownloadButton: false,
+            expandResponses: '200,400',
+            theme: {
+              colors: { primary: { main: '#2563eb' } },
+              typography: {
+                fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                code: { fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace' }
+              }
+            }
+          },
+          container,
+          function (errors) {
+            if (errors && errors.length) {
+              container.classList.add('hidden');
+              fallback.classList.remove('hidden');
+              console.error('Redoc init errors:', errors);
+            }
+          }
+        );
+      } catch (e) {
+        container.classList.add('hidden');
+        fallback.classList.remove('hidden');
+        console.error(e);
+      }
+
+      // If after 3s the container is still empty (typical file:// failure mode), show fallback.
+      setTimeout(function () {
+        if (!container.firstElementChild) {
+          container.classList.add('hidden');
+          fallback.classList.remove('hidden');
+        }
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>

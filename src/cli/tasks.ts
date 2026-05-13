@@ -1,0 +1,116 @@
+import kleur from "kleur";
+import { listTasks, type Task, type TaskState } from "../bus.js";
+import { sleep } from "../util/time.js";
+
+const TERMINAL_STATES: TaskState[] = ["completed", "failed", "canceled"];
+
+export interface TasksOptions {
+  state?: string;
+  all?: boolean;
+  watch?: boolean;
+  intervalMs?: number;
+}
+
+export async function tasks(opts: TasksOptions): Promise<void> {
+  const state = parseState(opts.state);
+  if (opts.watch) {
+    await watchTasks({ ...opts, state });
+    return;
+  }
+
+  const rows = readTasks(state, opts.all === true);
+  if (rows.length === 0) {
+    console.log(kleur.gray("(no tasks)"));
+    return;
+  }
+  for (const task of rows) console.log(formatTask(task));
+}
+
+function readTasks(state: TaskState | undefined, includeTerminal: boolean): Task[] {
+  return listTasks({
+    state,
+    include_terminal: includeTerminal,
+  });
+}
+
+async function watchTasks(opts: TasksOptions & { state?: TaskState }): Promise<never> {
+  const interval = opts.intervalMs ?? 1000;
+  const includeTerminal = opts.all === true;
+  const seen = new Map<number, string>();
+
+  console.log(kleur.bold("agent-bus tasks"));
+  console.log(kleur.gray("---"));
+
+  for (;;) {
+    const rows = readTasks(opts.state, includeTerminal);
+    for (const task of rows) {
+      const fingerprint = taskFingerprint(task);
+      if (seen.get(task.id) !== fingerprint) {
+        console.log(formatTask(task));
+        seen.set(task.id, fingerprint);
+      }
+    }
+    await sleep(interval);
+  }
+}
+
+function parseState(value: string | undefined): TaskState | undefined {
+  if (value === undefined) return undefined;
+  if (TERMINAL_STATES.includes(value as TaskState) || ["open", "claimed", "working", "blocked"].includes(value)) {
+    return value as TaskState;
+  }
+  throw new Error(
+    `invalid task state '${value}' (expected open, claimed, working, blocked, completed, failed, or canceled)`,
+  );
+}
+
+function taskFingerprint(task: Task): string {
+  return JSON.stringify({
+    state: task.state,
+    title: task.title,
+    priority: task.priority,
+    claimed_by: task.claimed_by,
+    requested_by: task.requested_by,
+    updated_at: task.updated_at,
+    stale: task.stale === true,
+  });
+}
+
+export function formatTask(task: Task): string {
+  const stale = task.stale === true;
+  const state = colorState(task.state)(`[${task.state}]`);
+  const held = task.claimed_by ?? "-";
+  const thread = abbreviateThread(task.thread_id);
+  const line =
+    `#${task.id} p${task.priority} ${state} ${truncate(task.title, 80)} ` +
+    `${kleur.gray("-")} by ${task.requested_by}, held=${held}, thread=${thread}`;
+  return stale ? kleur.red(`${line} stale`) : line;
+}
+
+function colorState(state: TaskState): (value: string) => string {
+  switch (state) {
+    case "open":
+      return kleur.cyan;
+    case "claimed":
+      return kleur.yellow;
+    case "working":
+      return kleur.blue;
+    case "blocked":
+      return kleur.red;
+    case "completed":
+      return kleur.green;
+    case "failed":
+      return kleur.red;
+    case "canceled":
+      return kleur.gray;
+  }
+}
+
+function abbreviateThread(threadId: string): string {
+  return threadId.length <= 8 ? threadId : threadId.slice(-8);
+}
+
+function truncate(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}...`;
+}

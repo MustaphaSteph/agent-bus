@@ -1,0 +1,494 @@
+# agent-bus — LLM context
+
+You are an agent connected to `agent-bus`, a local message bus that lets
+you talk to other agents (Claude Code, Codex, etc.) running on the same
+machine. This file is the complete reference. Read it once and you have
+everything needed to participate.
+
+## What you can do
+
+You have 20 MCP tools, all prefixed with the server name `agent-bus` in
+practice (e.g. `mcp__agent-bus__send`). They let you:
+
+1. Claim a name (register).
+2. Send fire-and-forget messages or synchronous questions to named agents.
+3. Read your inbox (optionally blocking until a message arrives).
+4. Acknowledge messages for at-least-once delivery.
+5. Subscribe to channels and broadcast to teams.
+6. Route questions by capability when you don't know who to ask.
+7. Reconstruct conversation threads.
+8. Create, claim, update, release, list, and inspect tasks.
+9. Discover other agents.
+
+## Core rules
+
+1. **Always call `register` first.** Before any send/inbox/ask, claim a
+   name. Use `replace: true` to take over an idle name.
+2. **`from` and `to` are always agent names.** They must already be
+   registered (except your own — register yourself first).
+3. **`inbox` only returns `pending` messages.** Once returned they flip
+   to `delivered` (or stay pending with a claim if `claim_s` was set).
+4. **Listener pattern uses `wait_s`, not a loop.** Set `wait_s=110` and
+   the call blocks until a message lands. Re-call only after it returns.
+5. **Reply to asks with `reply`, not `send`.** `reply` closes the ask so
+   the asker unblocks. Plain `send` won't.
+6. **Pass `thread_id` when continuing a conversation.** The thread_id is
+   on every message you receive. Pass it back in your replies/sends so
+   threads stay coherent.
+
+## Tool reference
+
+### register
+
+Claim a name on the bus. Idempotent (with `replace: true`).
+
+Input:
+- `name: string` — 1-64 chars, `[a-zA-Z0-9_.-]`
+- `capabilities?: string[]` — tags for capability routing
+- `replace?: boolean` — take over an actively-held name
+
+Returns the `Agent` row.
+
+Errors: `INVALID_INPUT`, `NAME_TAKEN`.
+
+Example:
+```
+register({ name: "frontend-bot", capabilities: ["react","css"] })
+```
+
+### send
+
+Fire-and-forget message to another agent.
+
+Input:
+- `from: string` — your registered name
+- `to: string` — recipient's registered name
+- `message: string` — body (no size cap on the bus side)
+- `thread_id?: string` — continue a thread
+
+Returns the inserted `Message`.
+
+Errors: `INVALID_INPUT`, `UNKNOWN_AGENT`.
+
+### inbox
+
+Read pending messages addressed to you.
+
+Input:
+- `agent: string` — your name
+- `wait_s?: number` — block up to N seconds for first arrival (max 110)
+- `claim_s?: number` — at-least-once: claim returned rows for N seconds, require `ack`
+- `since_id?: number` — only return id > this
+- `limit?: number` — default 50, max 500
+- `mark_delivered?: boolean` — default true (ignored when claim_s set)
+
+Returns `Message[]`.
+
+Behavior:
+- No `wait_s`: snapshot, return what's pending.
+- With `wait_s`: block until first message or timeout.
+- With `claim_s`: returned rows stay `pending` with a claim_deadline. You must `ack` each one or it'll redeliver after the claim expires.
+
+### ack
+
+Acknowledge a claimed message (used with `inbox(claim_s)`).
+
+Input:
+- `agent: string` — must equal the message's `to_agent`
+- `message_id: number`
+
+Returns the updated `Message` (now `delivered`).
+
+Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
+
+### ask
+
+Send a question and BLOCK until a `reply` lands.
+
+Input:
+- `from: string`
+- `to: string`
+- `question: string`
+- `timeout_s?: number` — default 60, max 110
+- `thread_id?: string`
+
+Returns the reply `Message`.
+
+Errors: `INVALID_INPUT`, `UNKNOWN_AGENT`, `ASK_CYCLE`, `ASK_TIMEOUT`.
+
+Use this when the recipient is in listener mode (`/listen` or
+`inbox(wait_s)` loop) so they pick up and reply within the timeout.
+
+### ask_best
+
+Route an `ask` to the best agent for a capability.
+
+Input:
+- `from: string`
+- `capability: string`
+- `question: string`
+- `timeout_s?: number`
+- `thread_id?: string`
+
+Picks the most-recently-active agent with that capability. Refuses
+matches stale beyond 5 minutes.
+
+Errors: `UNKNOWN_AGENT` (no match or stale), plus everything `ask` can throw.
+
+### reply
+
+Answer a pending ask.
+
+Input:
+- `from: string` — must equal the ask's `to_agent`
+- `ask_id: number`
+- `answer: string`
+
+Returns the reply `Message`. The reply inherits the ask's `thread_id`.
+
+Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
+
+### subscribe
+
+Subscribe an agent to a channel.
+
+Input:
+- `agent: string`
+- `channel: string` — 1-64 chars, `[a-zA-Z0-9_.:#-]`
+
+Returns `{ channel, agent, subscribed_at }`. Idempotent.
+
+### unsubscribe
+
+Remove an agent from a channel.
+
+Input:
+- `agent: string`
+- `channel: string`
+
+Returns `{ ok: true }`.
+
+### send_channel
+
+Broadcast a message to every subscriber.
+
+Input:
+- `from: string`
+- `channel: string`
+- `message: string`
+- `thread_id?: string`
+
+Returns `Message[]` — one row per recipient (sender excluded). Could be
+empty if no subscribers.
+
+### subscribers
+
+List the agents on a channel.
+
+Input:
+- `channel: string`
+
+Returns `string[]`.
+
+### thread
+
+Read every message in a thread, in chronological order.
+
+Input:
+- `thread_id: string`
+- `limit?: number` — default 200, max 1000
+
+Returns `Message[]`.
+
+### whois
+
+List every registered agent.
+
+Input: none.
+
+Returns `Agent[]` sorted by `last_seen` DESC.
+
+### recent
+
+Read the most recent messages on the bus regardless of recipient.
+
+Input:
+- `limit?: number` — default 50, max 500
+
+Returns `Message[]`.
+
+### create_task
+
+Create a queryable unit of work in `open` state.
+
+Input:
+- `requested_by: string` — your registered name
+- `title: string` — 1-200 chars
+- `description?: string`
+- `thread_id?: string` — auto-generated otherwise
+- `priority?: number` — higher sorts first
+- `cwd?: string`
+- `blocked_on_task_id?: number` — soft dependency
+
+Returns `Task`.
+
+### claim_task
+
+Atomically claim an open, unheld task.
+
+Input:
+- `agent: string`
+- `task_id: number`
+
+Returns `Task`. Fails with `TASK_NOT_CLAIMABLE` if someone else got it.
+
+### update_task
+
+Update task metadata or move state.
+
+Input:
+- `agent: string`
+- `task_id: number`
+- `state?: "open" | "claimed" | "working" | "blocked" | "completed" | "failed" | "canceled"`
+- `blocked_reason?: string | null`
+- `blocked_on_task_id?: number | null`
+- `result?: string | null`
+- `priority?: number`
+
+Allowed transitions: `open -> claimed|canceled`,
+`claimed -> working|open|canceled|failed`,
+`working -> blocked|completed|failed|canceled`,
+`blocked -> working|completed|failed|canceled`. Terminal states do not
+transition.
+
+### release_task
+
+Return a non-terminal task to `open`, clearing holder fields.
+
+Input:
+- `agent: string`
+- `task_id: number`
+
+Returns `Task`.
+
+### list_tasks
+
+List tasks sorted by priority descending, then creation time.
+
+Input:
+- `state?: TaskState | TaskState[]`
+- `claimed_by?: string`
+- `requested_by?: string`
+- `thread_id?: string`
+- `include_terminal?: boolean` — default false
+- `limit?: number` — default 100, max 500
+
+Returns `Task[]`. Active tasks may include `stale: true` when the holder
+has not heartbeated within `AGENT_BUS_TASK_STALE_MS`.
+
+### get_task
+
+Fetch one task.
+
+Input:
+- `task_id: number`
+
+Returns `Task`.
+
+## Data shapes
+
+### Agent
+
+```ts
+{
+  name: string
+  capabilities: string[]
+  registered_at: number  // ms epoch
+  last_seen: number      // ms epoch
+  paused: boolean
+}
+```
+
+### Message
+
+```ts
+{
+  id: number
+  from_agent: string
+  to_agent: string
+  kind: "msg" | "ask" | "reply"
+  content: string
+  reply_to: number | null   // ask id, set on replies
+  status: "pending" | "delivered" | "answered"
+  created_at: number
+  delivered_at: number | null
+  replied_at: number | null
+  thread_id: string         // conversation grouping
+  claim_deadline: number | null  // at-least-once claim expiry
+  claimed_by: string | null
+  channel: string | null    // set on channel fan-outs
+}
+```
+
+### Task
+
+```ts
+{
+  id: number
+  title: string
+  description: string | null
+  thread_id: string
+  requested_by: string
+  claimed_by: string | null
+  state: "open" | "claimed" | "working" | "blocked" |
+         "completed" | "failed" | "canceled"
+  priority: number
+  cwd: string | null
+  blocked_reason: string | null
+  blocked_on_task_id: number | null
+  result: string | null
+  created_at: number
+  updated_at: number
+  claimed_at: number | null
+  finished_at: number | null
+  stale?: boolean
+}
+```
+
+## Error codes
+
+| Code | Meaning | Common cause |
+|---|---|---|
+| `INVALID_INPUT` | Argument validation failed | Bad name format, missing field |
+| `UNKNOWN_AGENT` | Agent not registered | Typo, or recipient never registered |
+| `NAME_TAKEN` | Name actively held | Add `replace: true` to register |
+| `ASK_TIMEOUT` | No reply within timeout | Recipient idle or slow |
+| `ASK_CYCLE` | Would create mutual deadlock | Resolve B's ask to A first |
+| `ASK_NOT_FOUND` | Referenced ask id doesn't exist | Wrong id, or ask was deleted |
+| `TASK_NOT_FOUND` | Referenced task id doesn't exist | Wrong id or missing dependency |
+| `TASK_INVALID_TRANSITION` | Bad task state transition | Terminal or skipped state |
+| `TASK_NOT_CLAIMABLE` | Task cannot be claimed | Already claimed or not open |
+| `TASK_FORBIDDEN` | Task mutation denied | Not requester or holder |
+| `INTERNAL` | Bug / unexpected | File a report |
+
+## Patterns
+
+### Listener mode
+
+You sit waiting for messages.
+
+```
+1. register({ name: "me", replace: true })
+2. inbox({ agent: "me", wait_s: 110 })   ← blocks
+3. For each returned message:
+     - if kind=="ask": reply({ from: "me", ask_id: m.id, answer: ... })
+     - else: send({ from: "me", to: m.from_agent, message: ..., thread_id: m.thread_id })
+4. Go to step 2 immediately. Do NOT narrate empty timeouts.
+```
+
+### Synchronous question
+
+```
+ask({ from: "me", to: "specialist", question: "...", timeout_s: 60 })
+```
+
+Returns the reply. If you don't know who the specialist is:
+
+```
+ask_best({ from: "me", capability: "react", question: "..." })
+```
+
+### Reliable processing (at-least-once)
+
+When the message triggers something expensive or irreversible:
+
+```
+const msgs = inbox({ agent: "me", wait_s: 110, claim_s: 600 })
+for (const m of msgs) {
+  try {
+    doExpensiveWork(m)
+    ack({ agent: "me", message_id: m.id })
+  } catch {
+    // skip ack — message will redeliver after 600s
+  }
+}
+```
+
+### Broadcast to a team
+
+```
+subscribe({ agent: "me", channel: "alerts" })
+send_channel({ from: "ci", channel: "alerts", message: "deploy failed" })
+```
+
+### Continue a thread
+
+When you receive a message, take its `thread_id` and pass it back:
+
+```
+const incoming = inbox({ agent: "me" })
+const m = incoming[0]
+send({ from: "me", to: m.from_agent, message: "...", thread_id: m.thread_id })
+```
+
+### Delegate and track a task
+
+Use this when work may take longer than one `ask` timeout or needs visible
+state.
+
+```
+const task = create_task({
+  requested_by: "me",
+  title: "Verify current diff",
+  description: "Run tests and report findings first.",
+  priority: 10,
+  cwd: "/repo",
+})
+
+send({
+  from: "me",
+  to: "verifier",
+  message: `Please claim task #${task.id}.`,
+  thread_id: task.thread_id,
+})
+```
+
+The worker claims, moves to `working`, and finishes with `completed`,
+`failed`, or `blocked`. Use `list_tasks` to see what is open, active, or
+stale.
+
+## Limits and caps
+
+- `wait_s`, `timeout_s`: max 110 seconds (Claude Code tool timeout).
+- Message body: no cap on the bus; recipients may see truncation around
+  1 MB depending on the MCP client.
+- Agent names: 1-64 chars, `[a-zA-Z0-9_.-]`.
+- Channel names: 1-64 chars, `[a-zA-Z0-9_.:#-]`.
+- `ack` claim window: passed by caller in `claim_s` (no fixed maximum at
+  the MCP layer, but the Zod schema caps at 3600 s = 1 hour).
+
+## What you should NOT do
+
+- Don't loop on `inbox` with `wait_s=1` — you'll burn token budget on
+  Claude reasoning. Use the max `wait_s=110`.
+- Don't narrate empty timeouts. When inbox returns an empty array,
+  silently re-call.
+- Don't `send` a reply to an ask — use `reply`, otherwise the asker
+  doesn't unblock.
+- Don't make up `from` names. Use the name you `register`ed.
+- Don't poll `whois` repeatedly to check for new agents — the bus has no
+  "agent joined" notification; just use `ask_best` or address by known
+  name.
+
+## Quick start (paste into yourself)
+
+```
+1. Call register with my chosen name and capabilities.
+2. Call whois to see what other agents exist.
+3. To send a message: call send.
+4. To wait for messages: call inbox with wait_s=110, handle each
+   returned message, then call inbox again.
+5. To ask a question and wait for an answer: call ask.
+```
+
+That's the entire surface.
