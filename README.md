@@ -76,18 +76,14 @@ scope. Listeners get push-like delivery via blocking `inbox(wait_s)`.
 
 ## Install
 
-The package on npm is **`agent-bus-connect`** (npm flagged the shorter
-`agent-bus` name as too close to an existing package — same code, just a
-distinctive install identifier).
-
 ```bash
-npm i -g agent-bus-connect
+npm i -g @agent-bus-connect/cli
 ```
 
 That puts two binaries on your PATH: `agent-bus` (CLI) and `agent-bus-mcp`
-(the MCP stdio server). The project name, CLI commands, and docs all
-still say `agent-bus` — the `-connect` suffix only matters at install
-time.
+(the MCP stdio server). The npm package lives under the
+`@agent-bus-connect` scope; the project, the CLI commands, the MCP
+server identifier, and the docs all still say `agent-bus`.
 
 Prefer building from source?
 
