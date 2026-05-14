@@ -18,12 +18,15 @@ export const POLL_INTERVAL_MS = readPollInterval();
 export type MessageKind = "msg" | "ask" | "reply";
 export type MessageStatus = "pending" | "delivered" | "answered";
 
+export const PROJECT_WILDCARD = "*";
+
 export interface Agent {
   name: string;
   capabilities: string[];
   registered_at: number;
   last_seen: number;
   paused: boolean;
+  project: string | null;
 }
 
 export interface Message {
@@ -41,6 +44,7 @@ export interface Message {
   claim_deadline: number | null;
   claimed_by: string | null;
   channel: string | null;
+  project: string | null;
 }
 
 export interface Subscription {
@@ -55,6 +59,7 @@ interface AgentRow {
   registered_at: number;
   last_seen: number;
   paused: number;
+  project: string | null;
 }
 
 interface MessageRow {
@@ -72,6 +77,7 @@ interface MessageRow {
   claim_deadline: number | null;
   claimed_by: string | null;
   channel: string | null;
+  project: string | null;
 }
 
 function toAgent(row: AgentRow): Agent {
@@ -81,6 +87,7 @@ function toAgent(row: AgentRow): Agent {
     registered_at: row.registered_at,
     last_seen: row.last_seen,
     paused: row.paused === 1,
+    project: row.project,
   };
 }
 
@@ -100,7 +107,21 @@ function toMessage(row: MessageRow): Message {
     claim_deadline: row.claim_deadline,
     claimed_by: row.claimed_by,
     channel: row.channel,
+    project: row.project,
   };
+}
+
+function validateProject(project: string | null | undefined): void {
+  if (project === null || project === undefined) return;
+  if (typeof project !== "string" || project.length === 0 || project.length > 64) {
+    throw new BusError("INVALID_INPUT", "project must be 1-64 chars or omitted");
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(project)) {
+    throw new BusError(
+      "INVALID_INPUT",
+      "project may only contain letters, digits, _ . -",
+    );
+  }
 }
 
 function requireAgent(name: string): Agent {
@@ -143,10 +164,12 @@ export interface RegisterOptions {
   name: string;
   capabilities?: string[];
   replace?: boolean;
+  project?: string | null;
 }
 
 export function register(opts: RegisterOptions): Agent {
   validateName(opts.name);
+  validateProject(opts.project);
   const caps = opts.capabilities ?? [];
   const db = getDb();
   const existing = db
@@ -164,15 +187,17 @@ export function register(opts: RegisterOptions): Agent {
     }
   }
 
+  const project = opts.project ?? null;
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused)
-       VALUES (@name, @capabilities, @ts, @ts, 0)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
        last_seen = excluded.last_seen,
-       paused = 0`,
-  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts });
+       paused = 0,
+       project = excluded.project`,
+  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project });
 
   return requireAgent(opts.name);
 }
@@ -182,11 +207,27 @@ export function heartbeat(name: string): void {
   db.prepare("UPDATE agents SET last_seen = ? WHERE name = ?").run(now(), name);
 }
 
-export function whois(): Agent[] {
+export interface WhoisOptions {
+  project?: string;
+}
+
+export function whois(opts: WhoisOptions = {}): Agent[] {
   const db = getDb();
+  if (opts.project === undefined || opts.project === PROJECT_WILDCARD) {
+    const rows = db
+      .prepare("SELECT * FROM agents ORDER BY last_seen DESC")
+      .all() as AgentRow[];
+    return rows.map(toAgent);
+  }
+  validateProject(opts.project);
+  // Scoped: include matching-project agents AND NULL-project (legacy/global) agents.
   const rows = db
-    .prepare("SELECT * FROM agents ORDER BY last_seen DESC")
-    .all() as AgentRow[];
+    .prepare(
+      `SELECT * FROM agents
+         WHERE project = ? OR project IS NULL
+         ORDER BY last_seen DESC`,
+    )
+    .all(opts.project) as AgentRow[];
   return rows.map(toAgent);
 }
 
@@ -200,14 +241,18 @@ export interface SendOptions {
   channel?: string | null;
 }
 
-function insertMessage(opts: SendOptions, threadId: string): Message {
+function insertMessage(
+  opts: SendOptions,
+  threadId: string,
+  senderProject: string | null,
+): Message {
   const db = getDb();
   const ts = now();
   const info = db
     .prepare(
       `INSERT INTO messages
-         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel, project)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .run(
       opts.from,
@@ -218,6 +263,7 @@ function insertMessage(opts: SendOptions, threadId: string): Message {
       ts,
       threadId,
       opts.channel ?? null,
+      senderProject,
     );
 
   const row = db
@@ -232,10 +278,10 @@ export function send(opts: SendOptions): Message {
   if (typeof opts.content !== "string") {
     throw new BusError("INVALID_INPUT", "content must be a string");
   }
-  requireAgent(opts.from);
+  const sender = requireAgent(opts.from);
   requireAgent(opts.to);
   heartbeat(opts.from);
-  return insertMessage(opts, opts.thread_id ?? newThreadId());
+  return insertMessage(opts, opts.thread_id ?? newThreadId(), sender.project);
 }
 
 export interface InboxOptions {
@@ -433,6 +479,7 @@ export function reply(opts: ReplyOptions): Message {
   }
 
   const threadId = askRow.thread_id ?? newThreadId();
+  const replier = requireAgent(opts.from);
   const replyMsg = insertMessage(
     {
       from: opts.from,
@@ -443,6 +490,7 @@ export function reply(opts: ReplyOptions): Message {
       thread_id: threadId,
     },
     threadId,
+    replier.project,
   );
   heartbeat(opts.from);
 
@@ -459,11 +507,17 @@ export interface AskBestOptions {
   question: string;
   timeout_s?: number;
   thread_id?: string;
+  project?: string;
 }
 
 export async function askBest(opts: AskBestOptions): Promise<Message> {
   validateName(opts.from);
-  requireAgent(opts.from);
+  const asker = requireAgent(opts.from);
+
+  // Resolve the scope: explicit > asker.project. PROJECT_WILDCARD means global.
+  const scope = opts.project !== undefined ? opts.project : asker.project;
+  if (scope !== null && scope !== PROJECT_WILDCARD) validateProject(scope);
+  const isGlobal = scope === PROJECT_WILDCARD || scope === null;
 
   const db = getDb();
   const ts = now();
@@ -475,18 +529,22 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
     )
     .all(opts.from) as AgentRow[];
 
-  const candidates = rows
+  const all = rows
     .map(toAgent)
     .filter((a) => !a.paused && a.capabilities.includes(opts.capability));
 
-  if (candidates.length === 0) {
-    throw new BusError(
-      "UNKNOWN_AGENT",
-      `no registered agent has capability '${opts.capability}'`,
-    );
+  const scoped = isGlobal
+    ? all
+    : all.filter((a) => a.project === scope || a.project === null);
+
+  if (scoped.length === 0) {
+    const hint = isGlobal
+      ? `no registered agent has capability '${opts.capability}'`
+      : `no active agent with capability '${opts.capability}' in project '${scope}'; pass project="${PROJECT_WILDCARD}" to search globally`;
+    throw new BusError("UNKNOWN_AGENT", hint);
   }
 
-  const target = candidates[0]!;
+  const target = scoped[0]!;
   const recencyMs = ts - target.last_seen;
   if (recencyMs > 5 * 60_000) {
     throw new BusError(
@@ -554,7 +612,7 @@ export function sendChannel(opts: SendChannelOptions): Message[] {
   if (typeof opts.content !== "string") {
     throw new BusError("INVALID_INPUT", "content must be a string");
   }
-  requireAgent(opts.from);
+  const sender = requireAgent(opts.from);
   heartbeat(opts.from);
 
   const recipients = subscribers(opts.channel).filter((a) => a !== opts.from);
@@ -574,6 +632,7 @@ export function sendChannel(opts: SendChannelOptions): Message[] {
           thread_id: threadId,
         },
         threadId,
+        sender.project,
       ),
     );
   }
@@ -587,17 +646,53 @@ export function setPaused(name: string, paused: boolean): void {
     .run(paused ? 1 : 0, name);
 }
 
-export function recentMessages(limit = 100): Message[] {
-  const rows = getDb()
-    .prepare("SELECT * FROM messages ORDER BY id DESC LIMIT ?")
-    .all(Math.min(Math.max(limit, 1), 1000)) as MessageRow[];
+export interface RecentMessagesOptions {
+  limit?: number;
+  project?: string;
+}
+
+export function recentMessages(arg: number | RecentMessagesOptions = 100): Message[] {
+  const opts: RecentMessagesOptions = typeof arg === "number" ? { limit: arg } : arg;
+  const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
+
+  const db = getDb();
+  if (opts.project === undefined || opts.project === PROJECT_WILDCARD) {
+    const rows = db
+      .prepare("SELECT * FROM messages ORDER BY id DESC LIMIT ?")
+      .all(limit) as MessageRow[];
+    return rows.reverse().map(toMessage);
+  }
+  validateProject(opts.project);
+  const rows = db
+    .prepare(
+      `SELECT * FROM messages
+         WHERE project = ? OR project IS NULL
+         ORDER BY id DESC
+         LIMIT ?`,
+    )
+    .all(opts.project, limit) as MessageRow[];
   return rows.reverse().map(toMessage);
 }
 
-export function messagesSince(id: number, limit = 100): Message[] {
+export function messagesSince(id: number, limit = 100, project?: string): Message[] {
+  const boundedLimit = Math.min(Math.max(limit, 1), 1000);
+  if (project !== undefined && project !== PROJECT_WILDCARD) {
+    validateProject(project);
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM messages
+           WHERE id > ?
+             AND (project = ? OR project IS NULL)
+           ORDER BY id ASC
+           LIMIT ?`,
+      )
+      .all(id, project, boundedLimit) as MessageRow[];
+    return rows.map(toMessage);
+  }
+
   const rows = getDb()
     .prepare("SELECT * FROM messages WHERE id > ? ORDER BY id ASC LIMIT ?")
-    .all(id, Math.min(Math.max(limit, 1), 1000)) as MessageRow[];
+    .all(id, boundedLimit) as MessageRow[];
   return rows.map(toMessage);
 }
 
@@ -640,6 +735,7 @@ export interface Task {
   updated_at: number;
   claimed_at: number | null;
   finished_at: number | null;
+  project: string | null;
   stale?: boolean;
 }
 
@@ -660,6 +756,7 @@ interface TaskRow {
   updated_at: number;
   claimed_at: number | null;
   finished_at: number | null;
+  project: string | null;
 }
 
 function readTaskStaleThresholdMs(): number {
@@ -705,6 +802,7 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     updated_at: row.updated_at,
     claimed_at: row.claimed_at,
     finished_at: row.finished_at,
+    project: row.project,
   };
   if (
     lastSeenByAgent &&
@@ -742,6 +840,7 @@ export interface CreateTaskOptions {
   priority?: number;
   cwd?: string;
   blocked_on_task_id?: number;
+  project?: string | null;
 }
 
 export function createTask(opts: CreateTaskOptions): Task {
@@ -755,7 +854,8 @@ export function createTask(opts: CreateTaskOptions): Task {
   if (opts.priority !== undefined && !Number.isFinite(opts.priority)) {
     throw new BusError("INVALID_INPUT", "priority must be a number");
   }
-  requireAgent(opts.requested_by);
+  validateProject(opts.project);
+  const requester = requireAgent(opts.requested_by);
   heartbeat(opts.requested_by);
 
   const db = getDb();
@@ -773,11 +873,12 @@ export function createTask(opts: CreateTaskOptions): Task {
 
   const ts = now();
   const threadId = opts.thread_id ?? newThreadId();
+  const project = opts.project !== undefined ? opts.project : requester.project;
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -789,6 +890,7 @@ export function createTask(opts: CreateTaskOptions): Task {
       opts.blocked_on_task_id ?? null,
       ts,
       ts,
+      project,
     );
 
   return toTask(getTaskRow(info.lastInsertRowid as number));
@@ -965,6 +1067,7 @@ export interface ListTasksOptions {
   thread_id?: string;
   include_terminal?: boolean;
   limit?: number;
+  project?: string;
 }
 
 export function listTasks(opts: ListTasksOptions = {}): Task[] {
@@ -979,6 +1082,12 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
     params.push(...states);
   } else if (opts.include_terminal !== true) {
     where.push(`state NOT IN ('completed','failed','canceled')`);
+  }
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    validateProject(opts.project);
+    // Scoped: only this project. NULL tasks are hidden until project='*'.
+    where.push("project = ?");
+    params.push(opts.project);
   }
   if (opts.claimed_by !== undefined) {
     where.push("claimed_by = ?");

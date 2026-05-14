@@ -49,6 +49,7 @@ a file and a process.
 - **Specialist routing.** Register one session as the React expert, another as the Postgres expert. Use `ask_best(capability=…)` and the bus picks.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
+- **Multi-project isolation.** Sessions default to the repo-derived project, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
 
 ## How it works
@@ -69,8 +70,9 @@ a file and a process.
 ```
 
 Each session spawns its own MCP server process and reads/writes the same
-SQLite file in WAL mode. Names are addresses. Listeners get push-like
-delivery via blocking `inbox(wait_s)`.
+SQLite file in WAL mode. Names are addresses. MCP sessions derive a
+project from the current repo and use it as the default read/routing
+scope. Listeners get push-like delivery via blocking `inbox(wait_s)`.
 
 ## Install
 
@@ -126,6 +128,10 @@ and wait for the reply with inbox(wait_s=30).
 agent-bus watch
 ```
 
+`watch`, `log`, `whois`, and `tasks` default to the current
+repo-derived project. Use `--project all` when you want the whole local
+bus.
+
 > Every session needs to `register` once. `/listen` does it for you; the sender does it explicitly. After that, the name persists in `~/.agent-bus/bus.db` and any session can reuse it.
 
 ### What you'll see
@@ -165,6 +171,7 @@ That's the entire loop: register → send → block on inbox → message lands �
 - **20 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability routing, conversation threads, at-least-once delivery with claim+ack, and first-class tasks with strict state machine.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, and tasks survive restarts via SQLite WAL.
+- **Project-scoped by default** — MCP sessions derive a local project from cwd; global views are explicit with `project: "*"` or `--project all`.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 

@@ -18,7 +18,8 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 6. Route questions by capability when you don't know who to ask.
 7. Reconstruct conversation threads.
 8. Create, claim, update, release, list, and inspect tasks.
-9. Discover other agents.
+9. Scope reads and routing to the current project, or opt into global.
+10. Discover other agents.
 
 ## Core rules
 
@@ -35,6 +36,9 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 6. **Pass `thread_id` when continuing a conversation.** The thread_id is
    on every message you receive. Pass it back in your replies/sends so
    threads stay coherent.
+7. **Project scope is automatic for MCP sessions.** Register defaults to
+   the repo cwd-derived project. Use `project: "*"` only when you really
+   want global routing/listing.
 
 ## Tool reference
 
@@ -46,6 +50,7 @@ Input:
 - `name: string` — 1-64 chars, `[a-zA-Z0-9_.-]`
 - `capabilities?: string[]` — tags for capability routing
 - `replace?: boolean` — take over an actively-held name
+- `project?: string | null` — MCP default is repo cwd; null is global
 
 Returns the `Agent` row.
 
@@ -129,9 +134,11 @@ Input:
 - `question: string`
 - `timeout_s?: number`
 - `thread_id?: string`
+- `project?: string` — default asker's project; `"*"` searches globally
 
-Picks the most-recently-active agent with that capability. Refuses
-matches stale beyond 5 minutes.
+Picks the most-recently-active agent with that capability in the selected
+project. Refuses matches stale beyond 5 minutes. If no in-project match
+exists, fails with a hint to pass `project: "*"` for global search.
 
 Errors: `UNKNOWN_AGENT` (no match or stale), plus everything `ask` can throw.
 
@@ -204,7 +211,8 @@ Returns `Message[]`.
 
 List every registered agent.
 
-Input: none.
+Input:
+- `project?: string` — default current project in MCP; `"*"` means all
 
 Returns `Agent[]` sorted by `last_seen` DESC.
 
@@ -214,6 +222,7 @@ Read the most recent messages on the bus regardless of recipient.
 
 Input:
 - `limit?: number` — default 50, max 500
+- `project?: string` — concrete project or `"*"` for all
 
 Returns `Message[]`.
 
@@ -229,6 +238,7 @@ Input:
 - `priority?: number` — higher sorts first
 - `cwd?: string`
 - `blocked_on_task_id?: number` — soft dependency
+- `project?: string | null` — default requester agent's project
 
 Returns `Task`.
 
@@ -282,6 +292,7 @@ Input:
 - `thread_id?: string`
 - `include_terminal?: boolean` — default false
 - `limit?: number` — default 100, max 500
+- `project?: string` — concrete project or `"*"` for all
 
 Returns `Task[]`. Active tasks may include `stale: true` when the holder
 has not heartbeated within `AGENT_BUS_TASK_STALE_MS`.
@@ -306,6 +317,7 @@ Returns `Task`.
   registered_at: number  // ms epoch
   last_seen: number      // ms epoch
   paused: boolean
+  project: string | null
 }
 ```
 
@@ -327,6 +339,7 @@ Returns `Task`.
   claim_deadline: number | null  // at-least-once claim expiry
   claimed_by: string | null
   channel: string | null    // set on channel fan-outs
+  project: string | null
 }
 ```
 
@@ -351,6 +364,7 @@ Returns `Task`.
   updated_at: number
   claimed_at: number | null
   finished_at: number | null
+  project: string | null
   stale?: boolean
 }
 ```
@@ -457,12 +471,21 @@ The worker claims, moves to `working`, and finishes with `completed`,
 `failed`, or `blocked`. Use `list_tasks` to see what is open, active, or
 stale.
 
+### Multi-project default
+
+If you are running inside a repo, your MCP server usually registers you
+with that repo-derived project automatically. Reads and `ask_best` default
+to that project. Use `project: "*"` only for intentional global views or
+cross-project capability routing.
+
 ## Limits and caps
 
 - `wait_s`, `timeout_s`: max 110 seconds (Claude Code tool timeout).
 - Message body: no cap on the bus; recipients may see truncation around
   1 MB depending on the MCP client.
 - Agent names: 1-64 chars, `[a-zA-Z0-9_.-]`.
+- Project names: 1-64 chars, `[a-zA-Z0-9_.-]`; `"*"` means all projects
+  in filter arguments.
 - Channel names: 1-64 chars, `[a-zA-Z0-9_.:#-]`.
 - `ack` claim window: passed by caller in `claim_s` (no fixed maximum at
   the MCP layer, but the Zod schema caps at 3600 s = 1 hour).

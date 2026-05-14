@@ -12,8 +12,11 @@ shows kind (`msg`/`ask`/`reply`) and reply chains.
 ```bash
 agent-bus watch
 agent-bus watch --interval 100   # change poll interval in ms (default 250)
+agent-bus watch --project all    # global
 ```
 
+By default, `watch` is scoped to the current repo-derived project and
+prints `scoped: <project> (use --project all for global)` when scoped.
 Ctrl+C to exit.
 
 ### `agent-bus log`
@@ -23,6 +26,7 @@ Snapshot of the most recent messages.
 ```bash
 agent-bus log                  # last 50
 agent-bus log -n 200           # last 200
+agent-bus log --project all    # global
 ```
 
 ### `agent-bus whois`
@@ -31,7 +35,11 @@ List every registered agent with capabilities, last-seen, paused state.
 
 ```bash
 agent-bus whois
+agent-bus whois --project all
 ```
+
+Scoped output includes agents in the current project plus null-project
+legacy/global agents. Null-project agents render with `{no-project}`.
 
 ### `agent-bus tasks`
 
@@ -43,6 +51,7 @@ agent-bus tasks --state working    # filter by state
 agent-bus tasks --all              # include completed/failed/canceled
 agent-bus tasks --watch            # print new or changed tasks
 agent-bus tasks --watch --interval 500
+agent-bus tasks --project all      # global
 ```
 
 Rows show id, priority, state, title, requester, holder, and abbreviated
@@ -173,3 +182,19 @@ Format per task:
 ```
 
 If `stale` is true, the line ends with `stale` and is colored red.
+
+## Project scoping
+
+Read commands derive a default project from the current working
+directory by walking up to `.git` and using the repo folder name:
+
+```bash
+agent-bus watch
+agent-bus log
+agent-bus whois
+agent-bus tasks
+```
+
+Use `--project all` for the whole bus, or `--project <name>` for a
+specific project. CLI relay/admin commands (`inject`, `register`) default
+to null/global project instead of deriving from cwd.

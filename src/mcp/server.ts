@@ -29,6 +29,12 @@ import {
   whois,
 } from "../bus.js";
 import { BusError } from "../util/errors.js";
+import { deriveProject } from "../util/project.js";
+
+// MCP servers inherit cwd from the spawning session, so this is the
+// project context for everything this process handles. Derived once at
+// startup (the cwd doesn't change for the life of an MCP child process).
+const SESSION_PROJECT: string | null = deriveProject();
 
 const TASK_STATES = [
   "open",
@@ -41,10 +47,15 @@ const TASK_STATES = [
 ] as const;
 const TaskStateEnum = z.enum(TASK_STATES);
 
+// project filter accepts "*" (global) or a project slug or null/omit (default scope)
+const ProjectField = z.string().min(1).max(64).nullable().optional();
+const ProjectFilterField = z.string().min(1).max(64).optional();
+
 const RegisterInput = z.object({
   name: z.string().min(1).max(64),
   capabilities: z.array(z.string()).max(32).optional(),
   replace: z.boolean().optional(),
+  project: ProjectField,
 });
 
 const SendInput = z.object({
@@ -82,6 +93,7 @@ const AskBestInput = z.object({
   question: z.string(),
   timeout_s: z.number().int().positive().max(110).optional(),
   thread_id: z.string().optional(),
+  project: ProjectFilterField,
 });
 
 const ReplyInput = z.object({
@@ -111,7 +123,9 @@ const ThreadInput = z.object({
   limit: z.number().int().positive().max(500).optional(),
 });
 
-const WhoisInput = z.object({});
+const WhoisInput = z.object({
+  project: ProjectFilterField,
+});
 
 const CreateTaskInput = z.object({
   requested_by: z.string().min(1),
@@ -121,6 +135,7 @@ const CreateTaskInput = z.object({
   priority: z.number().int().optional(),
   cwd: z.string().optional(),
   blocked_on_task_id: z.number().int().positive().optional(),
+  project: ProjectField,
 });
 
 const ClaimTaskInput = z.object({
@@ -150,6 +165,7 @@ const ListTasksInput = z.object({
   thread_id: z.string().optional(),
   include_terminal: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
+  project: ProjectFilterField,
 });
 
 const GetTaskInput = z.object({
@@ -158,6 +174,7 @@ const GetTaskInput = z.object({
 
 const RecentInput = z.object({
   limit: z.number().int().positive().max(500).optional(),
+  project: ProjectFilterField,
 });
 
 const TOOLS = [
@@ -508,7 +525,7 @@ const TOOLS = [
 ] as const;
 
 const server = new Server(
-  { name: "agent-bus", version: "0.3.0" },
+  { name: "agent-bus", version: "0.4.0" },
   { capabilities: { tools: {} } },
 );
 
@@ -536,8 +553,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 
 async function dispatch(tool: string, raw: unknown): Promise<unknown> {
   switch (tool) {
-    case "register":
-      return register(RegisterInput.parse(raw));
+    case "register": {
+      const input = RegisterInput.parse(raw);
+      return register({
+        ...input,
+        project: input.project === undefined ? SESSION_PROJECT : input.project,
+      });
+    }
     case "send": {
       const input = SendInput.parse(raw);
       return send({
@@ -553,8 +575,13 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       return ack(AckInput.parse(raw));
     case "ask":
       return ask(AskInput.parse(raw));
-    case "ask_best":
-      return askBest(AskBestInput.parse(raw));
+    case "ask_best": {
+      const input = AskBestInput.parse(raw);
+      return askBest({
+        ...input,
+        project: input.project ?? (SESSION_PROJECT ?? undefined),
+      });
+    }
     case "reply":
       return reply(ReplyInput.parse(raw));
     case "subscribe":
@@ -578,23 +605,37 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       const input = ThreadInput.parse(raw);
       return threadMessages(input.thread_id, input.limit ?? 200);
     }
-    case "whois":
-      WhoisInput.parse(raw);
-      return whois();
+    case "whois": {
+      const input = WhoisInput.parse(raw);
+      return whois({ project: input.project ?? (SESSION_PROJECT ?? undefined) });
+    }
     case "recent": {
       const input = RecentInput.parse(raw);
-      return recentMessages(input.limit ?? 50);
+      return recentMessages({
+        limit: input.limit ?? 50,
+        project: input.project ?? (SESSION_PROJECT ?? undefined),
+      });
     }
-    case "create_task":
-      return createTask(CreateTaskInput.parse(raw));
+    case "create_task": {
+      const input = CreateTaskInput.parse(raw);
+      return createTask({
+        ...input,
+        project: input.project === undefined ? SESSION_PROJECT : input.project,
+      });
+    }
     case "claim_task":
       return claimTask(ClaimTaskInput.parse(raw));
     case "update_task":
       return updateTask(UpdateTaskInput.parse(raw));
     case "release_task":
       return releaseTask(ReleaseTaskInput.parse(raw));
-    case "list_tasks":
-      return listTasks(ListTasksInput.parse(raw));
+    case "list_tasks": {
+      const input = ListTasksInput.parse(raw);
+      return listTasks({
+        ...input,
+        project: input.project ?? (SESSION_PROJECT ?? undefined),
+      });
+    }
     case "get_task":
       return getTask(GetTaskInput.parse(raw).task_id);
     default:

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
@@ -15,6 +15,8 @@ const {
   askBest,
   inbox,
   listTasks,
+  messagesSince,
+  PROJECT_WILDCARD,
   recentMessages,
   register,
   releaseTask,
@@ -31,6 +33,7 @@ const {
 } = await import("../src/bus.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
+const { deriveProject } = await import("../src/util/project.js");
 
 let passed = 0;
 let failed = 0;
@@ -336,6 +339,119 @@ await test("ask_best fails when no agent has the capability", async () => {
     () => askBest({ from: "alice", capability: "rust-async-runtime", question: "?", timeout_s: 1 }),
     (e: unknown) => e instanceof BusError && e.code === "UNKNOWN_AGENT",
   );
+});
+
+// --- Tier 3: project scoping ------------------------------------------------
+
+await test("deriveProject uses git root basename and sanitizes", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent bus weird!"));
+  mkdirSync(join(root, ".git"));
+  const child = join(root, "nested", "src");
+  mkdirSync(child, { recursive: true });
+
+  assert.ok(deriveProject(child)?.startsWith("agent-bus-weird"));
+
+  const fallback = mkdtempSync(join(tmpdir(), "plain project!"));
+  assert.ok(deriveProject(fallback)?.startsWith("plain-project"));
+
+  rmSync(root, { recursive: true, force: true });
+  rmSync(fallback, { recursive: true, force: true });
+});
+
+await test("project: register, whois, send, recent, and messagesSince scope", () => {
+  register({ name: "p1-alice", project: "p1", capabilities: ["review"] });
+  register({ name: "p1-bob", project: "p1" });
+  register({ name: "p2-alice", project: "p2" });
+  register({ name: "global-agent", replace: true });
+
+  const p1 = send({ from: "p1-alice", to: "p1-bob", content: "p1 message" });
+  const p2 = send({ from: "p2-alice", to: "p1-bob", content: "p2 message" });
+  const global = send({ from: "global-agent", to: "p1-bob", content: "global message" });
+
+  assert.equal(p1.project, "p1");
+  assert.equal(p2.project, "p2");
+  assert.equal(global.project, null);
+
+  const p1Whois = whois({ project: "p1" }).map((a) => a.name);
+  assert.ok(p1Whois.includes("p1-alice"));
+  assert.ok(p1Whois.includes("p1-bob"));
+  assert.ok(p1Whois.includes("global-agent"));
+  assert.ok(!p1Whois.includes("p2-alice"));
+
+  const allWhois = whois({ project: PROJECT_WILDCARD }).map((a) => a.name);
+  assert.ok(allWhois.includes("p1-alice"));
+  assert.ok(allWhois.includes("p2-alice"));
+
+  const p1Recent = recentMessages({ project: "p1", limit: 50 }).map((m) => m.id);
+  assert.ok(p1Recent.includes(p1.id));
+  assert.ok(p1Recent.includes(global.id));
+  assert.ok(!p1Recent.includes(p2.id));
+
+  const p1Since = messagesSince(0, 500, "p1").map((m) => m.id);
+  assert.ok(p1Since.includes(p1.id));
+  assert.ok(p1Since.includes(global.id));
+  assert.ok(!p1Since.includes(p2.id));
+});
+
+await test("project: ask_best is scoped and fails loud for wrong project", async () => {
+  register({ name: "p3-asker", project: "p3" });
+  register({ name: "p3-react", project: "p3", capabilities: ["react"] });
+  register({ name: "p4-python", project: "p4", capabilities: ["python"] });
+
+  const replier = setTimeout(async () => {
+    const pending = await inbox({ agent: "p3-react" });
+    const a = pending.find((m) => m.kind === "ask");
+    assert.ok(a, "expected project-scoped ask");
+    reply({ from: "p3-react", ask_id: a.id, answer: "p3 answer" });
+  }, 200);
+
+  const answer = await askBest({
+    from: "p3-asker",
+    capability: "react",
+    question: "memo?",
+    timeout_s: 5,
+  });
+  clearTimeout(replier);
+  assert.equal(answer.from_agent, "p3-react");
+
+  await assert.rejects(
+    () =>
+      askBest({
+        from: "p3-asker",
+        capability: "python",
+        question: "?",
+        timeout_s: 1,
+      }),
+    (e: unknown) =>
+      e instanceof BusError &&
+      e.code === "UNKNOWN_AGENT" &&
+      e.message.includes("project 'p3'") &&
+      e.message.includes('project="*"'),
+  );
+});
+
+await test("project: tasks inherit requester project and scoped list hides null tasks", () => {
+  register({ name: "p5-requester", project: "p5" });
+  register({ name: "p6-requester", project: "p6" });
+  register({ name: "null-requester", replace: true });
+
+  const p5 = createTask({ requested_by: "p5-requester", title: "p5 task" });
+  const p6 = createTask({ requested_by: "p6-requester", title: "p6 task" });
+  const legacy = createTask({ requested_by: "null-requester", title: "null task" });
+
+  assert.equal(p5.project, "p5");
+  assert.equal(p6.project, "p6");
+  assert.equal(legacy.project, null);
+
+  const p5Tasks = listTasks({ project: "p5", include_terminal: true }).map((t) => t.id);
+  assert.ok(p5Tasks.includes(p5.id));
+  assert.ok(!p5Tasks.includes(p6.id));
+  assert.ok(!p5Tasks.includes(legacy.id));
+
+  const allTasks = listTasks({ project: PROJECT_WILDCARD, include_terminal: true }).map((t) => t.id);
+  assert.ok(allTasks.includes(p5.id));
+  assert.ok(allTasks.includes(p6.id));
+  assert.ok(allTasks.includes(legacy.id));
 });
 
 // --- Tier 2: first-class tasks ---------------------------------------------

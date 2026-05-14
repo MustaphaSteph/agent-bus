@@ -12,6 +12,7 @@ register({
   name: string,                // 1-64 chars, [a-zA-Z0-9_.-]
   capabilities?: string[],     // tags for ask_best routing
   replace?: boolean,           // take over an actively-held name
+  project?: string | null,      // MCP default is derived from cwd; null is global
 }) → Agent
 ```
 
@@ -23,7 +24,7 @@ within last 60s and `replace` not passed).
 ```js
 register({ name: "frontend-bot", capabilities: ["react", "css"] })
 // → { name: "frontend-bot", capabilities: ["react","css"],
-//     registered_at: ..., last_seen: ..., paused: false }
+//     registered_at: ..., last_seen: ..., paused: false, project: "agent-bus" }
 ```
 
 ## send
@@ -138,11 +139,14 @@ ask_best({
   question: string,
   timeout_s?: number,
   thread_id?: string,
+  project?: string,             // default asker's project; "*" searches globally
 }) → Message                   // the reply
 ```
 
-Picks the candidate with the most recent `last_seen`. Refuses matches
-where the candidate hasn't been seen in 5 minutes.
+Picks the candidate with the most recent `last_seen` in the selected
+project. Refuses matches where the candidate hasn't been seen in 5
+minutes. If no in-project match exists, it fails with a hint to pass
+`project: "*"` for a global search.
 
 **Errors**: `UNKNOWN_AGENT` (no registered agent has the capability, or
 the best match is stale), plus everything `ask` can throw.
@@ -252,7 +256,7 @@ Useful for reconstructing a multi-message exchange.
 List every registered agent with capabilities and last-seen.
 
 ```ts
-whois() → Agent[]              // sorted by last_seen DESC
+whois({ project?: string }) → Agent[]   // "*" = all, otherwise scoped + null legacy
 ```
 
 ## recent
@@ -261,10 +265,12 @@ Read the most recent messages on the bus, regardless of who sent them or
 who they're for. Doesn't flip status.
 
 ```ts
-recent({ limit?: number }) → Message[]    // default 50, max 500
+recent({ limit?: number, project?: string }) → Message[]    // default 50, max 500
 ```
 
-Useful when you want to catch up on what's been happening.
+Useful when you want to catch up on what's been happening. A concrete
+project includes matching messages plus legacy/global null-project
+messages; `"*"` returns all.
 
 ## create_task
 
@@ -280,6 +286,7 @@ create_task({
   priority?: number,           // higher sorts first
   cwd?: string,                // target working directory
   blocked_on_task_id?: number, // soft dependency, no auto-unblock
+  project?: string | null,      // default requester's project
 }) -> Task
 ```
 
@@ -356,12 +363,15 @@ list_tasks({
   thread_id?: string,
   include_terminal?: boolean,  // default false
   limit?: number,              // default 100, max 500
+  project?: string,             // concrete project or "*" for all
 }) -> Task[]
 ```
 
 By default terminal tasks (`completed`, `failed`, `canceled`) are hidden.
 Active tasks may include `stale: true` when the holder has not
 heartbeated within `AGENT_BUS_TASK_STALE_MS` (default 5 minutes).
+Concrete project filters hide null-project legacy tasks; `project: "*"`
+returns all projects.
 
 ## get_task
 

@@ -9,6 +9,7 @@ export interface TasksOptions {
   all?: boolean;
   watch?: boolean;
   intervalMs?: number;
+  project?: string;
 }
 
 export async function tasks(opts: TasksOptions): Promise<void> {
@@ -18,7 +19,8 @@ export async function tasks(opts: TasksOptions): Promise<void> {
     return;
   }
 
-  const rows = readTasks(state, opts.all === true);
+  const rows = readTasks(state, opts.all === true, opts.project);
+  printScope(opts.project);
   if (rows.length === 0) {
     console.log(kleur.gray("(no tasks)"));
     return;
@@ -26,10 +28,15 @@ export async function tasks(opts: TasksOptions): Promise<void> {
   for (const task of rows) console.log(formatTask(task));
 }
 
-function readTasks(state: TaskState | undefined, includeTerminal: boolean): Task[] {
+function readTasks(
+  state: TaskState | undefined,
+  includeTerminal: boolean,
+  project: string | undefined,
+): Task[] {
   return listTasks({
     state,
     include_terminal: includeTerminal,
+    project,
   });
 }
 
@@ -39,10 +46,11 @@ async function watchTasks(opts: TasksOptions & { state?: TaskState }): Promise<n
   const seen = new Map<number, string>();
 
   console.log(kleur.bold("agent-bus tasks"));
+  printScope(opts.project);
   console.log(kleur.gray("---"));
 
   for (;;) {
-    const rows = readTasks(opts.state, includeTerminal);
+    const rows = readTasks(opts.state, includeTerminal, opts.project);
     for (const task of rows) {
       const fingerprint = taskFingerprint(task);
       if (seen.get(task.id) !== fingerprint) {
@@ -71,6 +79,7 @@ function taskFingerprint(task: Task): string {
     priority: task.priority,
     claimed_by: task.claimed_by,
     requested_by: task.requested_by,
+    project: task.project,
     updated_at: task.updated_at,
     stale: task.stale === true,
   });
@@ -81,10 +90,17 @@ export function formatTask(task: Task): string {
   const state = colorState(task.state)(`[${task.state}]`);
   const held = task.claimed_by ?? "-";
   const thread = abbreviateThread(task.thread_id);
+  const project = task.project ? `, project=${task.project}` : ", project=no-project";
   const line =
     `#${task.id} p${task.priority} ${state} ${truncate(task.title, 80)} ` +
-    `${kleur.gray("-")} by ${task.requested_by}, held=${held}, thread=${thread}`;
+    `${kleur.gray("-")} by ${task.requested_by}, held=${held}, thread=${thread}${kleur.gray(project)}`;
   return stale ? kleur.red(`${line} stale`) : line;
+}
+
+function printScope(project: string | undefined): void {
+  if (project !== undefined && project !== "*") {
+    console.log(kleur.gray(`scoped: ${project} (use --project all for global)`));
+  }
 }
 
 function colorState(state: TaskState): (value: string) => string {

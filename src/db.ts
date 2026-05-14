@@ -110,11 +110,30 @@ function migrate(db: Database.Database): void {
   if (!messageCols.has("channel")) {
     db.exec(`ALTER TABLE messages ADD COLUMN channel TEXT`);
   }
+  if (!messageCols.has("project")) {
+    db.exec(`ALTER TABLE messages ADD COLUMN project TEXT`);
+  }
+
+  const agentCols = tableColumns(db, "agents");
+  if (!agentCols.has("project")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN project TEXT`);
+  }
+
+  const taskCols = tableColumns(db, "tasks");
+  if (!taskCols.has("project")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN project TEXT`);
+  }
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_thread
       ON messages(thread_id);
     CREATE INDEX IF NOT EXISTS idx_messages_claim
       ON messages(claim_deadline);
+    CREATE INDEX IF NOT EXISTS idx_messages_project
+      ON messages(project);
+    CREATE INDEX IF NOT EXISTS idx_agents_project
+      ON agents(project);
+    CREATE INDEX IF NOT EXISTS idx_tasks_project
+      ON tasks(project);
   `);
 }

@@ -13,6 +13,7 @@ import { installHook, uninstallHook } from "./install-hook.js";
 import { listenPrompt } from "./listen-prompt.js";
 import { markListening, unmarkListening } from "./listener-marker.js";
 import { pollInbox } from "./poll-inbox.js";
+import { resolveProjectScope, scopeBanner } from "./project-scope.js";
 import { tasks } from "./tasks.js";
 import { watch } from "./watch.js";
 
@@ -20,22 +21,30 @@ const program = new Command();
 program
   .name("agent-bus")
   .description("Local message bus for Claude Code, Codex and other MCP agents.")
-  .version("0.3.0");
+  .version("0.4.0");
 
 program
   .command("watch")
   .description("Live tail every message on the bus")
   .option("--interval <ms>", "poll interval in ms", "250")
-  .action(async (opts) => {
-    await watch({ intervalMs: Number(opts.interval) });
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .action(async (opts: { interval: string; project?: string }) => {
+    await watch({
+      intervalMs: Number(opts.interval),
+      project: resolveProjectScope(opts.project),
+    });
   });
 
 program
   .command("log")
   .description("Show the most recent messages and exit")
   .option("-n, --last <count>", "how many to show", "50")
-  .action((opts) => {
-    const msgs = recentMessages(Number(opts.last));
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .action((opts: { last: string; project?: string }) => {
+    const project = resolveProjectScope(opts.project);
+    const banner = scopeBanner(project);
+    if (banner) console.log(banner);
+    const msgs = recentMessages({ limit: Number(opts.last), project });
     if (msgs.length === 0) {
       console.log(kleur.gray("(no messages yet)"));
       return;
@@ -46,8 +55,12 @@ program
 program
   .command("whois")
   .description("List registered agents")
-  .action(() => {
-    const agents = whois();
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .action((opts: { project?: string }) => {
+    const project = resolveProjectScope(opts.project);
+    const banner = scopeBanner(project);
+    if (banner) console.log(banner);
+    const agents = whois({ project });
     if (agents.length === 0) {
       console.log(kleur.gray("(no agents registered)"));
       return;
@@ -55,8 +68,9 @@ program
     for (const a of agents) {
       const age = Math.round((Date.now() - a.last_seen) / 1000);
       const caps = a.capabilities.length > 0 ? ` [${a.capabilities.join(", ")}]` : "";
+      const projectChip = a.project ? ` {${a.project}}` : " {no-project}";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${paused}  ${kleur.gray(`seen ${age}s ago`)}`);
+      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip)}${paused}  ${kleur.gray(`seen ${age}s ago`)}`);
     }
   });
 
@@ -67,12 +81,14 @@ program
   .option("--all", "include terminal tasks (completed, failed, canceled)")
   .option("--watch", "keep running and print new/changed tasks")
   .option("--interval <ms>", "watch poll interval in ms", "1000")
-  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string }) => {
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string }) => {
     await tasks({
       state: opts.state,
       all: opts.all,
       watch: opts.watch,
       intervalMs: Number(opts.interval),
+      project: resolveProjectScope(opts.project),
     });
   });
 

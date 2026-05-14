@@ -1,6 +1,29 @@
 {
-  "name": "@vorec/agent-bus",
-  "version": "0.3.0",
+  "name": "agent-bus",
+  "version": "0.4.0",
+  "homepage": "https://github.com/MustaphaSteph/agent-bus",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MustaphaSteph/agent-bus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MustaphaSteph/agent-bus/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude-code",
+    "codex",
+    "agents",
+    "ai-agents",
+    "multi-agent",
+    "agent-orchestration",
+    "agent-to-agent",
+    "message-bus",
+    "sqlite",
+    "typescript",
+    "local-first"
+  ],
   "description": "Local message bus that lets Claude Code, Codex and other MCP agents talk to each other through one SQLite file.",
   "type": "module",
   "license": "MIT",

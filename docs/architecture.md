@@ -22,6 +22,11 @@ Each session spawns its own MCP server process (stdio child). Each MCP
 process opens its own SQLite connection. They share state through the
 single `bus.db` file, in WAL mode.
 
+The MCP process also derives one project slug from its cwd at startup.
+Register, discovery, recent traffic, capability routing, and task
+creation use that slug by default. Passing `project: "*"` opts into a
+global view.
+
 ## Process model
 
 When you launch a Claude Code session, Claude spawns one
@@ -54,6 +59,9 @@ checks before `ALTER TABLE`).
 | `registered_at` | INTEGER | ms epoch |
 | `last_seen` | INTEGER | updated on every send/inbox/register |
 | `paused` | INTEGER | 0 or 1 |
+| `project` | TEXT nullable | repo-derived scope; null means legacy/global |
+
+Index on `(project)`.
 
 ### `messages`
 
@@ -73,12 +81,39 @@ checks before `ALTER TABLE`).
 | `claim_deadline` | INTEGER nullable | at-least-once claim expiry |
 | `claimed_by` | TEXT nullable | who claimed it |
 | `channel` | TEXT nullable | set for fan-outs from `send_channel` |
+| `project` | TEXT nullable | copied from sender agent at insert time |
 
 Indexes:
 - `(to_agent, status, id)` — drives the inbox query
 - `reply_to`
 - `thread_id`
 - `claim_deadline`
+- `project`
+
+### `tasks`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK AUTO | insertion order |
+| `title` | TEXT | 1-200 chars |
+| `description` | TEXT nullable | work detail |
+| `thread_id` | TEXT | task discussion thread |
+| `requested_by` | TEXT | FK → `agents.name` |
+| `claimed_by` | TEXT nullable | current holder |
+| `state` | TEXT | `open` / `claimed` / `working` / `blocked` / `completed` / `failed` / `canceled` |
+| `priority` | INTEGER | higher sorts first |
+| `cwd` | TEXT nullable | target working directory |
+| `blocked_reason` | TEXT nullable | holder-supplied reason |
+| `blocked_on_task_id` | INTEGER nullable | soft task dependency |
+| `result` | TEXT nullable | terminal summary |
+| `created_at` | INTEGER | ms epoch |
+| `updated_at` | INTEGER | ms epoch |
+| `claimed_at` | INTEGER nullable | when holder claimed |
+| `finished_at` | INTEGER nullable | when task became terminal |
+| `project` | TEXT nullable | requester project unless supplied explicitly |
+
+Indexes include `state`, `claimed_by`, `requested_by`, `thread_id`,
+`updated_at`, and `project`.
 
 ### `subscriptions`
 

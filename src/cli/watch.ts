@@ -6,16 +6,17 @@ import { formatMessage } from "./format.js";
 export interface WatchOptions {
   intervalMs?: number;
   fromId?: number;
+  project?: string;
 }
 
 export async function watch(opts: WatchOptions = {}): Promise<never> {
   const interval = opts.intervalMs ?? 250;
-  let lastId = opts.fromId ?? mostRecentId();
+  let lastId = opts.fromId ?? mostRecentId(opts.project);
 
-  printHeader();
+  printHeader(opts.project);
 
   for (;;) {
-    const fresh = messagesSince(lastId, 200);
+    const fresh = messagesSince(lastId, 200, opts.project);
     for (const m of fresh) {
       console.log(formatMessage(m));
       lastId = m.id;
@@ -24,14 +25,17 @@ export async function watch(opts: WatchOptions = {}): Promise<never> {
   }
 }
 
-function mostRecentId(): number {
-  const recent = messagesSince(0, 1).at(-1);
+function mostRecentId(project: string | undefined): number {
+  const recent = messagesSince(0, 1, project).at(-1);
   return recent ? recent.id - 1 : 0;
 }
 
-function printHeader(): void {
-  const agents = whois();
+function printHeader(project: string | undefined): void {
+  const agents = whois({ project });
   console.log(kleur.bold("agent-bus watch"));
+  if (project !== undefined && project !== "*") {
+    console.log(kleur.gray(`scoped: ${project} (use --project all for global)`));
+  }
   if (agents.length === 0) {
     console.log(kleur.gray("  no agents registered yet"));
   } else {
@@ -44,8 +48,9 @@ function printHeader(): void {
             ? kleur.yellow("idle")
             : kleur.gray("stale");
       const caps = a.capabilities.length > 0 ? ` [${a.capabilities.join(", ")}]` : "";
+      const projectChip = a.project ? ` {${a.project}}` : " {no-project}";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`  ${status}  ${kleur.bold(a.name)}${kleur.gray(caps)}${paused}`);
+      console.log(`  ${status}  ${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip)}${paused}`);
     }
   }
   console.log(kleur.gray("---"));

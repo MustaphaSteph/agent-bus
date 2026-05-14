@@ -32,7 +32,8 @@ agent-to-agent messaging without a daemon or cloud service.
 - `src/cli/watch.ts`, `format.ts`, `poll-inbox.ts`, `install-hook.ts`,
   `listen-prompt.ts`, and `listener-marker.ts` are CLI-specific helpers.
 - `src/util/paths.ts` resolves `AGENT_BUS_DIR`; `errors.ts` defines
-  `BusError`; `time.ts` wraps time and sleep.
+  `BusError`; `project.ts` derives repo-scoped project names; `time.ts`
+  wraps time and sleep.
 - `test/smoke.ts` exercises in-process bus behavior with a temporary
   `AGENT_BUS_DIR`.
 - `test/cross-process.ts` verifies concurrent CLI writes from separate
@@ -44,14 +45,17 @@ Schema created in `src/db.ts`.
 
 ### `agents`
 
-`name` PK, JSON `capabilities`, `registered_at`, `last_seen`, `paused`.
+`name` PK, JSON `capabilities`, `registered_at`, `last_seen`, `paused`,
+nullable `project`. Agent names remain globally unique; `project` is a
+filter attribute, not part of identity.
 
 ### `messages`
 
 `id` PK auto, `from_agent`, `to_agent`, `kind` (`msg`/`ask`/`reply`),
 `content` (no size cap), `reply_to` FK, `status`
 (`pending`/`delivered`/`answered`), timestamps, `thread_id`,
-`claim_deadline`, `claimed_by`, `channel`.
+`claim_deadline`, `claimed_by`, `channel`, nullable `project` copied
+from the sender agent.
 
 Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
 `claim_deadline`.
@@ -65,7 +69,7 @@ Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
 `id` PK auto, `title`, `description`, `thread_id`, `requested_by`,
 `claimed_by`, `state` (`open`/`claimed`/`working`/`blocked`/
 `completed`/`failed`/`canceled`), `priority`, `cwd`, blocker metadata,
-`result`, timestamps, and `finished_at`.
+`result`, timestamps, `finished_at`, nullable `project`.
 
 ### Semantics
 
@@ -82,10 +86,14 @@ Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
 - `send_channel()` reads subscribers, generates one shared `thread_id`,
   inserts one row per recipient with `channel = <name>`.
 - `ask_best()` matches by capability, prefers most recent `last_seen`,
-  refuses matches >5 minutes stale.
+  scopes to the asker's project by default, and refuses matches >5
+  minutes stale.
 - Tasks are first-class work records. `claimTask()` is atomic; updates
   follow `ALLOWED_TRANSITIONS`; stale active tasks are surfaced by
   comparing the holder's `last_seen` with `AGENT_BUS_TASK_STALE_MS`.
+- Project scoping is soft. MCP sessions and CLI read commands derive a
+  project from cwd; direct addressed messaging remains cross-project.
+  Use `PROJECT_WILDCARD` (`"*"`) for global reads/routing.
 
 ## Commands
 

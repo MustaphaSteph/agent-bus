@@ -263,3 +263,47 @@ automatic requeue.
   orchestrator decides whether to release it.
 - Worker hits a dependency -> move to `blocked` with `blocked_reason`
   and optionally `blocked_on_task_id`.
+
+## 11. Multi-project workspace
+
+**When**: you run multiple Claude Code or Codex sessions across different
+repos on the same machine.
+
+**How**: keep one shared bus, but let each session register with a
+project derived from its repo cwd. MCP sessions do this automatically.
+Read commands and routing default to the current project:
+
+```js
+register({ name: "agent-bus-verifier", capabilities: ["verification"] })
+list_tasks({})              // current project
+whois({})                   // current project + null legacy agents
+ask_best({ from: "agent-bus-codex", capability: "verification", question: "..." })
+```
+
+Use the wildcard when you intentionally want global visibility:
+
+```js
+list_tasks({ project: "*" })
+recent({ project: "*" })
+ask_best({ from: "agent-bus-codex", capability: "security", question: "...", project: "*" })
+```
+
+CLI commands derive the project from your shell cwd:
+
+```bash
+agent-bus tasks
+agent-bus watch
+agent-bus whois
+
+agent-bus tasks --project all
+agent-bus watch --project all
+```
+
+**Failure modes**:
+
+- Agent names are still globally unique. Use project-prefixed names like
+  `agent-bus-verifier` and `vidcut-verifier`.
+- `ask_best` does not silently route across projects. If there is no
+  in-project match, pass `project: "*"` explicitly.
+- CLI `inject` and CLI `register` are relay/admin commands and default
+  to global/null project.

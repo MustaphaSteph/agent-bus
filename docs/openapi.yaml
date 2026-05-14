@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.3.0
+  version: 0.4.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 20 tools over an MCP stdio server. This OpenAPI
@@ -51,6 +51,8 @@ paths:
         Claim a name on the bus, optionally declaring capability tags.
         Idempotent when `replace: true` is set. Without `replace`, fails
         with `NAME_TAKEN` if the name was last seen within 60 seconds.
+        MCP sessions default `project` from the repo cwd; CLI relay
+        registrations default to `null`.
       operationId: register
       requestBody:
         required: true
@@ -66,6 +68,7 @@ paths:
                 value:
                   name: frontend-bot
                   capabilities: [react, css, tailwind]
+                  project: agent-bus
               replace:
                 value:
                   name: alpha
@@ -238,8 +241,9 @@ paths:
       summary: Route an ask to the best capability match
       description: |
         Picks the most-recently-active agent that has the given
-        capability tag, then performs `ask`. Refuses matches where the
-        candidate hasn't been seen in 5 minutes.
+        capability tag in the selected project, then performs `ask`.
+        Pass `project: "*"` to search globally. Refuses matches where
+        the candidate hasn't been seen in 5 minutes.
       operationId: ask_best
       requestBody:
         required: true
@@ -253,6 +257,7 @@ paths:
                   from: human
                   capability: react
                   question: how to memoize this list?
+                  project: agent-bus
       responses:
         '200':
           description: The reply message from the chosen agent.
@@ -458,8 +463,17 @@ paths:
           application/json:
             schema:
               type: object
+              properties:
+                project:
+                  $ref: '#/components/schemas/ProjectFilter'
               additionalProperties: false
-            example: {}
+            examples:
+              scoped:
+                value:
+                  project: agent-bus
+              global:
+                value:
+                  project: "*"
       responses:
         '200':
           description: The list of agents.
@@ -478,6 +492,8 @@ paths:
       summary: Read recent messages regardless of recipient
       description: |
         Useful for catching up on the bus. Does not mutate status.
+        A `project` filter returns messages from that project plus
+        legacy/global `null` project messages. Pass `"*"` for global.
       operationId: recent
       requestBody:
         required: true
@@ -511,6 +527,7 @@ paths:
         Creates a first-class unit of work in `open` state. Tasks are
         queryable work items; messages and threads carry the discussion
         around that work. A `thread_id` is generated unless provided.
+        Project defaults to the requester agent's project.
       operationId: create_task
       requestBody:
         required: true
@@ -526,6 +543,7 @@ paths:
                   description: Run tests and report findings.
                   priority: 10
                   cwd: /Users/air/Documents/Projects/agent-bus
+                  project: agent-bus
       responses:
         '200':
           description: The created task.
@@ -650,7 +668,8 @@ paths:
         Terminal tasks are excluded by default unless `include_terminal`
         is true or a terminal `state` filter is provided. Active tasks
         may include `stale: true` when their holder has not heartbeated
-        within `AGENT_BUS_TASK_STALE_MS`.
+        within `AGENT_BUS_TASK_STALE_MS`. A concrete `project` filter
+        hides `null` project legacy tasks; `project: "*"` returns all.
       operationId: list_tasks
       requestBody:
         required: true
@@ -664,6 +683,7 @@ paths:
               working:
                 value:
                   state: working
+                  project: agent-bus
               by-agent:
                 value:
                   claimed_by: verifier
@@ -728,6 +748,21 @@ components:
       description: Conversation thread identifier. Auto-generated unless provided.
       example: t_kxxx_abc123
 
+    ProjectName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-zA-Z0-9_.-]+$'
+      description: Project scope derived from repo cwd or supplied explicitly.
+      example: agent-bus
+
+    ProjectFilter:
+      oneOf:
+        - $ref: '#/components/schemas/ProjectName'
+        - type: string
+          enum: ['*']
+          description: Wildcard meaning all projects.
+
     MessageKind:
       type: string
       enum: [msg, ask, reply]
@@ -754,7 +789,7 @@ components:
 
     Agent:
       type: object
-      required: [name, capabilities, registered_at, last_seen, paused]
+      required: [name, capabilities, registered_at, last_seen, paused, project]
       properties:
         name:
           $ref: '#/components/schemas/AgentName'
@@ -773,6 +808,9 @@ components:
         paused:
           type: boolean
           description: When true, inbox returns empty while messages keep queuing.
+        project:
+          type: [string, 'null']
+          description: Project associated with this globally unique agent name. Null means legacy/global.
 
     Message:
       type: object
@@ -785,6 +823,7 @@ components:
         - status
         - created_at
         - thread_id
+        - project
       properties:
         id:
           type: integer
@@ -825,6 +864,9 @@ components:
         channel:
           type: [string, 'null']
           description: Set when the message arrived via `send_channel`.
+        project:
+          type: [string, 'null']
+          description: Project copied from the sender agent at insert time. Null means legacy/global.
 
     Task:
       type: object
@@ -837,6 +879,7 @@ components:
         - priority
         - created_at
         - updated_at
+        - project
       properties:
         id:
           type: integer
@@ -887,6 +930,9 @@ components:
         stale:
           type: boolean
           description: True when an active holder has not heartbeated within the stale threshold.
+        project:
+          type: [string, 'null']
+          description: Project scope for this task. Null tasks only appear in global task listings.
 
     Subscription:
       type: object
@@ -947,6 +993,9 @@ components:
         replace:
           type: boolean
           description: Take over the name even if another session holds it.
+        project:
+          type: [string, 'null']
+          description: Optional project association. MCP sessions default this from cwd; null is global/legacy.
 
     SendRequest:
       type: object
@@ -1039,6 +1088,8 @@ components:
           maximum: 110
         thread_id:
           $ref: '#/components/schemas/ThreadId'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
 
     ReplyRequest:
       type: object
@@ -1105,6 +1156,8 @@ components:
           type: integer
           minimum: 1
           maximum: 500
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
 
     CreateTaskRequest:
       type: object
@@ -1129,6 +1182,9 @@ components:
         blocked_on_task_id:
           type: integer
           format: int64
+        project:
+          type: [string, 'null']
+          description: Optional project. Defaults to the requester agent's project.
 
     ClaimTaskRequest:
       type: object
@@ -1197,6 +1253,8 @@ components:
           type: integer
           minimum: 1
           maximum: 500
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
 
     GetTaskRequest:
       type: object
