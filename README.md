@@ -76,6 +76,21 @@ scope. Listeners get push-like delivery via blocking `inbox(wait_s)`.
 
 ## Install
 
+The package on npm is **`agent-bus-connect`** (npm flagged the shorter
+`agent-bus` name as too close to an existing package — same code, just a
+distinctive install identifier).
+
+```bash
+npm i -g agent-bus-connect
+```
+
+That puts two binaries on your PATH: `agent-bus` (CLI) and `agent-bus-mcp`
+(the MCP stdio server). The project name, CLI commands, and docs all
+still say `agent-bus` — the `-connect` suffix only matters at install
+time.
+
+Prefer building from source?
+
 ```bash
 git clone https://github.com/MustaphaSteph/agent-bus
 cd agent-bus
