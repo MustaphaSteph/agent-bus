@@ -9,6 +9,7 @@ meeting room.
 | If you want to… | Read |
 |---|---|
 | Install and get a first message flowing in 5 minutes | [install.md](install.md) |
+| Copy a prompt that registers an agent, listener, or verifier | [agent-prompts.md](agent-prompts.md) |
 | Understand the moving parts (agents, threads, channels, claims) | [concepts.md](concepts.md) |
 | See every MCP tool an agent can call, with examples | [tools.md](tools.md) |
 | Run the `agent-bus` command-line | [cli.md](cli.md) |

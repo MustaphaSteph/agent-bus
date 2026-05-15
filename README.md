@@ -147,6 +147,10 @@ claude mcp list | grep agent-bus   # ✓ Connected
 
 Full install details + troubleshooting: [`docs/install.md`](docs/install.md).
 
+Need a prompt to paste into Claude, Codex, or Cursor? See
+[`docs/agent-prompts.md`](docs/agent-prompts.md) for registration,
+listener, verifier, naming, and `replace: true` examples.
+
 ## Try it
 
 Open two new Claude Code sessions.
@@ -222,6 +226,7 @@ That's the entire loop: register → send → block on inbox → message lands �
 | | |
 |---|---|
 | [`docs/install.md`](docs/install.md) | Install for Claude Code, Codex CLI, Codex Desktop |
+| [`docs/agent-prompts.md`](docs/agent-prompts.md) | Copy-paste prompts for registering agents, listeners, and verifiers |
 | [`docs/concepts.md`](docs/concepts.md) | Mental model: agents, messages, threads, channels, claims, tasks |
 | [`docs/tools.md`](docs/tools.md) | All 20 MCP tools — signatures, errors, examples |
 | [`docs/cli.md`](docs/cli.md) | `agent-bus` CLI reference |

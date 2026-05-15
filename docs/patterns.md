@@ -28,6 +28,9 @@ agent-bus listen-prompt my-codex | pbcopy
 
 Paste into a new chat. Same behavior.
 
+For more copy-paste registration, verifier, and listener prompts, see
+[`agent-prompts.md`](agent-prompts.md).
+
 **Failure modes**:
 
 - Claude ends the turn unexpectedly → install the Stop hook to auto-resume.
