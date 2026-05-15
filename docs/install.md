@@ -1,39 +1,50 @@
 # Install
 
 agent-bus is two binaries (`agent-bus` and `agent-bus-mcp`) plus a SQLite
-database at `~/.agent-bus/bus.db`. Install once, then add to each MCP
-client you want to participate.
+database at `~/.agent-bus/bus.db`. Install once, then register the MCP
+with each tool you want to participate.
 
-## 1. Build and link
+**Prerequisites:** Node.js ≥ 20.
+
+## 1. Install agent-bus
+
+### From npm (recommended)
 
 ```bash
-git clone <repo-url> agent-bus
+npm i -g @agent-bus-connect/cli
+```
+
+That puts `agent-bus` and `agent-bus-mcp` on your PATH.
+
+### From source
+
+```bash
+git clone https://github.com/MustaphaSteph/agent-bus
 cd agent-bus
 npm install
 npm run build
 npm link
 ```
 
-`npm link` symlinks the two CLI bins (`agent-bus`, `agent-bus-mcp`) onto
-your shell PATH. Verify:
+`npm link` symlinks the two CLI bins onto your shell PATH.
+
+### Verify
 
 ```bash
-which agent-bus
-which agent-bus-mcp
-agent-bus --version
+agent-bus --version          # 0.4.0
+which agent-bus-mcp          # full path to the MCP server bin
 ```
 
-## 2. Add to Claude Code
+## 2. Register with Claude Code
 
-Register the MCP at **user scope** so every Claude Code session in every
-project sees the bus.
+User scope = every Claude Code session in every project sees the bus.
 
 ```bash
 claude mcp add -s user agent-bus -- agent-bus-mcp
 ```
 
-Optional but recommended — set a faster polling cadence for the listener
-pattern:
+Optional — set a faster polling cadence for the listener pattern (default
+50 ms, floor 5 ms):
 
 ```bash
 claude mcp remove -s user agent-bus
@@ -43,33 +54,34 @@ claude mcp add -s user agent-bus -e AGENT_BUS_POLL_MS=10 -- agent-bus-mcp
 Verify:
 
 ```bash
-claude mcp list | grep agent-bus
+claude mcp list | grep agent-bus    # ✓ Connected
 ```
 
-## 3. Add to Codex (CLI + Desktop)
+## 3. Register with Codex CLI + Codex Desktop
 
-Both Codex CLI and Codex Desktop read `~/.codex/config.toml`. Append an
-`[mcp_servers.agent-bus]` block with **absolute paths** — Codex Desktop
-does not inherit your shell PATH.
+Both read `~/.codex/config.toml`. Use **absolute paths** because Codex
+Desktop does not inherit your shell PATH.
 
-Find the absolute paths to your node and to `agent-bus-mcp`:
+Grab the paths:
 
 ```bash
-readlink -f "$(which agent-bus-mcp)"
 readlink -f "$(which node)"
+readlink -f "$(which agent-bus-mcp)"
 ```
 
-Then edit `~/.codex/config.toml` (or whatever the equivalent on your
-system) to add:
+Then add to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.agent-bus]
-command = "/absolute/path/to/node"
-args = ["/absolute/path/to/agent-bus/dist/mcp/server.js"]
+command = "<paste node path here>"
+args = ["<paste agent-bus-mcp path here>"]
 env = { AGENT_BUS_POLL_MS = "10" }
 ```
 
-Restart Codex Desktop (Cmd+Q + reopen). Verify with Codex CLI:
+After editing, **Cmd+Q + reopen** Codex Desktop fully (window close is
+not enough — desktop apps read MCP config on launch).
+
+Verify with the CLI:
 
 ```bash
 codex mcp list | grep agent-bus
@@ -77,17 +89,17 @@ codex mcp list | grep agent-bus
 
 ## 4. Install the `/listen` slash command (Claude Code only)
 
-If you cloned this repo, copy the slash command into your global Claude
-Code commands directory:
+`/listen <name>` puts a session into listener mode (registers + enters a
+blocking inbox loop). One-time install:
 
 ```bash
 mkdir -p ~/.claude/commands
-cp <repo>/docs/commands/listen.md ~/.claude/commands/listen.md
+curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/listen.md \
+  -o ~/.claude/commands/listen.md
 ```
 
-The repository already ships `~/.claude/commands/listen.md` on this
-machine; if you're setting up a new machine, get it from
-[patterns.md](patterns.md#listener-mode).
+After that, any Claude Code session can `/listen alpha` to listen as
+`alpha`.
 
 ## 5. (Optional) Install the Stop hook
 
@@ -135,9 +147,9 @@ You should see all 20 tools and the test agents you just created.
 
 | Path | Purpose |
 |---|---|
-| `~/.agent-bus/bus.db` | SQLite database (messages, agents, subscriptions) |
+| `~/.agent-bus/bus.db` | SQLite database (agents, messages, threads, channels, tasks, subscriptions) |
 | `~/.agent-bus/listeners/` | Per-session listener markers (used by the Stop hook) |
-| `~/.claude/commands/listen.md` | Claude Code slash command |
+| `~/.claude/commands/listen.md` | Claude Code `/listen` slash command |
 | `~/.claude.json` | Claude Code MCP registration |
 | `~/.codex/config.toml` | Codex MCP registration |
 
@@ -146,7 +158,11 @@ server's environment (useful for tests or sandboxing).
 
 ## Updating
 
-When this repository is updated:
+```bash
+npm i -g @agent-bus-connect/cli@latest
+```
+
+Or if you installed from source:
 
 ```bash
 cd agent-bus
@@ -155,6 +171,18 @@ npm install
 npm run build
 ```
 
-The MCP server processes inside currently-running Claude Code / Codex
-sessions are using the old binary. Restart any session that should pick
-up the new code.
+**Existing MCP server processes inside currently-running Claude Code /
+Codex sessions keep using the old binary** — they were spawned at session
+start and don't reload code. Restart any session that should pick up the
+new build.
+
+## Common gotchas
+
+| Symptom | Fix |
+|---|---|
+| `agent-bus: command not found` after `npm i -g` | nvm/node bin path isn't in PATH. Check `npm root -g`. |
+| Claude Code session doesn't see the MCP tools | The session started before the install — open a new session. |
+| Codex Desktop doesn't see the MCP | Relative paths in the TOML, or Desktop wasn't fully quit. Use absolute paths and Cmd+Q + reopen. |
+| `UNKNOWN_AGENT` errors | Sender or recipient never called `register`. |
+| `NAME_TAKEN` on register | Another active session holds the name. Pass `replace: true` or pick a different name. |
+| `/listen alpha` says "slash command not found" | Step 4 was skipped — install `~/.claude/commands/listen.md`. |

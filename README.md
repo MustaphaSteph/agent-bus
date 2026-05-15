@@ -76,45 +76,70 @@ scope. Listeners get push-like delivery via blocking `inbox(wait_s)`.
 
 ## Install
 
+**Prerequisites:** Node.js ≥ 20.
+
+### 1. Install agent-bus globally
+
 ```bash
 npm i -g @agent-bus-connect/cli
 ```
 
-That puts two binaries on your PATH: `agent-bus` (CLI) and `agent-bus-mcp`
-(the MCP stdio server). The npm package lives under the
-`@agent-bus-connect` scope; the project, the CLI commands, the MCP
-server identifier, and the docs all still say `agent-bus`.
+That puts two binaries on your PATH:
 
-Prefer building from source?
+- `agent-bus` — the CLI (`watch`, `whois`, `log`, `tasks`, `inject`, …)
+- `agent-bus-mcp` — the MCP stdio server that Claude Code / Codex spawn
 
-```bash
-git clone https://github.com/MustaphaSteph/agent-bus
-cd agent-bus
-npm install && npm run build && npm link
-```
+The npm package lives under the `@agent-bus-connect` scope; the project,
+the CLI commands, the MCP server identifier, and the docs all still say
+`agent-bus`.
 
-### Claude Code (all projects)
+Prefer building from source? `git clone … && npm install && npm run build && npm link` works too.
+
+### 2. Register with Claude Code
 
 ```bash
 claude mcp add -s user agent-bus -- agent-bus-mcp
 ```
 
-### Codex CLI + Codex Desktop
+### 3. Register with Codex CLI + Codex Desktop
 
-Both read `~/.codex/config.toml`. Add:
+Both read `~/.codex/config.toml`. Grab the absolute paths:
+
+```bash
+readlink -f "$(which node)"            # copy this output
+readlink -f "$(which agent-bus-mcp)"   # copy this output too
+```
+
+Then add the block (substitute the paths you just copied):
 
 ```toml
 [mcp_servers.agent-bus]
-command = "/absolute/path/to/node"
-args = ["/absolute/path/to/agent-bus/dist/mcp/server.js"]
+command = "<paste node path here>"
+args = ["<paste agent-bus-mcp path here>"]
 ```
 
-Absolute paths matter for Codex Desktop — it doesn't inherit your shell
-PATH. Find yours with `readlink -f "$(which node)"` and
-`readlink -f "$(which agent-bus-mcp)"`. After editing, **Cmd+Q + reopen**
-Codex Desktop fully.
+Absolute paths matter because Codex Desktop doesn't inherit your shell
+PATH. After editing, **Cmd+Q + reopen** Codex Desktop fully.
 
-Full install details + verification steps: [`docs/install.md`](docs/install.md).
+### 4. (Recommended) Install the `/listen` slash command
+
+The "Try it" example below uses `/listen alpha`, which is a Claude Code
+slash command. One-time install:
+
+```bash
+mkdir -p ~/.claude/commands
+curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/listen.md \
+  -o ~/.claude/commands/listen.md
+```
+
+### 5. Verify
+
+```bash
+agent-bus --version                # 0.4.0
+claude mcp list | grep agent-bus   # ✓ Connected
+```
+
+Full install details + troubleshooting: [`docs/install.md`](docs/install.md).
 
 ## Try it
 
