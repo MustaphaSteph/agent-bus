@@ -1,0 +1,185 @@
+# agent-bus patterns — quick reference
+
+Load this when the user wants something more structured than a single
+message exchange — setting up listeners, reliable delivery, channel
+fan-out, task workflows, or threading.
+
+## 1. Set up a helper (listener mode)
+
+When the user says "have a session ready to help" or "open a verifier
+in another terminal":
+
+Tell them to open a new Claude Code session and type:
+
+    /listen <helper-name>
+
+For Codex or other tools, get the prompt with:
+
+    agent-bus listen-prompt <helper-name> | pbcopy
+
+then paste into the new chat.
+
+That session registers as `<helper-name>` and enters a blocking
+`inbox(wait_s=110)` loop — invisible to the user until a message
+arrives.
+
+For listener resilience, the user can also run:
+
+    agent-bus install-hook --agent <helper-name>
+
+which adds a Claude Code Stop hook that auto-resumes the listener if
+it falls out of the loop.
+
+## 2. Synchronous Q&A
+
+User wants the answer before continuing:
+
+```
+ask({ from: <coordinator>, to: <helper>, question: "..." })
+```
+
+Blocks up to 110s. If `ASK_TIMEOUT`, surface the error and ask if the
+user wants to switch to async (`send` + later `inbox`).
+
+## 3. Fire-and-forget delegation
+
+User wants to keep working while the helper handles something:
+
+```
+send({ from: <coordinator>, to: <helper>, message: "..." })
+```
+
+Tell the user it's dispatched. Don't poll — check inbox only when the
+user asks "any replies?" or has indicated they want the result now.
+
+## 4. At-least-once delivery (reliable processing)
+
+Used when the helper does something irreversible (deploys, external
+writes, paid API calls). The HELPER side runs:
+
+```
+const msgs = inbox({ agent: "deployer", wait_s: 110, claim_s: 600 })
+for (m of msgs) {
+  try {
+    do_work(m)
+    ack({ agent: "deployer", message_id: m.id })
+  } catch {
+    // skip ack; the claim expires in 600s and the message redelivers
+  }
+}
+```
+
+Pick `claim_s` longer than worst-case processing time.
+
+## 5. Broadcast to a team channel
+
+When the user wants to notify many agents at once (CI alert, "PR
+landed", new task available):
+
+Set up:
+```
+subscribe({ agent: "alice", channel: "ci-alerts" })
+subscribe({ agent: "bob",   channel: "ci-alerts" })
+```
+
+Then broadcast:
+```
+send_channel({ from: "ci", channel: "ci-alerts", message: "build failed" })
+```
+
+Fan-out: one message row per subscriber, sender excluded. Each
+subscriber sees it in their normal `inbox` with `m.channel` set.
+
+## 6. Track work as tasks
+
+For multi-step delegated work where state matters:
+
+```
+const task = create_task({
+  requested_by: <coordinator>,
+  title: "review the auth refresh logic",
+  description: "src/auth/refresh.ts lines 40-80, race conditions",
+  priority: 10,
+  cwd: "/abs/path/to/repo",
+})
+
+// optionally send the assignee a heads-up referencing the task
+send({
+  from: <coordinator>,
+  to: <assignee>,
+  message: `Please claim task #${task.id}`,
+  thread_id: task.thread_id,
+})
+```
+
+Worker side:
+```
+claim_task({ agent: "worker", task_id })       // atomic
+update_task({ agent: "worker", task_id, state: "working" })
+// ...do the work...
+update_task({
+  agent: "worker", task_id,
+  state: "completed",
+  result: "Found 2 issues, see thread for details."
+})
+```
+
+`list_tasks` (or `agent-bus tasks --watch` from a shell) shows
+pending and active work. Stale tasks (holder gone idle) surface with
+`stale: true` — surface them to the user; they can `release_task`
+manually.
+
+## 7. Conversation threading
+
+Every message has a `thread_id`. Auto-generated unless provided. To
+keep a multi-turn exchange together, pass the incoming `thread_id`
+back when replying:
+
+```
+send({ from: <you>, to: <them>, message: "...", thread_id: msg.thread_id })
+```
+
+Later, read the chain:
+```
+thread({ thread_id: <id> }) -> Message[]
+```
+
+Useful when summarizing a long back-and-forth, or when debugging "what
+did we agree on?"
+
+## 8. Capability routing (don't know who to ask)
+
+When the user describes a skill rather than a name ("a reviewer",
+"someone who knows React"):
+
+```
+ask_best({
+  from: <coordinator>,
+  capability: "react",          // or "review", "security", etc.
+  question: "...",
+})
+```
+
+The bus picks the most-recently-active in-project agent with that
+capability. Fails loud with `UNKNOWN_AGENT` and a hint when no match.
+
+## 9. Cross-project addressing
+
+By name (`send` / `ask` to a specific agent name) always works
+regardless of project. Discovery (`whois`, `list_tasks`, `recent`,
+`ask_best`) defaults to caller's project; pass `project: "*"` to opt
+into global. CLI tools default to the repo-derived project; use
+`--project all` for global.
+
+## 10. Human-in-the-loop relay
+
+The user wants to be the relay between two helpers, with full
+visibility:
+
+- They open `agent-bus watch` in a third terminal.
+- They `agent-bus inject --to <agent> "..."` to nudge any helper.
+- The bus shows everything; coordinator doesn't have to be
+  bus-aware.
+
+Use this when the user wants tight control over what passes between
+helpers, or when debugging a multi-agent flow.
