@@ -127,15 +127,21 @@ args = ["<paste agent-bus-mcp path here>"]
 Absolute paths matter because Codex Desktop doesn't inherit your shell
 PATH. After editing, **Cmd+Q + reopen** Codex Desktop fully.
 
-### 4. (Recommended) Install the `/listen` slash command
+### 4. (Recommended) Install the `/main` and `/listen` slash commands
 
-The "Try it" example below uses `/listen alpha`, which is a Claude Code
-slash command. One-time install:
+Two one-line slash commands that make day-to-day use natural:
+
+- `/main <name>` — primes a coordinator session to talk to the bus
+  in plain English ("ask the reviewer to…", "delegate this…").
+- `/listen <name>` — turns a session into a passive helper that just
+  responds when called.
+
+One-time install:
 
 ```bash
 mkdir -p ~/.claude/commands
-curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/listen.md \
-  -o ~/.claude/commands/listen.md
+curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/main.md   -o ~/.claude/commands/main.md
+curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/listen.md -o ~/.claude/commands/listen.md
 ```
 
 ### 5. Verify
@@ -155,30 +161,44 @@ listener, verifier, naming, and `replace: true` examples.
 
 Open two new Claude Code sessions.
 
-**Terminal A** (the listener — `/listen` registers `alpha` and starts the inbox loop):
+**Terminal A** — the helper. Type:
 
 ```
-/listen alpha
+/listen helper-a
 ```
 
-**Terminal B** (the sender — explicit register since there's no slash command for "talk"):
+That session registers as `helper-a` and quietly waits for messages.
+
+**Terminal B** — your main session. Type:
 
 ```
-Use agent-bus to register me as "beta", then send alpha "what is 17 × 23?"
-and wait for the reply with inbox(wait_s=30).
+/main me
 ```
 
-**Terminal C** (you, watching):
+Then talk to it like a person:
+
+```
+Ask helper-a what 17 × 23 is.
+```
+
+Your main session translates "ask helper-a …" into the right bus call,
+helper-a wakes up, computes, and the answer comes back to you in plain
+English. No tool names. No JSON.
+
+**Terminal C** (optional, you watching):
 
 ```bash
 agent-bus watch
 ```
 
-`watch`, `log`, `whois`, and `tasks` default to the current
-repo-derived project. Use `--project all` when you want the whole local
-bus.
+`watch`, `log`, `whois`, and `tasks` default to the current repo-derived
+project. Use `--project all` when you want the whole local bus.
 
-> Every session needs to `register` once. `/listen` does it for you; the sender does it explicitly. After that, the name persists in `~/.agent-bus/bus.db` and any session can reuse it.
+> `/main` and `/listen` each register their session once. After that the
+> names live in `~/.agent-bus/bus.db` and survive restarts. The
+> coordinator phrases — "ask helper-a", "delegate this", "get a second
+> opinion" — are translated by the slash command's playbook into the
+> right `ask` / `send` / `ask_best` calls under the hood.
 
 ### What you'll see
 
@@ -188,29 +208,29 @@ Within a couple of seconds:
 
 ```
 agent-bus watch
-  online  alpha  [listening]
-  online  beta
+  online  helper-a  [listening]
+  online  me
 ---
-14:52:01 #1 beta → alpha  msg
+14:52:01 #1 me → helper-a  ASK
   what is 17 × 23?
-14:52:03 #2 alpha → beta  msg
+14:52:03 #2 helper-a → me  REPLY ↪#1
   391
 ```
 
-**Terminal A** (the listener) narrates the exchange and goes back to waiting:
+**Terminal A** (helper-a) narrates briefly and goes back to listening:
 
 ```
-listening as alpha
-← from beta: "what is 17 × 23?"  → answered: "391"
+listening as helper-a
+← from me: "what is 17 × 23?"  → answered: "391"
 ```
 
-**Terminal B** (the sender) prints alpha's reply and the conversation ends:
+**Terminal B** (your main session) prints the answer back in plain English:
 
 ```
-alpha replied: 391
+helper-a says: 391.
 ```
 
-That's the entire loop: register → send → block on inbox → message lands → answer is sent back → asker unblocks. All through one SQLite file, no network, no daemon. From here, swap the math for "review my last commit", "run the test suite", "summarize this PR", or anything else you'd want a peer session to handle.
+From here, swap the math for "review my last commit", "run the test suite", "summarize this PR", "find every call to useAuth in the codebase", or anything else you'd want a peer session to handle. You stay conversational; the agent picks the right bus call.
 
 ## What you get
 

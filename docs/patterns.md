@@ -3,6 +3,63 @@
 How to use the bus for real work. Each pattern is a recipe: when to use
 it, the exact tool calls or prompts, and the failure modes.
 
+The first pattern is the one most users actually want — natural-language
+coordination from a single "main" session that has helpers on the bus.
+Patterns 1+ are the lower-level building blocks each helper or
+automation uses.
+
+## 0. Coordinator mode (talk naturally, agent figures out the tools)
+
+**When**: you have a main working session and one or more helper
+sessions in `/listen` mode. You don't want to type tool names or
+parameters — you want to describe what you need.
+
+**How**:
+
+In your main session (just once at session start):
+
+```
+/main mustapha
+```
+
+That registers you on the bus as `mustapha`, lists who else is
+available, and primes Claude to translate phrases like "ask the
+reviewer", "delegate this", "get a second opinion" into the right tool
+calls.
+
+From there you just talk:
+
+| You say | Behind the scenes |
+|---|---|
+| "Ask the reviewer to check src/foo.ts for race conditions." | `ask_best(capability="review", question="…")`, returns the verdict to you in plain English. |
+| "Get a second opinion on this approach." | `ask_best(capability="review" or "verify", …)`. |
+| "Have someone find all callers of `useAuth`." | `ask_best(capability="research", question="…")`. |
+| "Delegate this to a helper and tell me when it's done." | `send(to=<best-fit helper>, message=…)`. Returns to your work; the helper's reply lands in your inbox. |
+| "Ask helper-a what they think." | `ask(to="helper-a", question=…)`. |
+| "Did anyone reply?" | `inbox()` then summarizes what came back. |
+| "Who's around?" | `whois()` rendered as a clean list. |
+| "Remember that we picked Polar over Stripe." | `send(to=<memory keeper>, message="remember: …")`. |
+
+The slash command is bundled in the repo at
+[`docs/commands/main.md`](commands/main.md). One-time install for new
+machines:
+
+```bash
+mkdir -p ~/.claude/commands
+curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/main.md \
+  -o ~/.claude/commands/main.md
+```
+
+**Failure modes**:
+
+- No helpers registered → the agent will tell you "nobody else is on
+  the bus yet" instead of routing into the void.
+- Agent makes the wrong tool choice → tell it explicitly ("use `ask`,
+  not `send`"). The slash command's playbook covers the common cases
+  but is not exhaustive.
+- You want to bypass priming and use the raw tools → just describe
+  the tool call directly, the agent will still execute it.
+
 ## 1. Listener mode
 
 **When**: you want a session to act as a long-running responder, like a
