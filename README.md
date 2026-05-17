@@ -84,15 +84,62 @@ scope. Listeners get push-like delivery via blocking `inbox(wait_s)`.
 
 ## Install
 
-**Prerequisites:** Node.js ≥ 20.
+**Prerequisites:** Node.js ≥ 20. Then `npm i -g @agent-bus-connect/cli` to put `agent-bus` and `agent-bus-mcp` on PATH.
 
-> **Turn-key plugin install** (bundles MCP + slash commands + skill + Stop hook):
->
-> - **Claude Code:** `/plugin → Marketplaces → Add MustaphaSteph/agent-bus-plugins → Install agent-bus`
-> - **Codex CLI / Desktop:** `codex plugin marketplace add MustaphaSteph/agent-bus-plugins`
-> - **Cursor / Gemini CLI / Goose / OpenCode / Junie / Amp / Kiro:** `curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/main/install.sh | sh`
->
-> If you prefer manual setup, the steps below give you the same result.
+### Turn-key plugin install
+
+Pick the one that matches your tool. Each bundles the MCP, slash commands, skill, and a Stop hook for listener resilience.
+
+<table>
+<tr>
+<td align="center" width="33%">
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" /></a>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" /></a>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" /></a>
+</td>
+</tr>
+<tr>
+<td>
+
+In Claude Code:
+
+```
+/plugin
+> Marketplaces
+> Add MustaphaSteph/agent-bus-plugins
+> Install agent-bus
+```
+
+</td>
+<td>
+
+In any terminal:
+
+```bash
+codex plugin marketplace add \
+  MustaphaSteph/agent-bus-plugins
+```
+
+Then install via Codex's plugin UI.
+
+</td>
+<td>
+
+For Cursor, Gemini CLI, Goose, OpenCode, Junie, Amp, Kiro:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/main/install.sh | sh
+```
+
+</td>
+</tr>
+</table>
+
+If you prefer manual setup, the steps below give you the same result.
 
 ### 1. Install agent-bus globally
 
