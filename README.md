@@ -6,6 +6,8 @@
   <a href="https://www.npmjs.com/package/@agent-bus-connect/cli"><img src="https://img.shields.io/npm/v/@agent-bus-connect/cli.svg?label=npm" alt="npm version" /></a>
   <a href="https://github.com/MustaphaSteph/agent-bus/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@agent-bus-connect/cli.svg" alt="license" /></a>
   <a href="https://www.npmjs.com/package/@agent-bus-connect/cli"><img src="https://img.shields.io/npm/dm/@agent-bus-connect/cli.svg" alt="downloads" /></a>
+  <a href="https://agentskills.io"><img src="https://img.shields.io/badge/Agent_Skills-compatible-2563eb.svg" alt="Agent Skills compatible" /></a>
+  <a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="https://img.shields.io/badge/plugins-Claude_%2B_Codex-7c3aed.svg" alt="Plugin marketplaces" /></a>
 </p>
 
 <p align="center">
@@ -83,6 +85,14 @@ scope. Listeners get push-like delivery via blocking `inbox(wait_s)`.
 ## Install
 
 **Prerequisites:** Node.js ≥ 20.
+
+> **Turn-key plugin install** (bundles MCP + slash commands + skill + Stop hook):
+>
+> - **Claude Code:** `/plugin → Marketplaces → Add MustaphaSteph/agent-bus-plugins → Install agent-bus`
+> - **Codex CLI / Desktop:** `codex plugin marketplace add MustaphaSteph/agent-bus-plugins`
+> - **Cursor / Gemini CLI / Goose / OpenCode / Junie / Amp / Kiro:** `curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/main/install.sh | sh`
+>
+> If you prefer manual setup, the steps below give you the same result.
 
 ### 1. Install agent-bus globally
 
