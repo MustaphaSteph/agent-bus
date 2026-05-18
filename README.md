@@ -93,13 +93,13 @@ Pick the one that matches your tool. Each bundles the MCP, slash commands, skill
 <table>
 <tr>
 <td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" /></a>
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" width="220" /></a>
 </td>
 <td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" /></a>
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" width="220" /></a>
 </td>
 <td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" /></a>
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="220" /></a>
 </td>
 </tr>
 <tr>
