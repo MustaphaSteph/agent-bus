@@ -57,7 +57,7 @@ a file and a process.
 - **Specialist routing.** Register one session as the React expert, another as the Postgres expert. Use `ask_best(capability=…)` and the bus picks.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
-- **Multi-project isolation.** Sessions default to the repo-derived project, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
+- **Project and area isolation.** Sessions default to the repo-derived project, and can derive an `area` like `ios` or `backend` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
 
 ## How it works
@@ -79,8 +79,9 @@ a file and a process.
 
 Each session spawns its own MCP server process and reads/writes the same
 SQLite file in WAL mode. Names are addresses. MCP sessions derive a
-project from the current repo and use it as the default read/routing
-scope. Listeners get push-like delivery via blocking `inbox(wait_s)`.
+project from the current repo and can derive an area from `.agent-bus.json`
+as the default read/routing scope. Listeners get push-like delivery via
+blocking `inbox(wait_s)`.
 
 ## Install
 
@@ -93,13 +94,13 @@ Pick the one that matches your tool. Each bundles the MCP, slash commands, skill
 <table>
 <tr>
 <td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" width="220" /></a>
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" width="140" /></a>
 </td>
 <td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" width="220" /></a>
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" width="140" /></a>
 </td>
 <td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="220" /></a>
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="140" /></a>
 </td>
 </tr>
 <tr>
@@ -249,7 +250,21 @@ agent-bus watch
 ```
 
 `watch`, `log`, `whois`, and `tasks` default to the current repo-derived
-project. Use `--project all` when you want the whole local bus.
+project and, when configured, the current subfolder area. Use
+`--project all --area all` when you want the whole local bus.
+
+Optional area config at the repo root:
+
+```json
+{
+  "project": "my-app",
+  "areas": {
+    "ios": ["ios/**"],
+    "backend": ["backend/**", "api/**"],
+    "frontend": ["frontend/**", "web/**"]
+  }
+}
+```
 
 > `/main` and `/listen` each register their session once. After that the
 > names live in `~/.agent-bus/bus.db` and survive restarts. The
@@ -294,7 +309,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 - **20 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability routing, conversation threads, at-least-once delivery with claim+ack, and first-class tasks with strict state machine.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, and tasks survive restarts via SQLite WAL.
-- **Project-scoped by default** — MCP sessions derive a local project from cwd; global views are explicit with `project: "*"` or `--project all`.
+- **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, or CLI `--project all --area all`.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 
