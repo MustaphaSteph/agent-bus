@@ -13,6 +13,7 @@ register({
   capabilities?: string[],     // tags for ask_best routing
   replace?: boolean,           // take over an actively-held name
   project?: string | null,      // MCP default is derived from cwd; null is global
+  area?: string | null,         // MCP default from .agent-bus.json; null is no area
 }) → Agent
 ```
 
@@ -24,7 +25,8 @@ within last 60s and `replace` not passed).
 ```js
 register({ name: "frontend-bot", capabilities: ["react", "css"] })
 // → { name: "frontend-bot", capabilities: ["react","css"],
-//     registered_at: ..., last_seen: ..., paused: false, project: "agent-bus" }
+//     registered_at: ..., last_seen: ..., paused: false,
+//     project: "agent-bus", area: "frontend" }
 ```
 
 ## send
@@ -140,13 +142,14 @@ ask_best({
   timeout_s?: number,
   thread_id?: string,
   project?: string,             // default asker's project; "*" searches globally
+  area?: string,                // default asker's area; "*" searches every area
 }) → Message                   // the reply
 ```
 
 Picks the candidate with the most recent `last_seen` in the selected
-project. Refuses matches where the candidate hasn't been seen in 5
-minutes. If no in-project match exists, it fails with a hint to pass
-`project: "*"` for a global search.
+project and area. Refuses matches where the candidate hasn't been seen
+in 5 minutes. If no in-scope match exists, it fails with a hint to pass
+`project: "*"` and/or `area: "*"` for a broader search.
 
 **Errors**: `UNKNOWN_AGENT` (no registered agent has the capability, or
 the best match is stale), plus everything `ask` can throw.
@@ -256,7 +259,7 @@ Useful for reconstructing a multi-message exchange.
 List every registered agent with capabilities and last-seen.
 
 ```ts
-whois({ project?: string }) → Agent[]   // "*" = all, otherwise scoped + null legacy
+whois({ project?: string, area?: string }) → Agent[]   // "*" = all
 ```
 
 ## recent
@@ -265,12 +268,12 @@ Read the most recent messages on the bus, regardless of who sent them or
 who they're for. Doesn't flip status.
 
 ```ts
-recent({ limit?: number, project?: string }) → Message[]    // default 50, max 500
+recent({ limit?: number, project?: string, area?: string }) → Message[]    // default 50, max 500
 ```
 
 Useful when you want to catch up on what's been happening. A concrete
-project includes matching messages plus legacy/global null-project
-messages; `"*"` returns all.
+project or area includes matching messages plus legacy/global null-scope
+messages; `"*"` returns all for that dimension.
 
 ## create_task
 
@@ -287,6 +290,7 @@ create_task({
   cwd?: string,                // target working directory
   blocked_on_task_id?: number, // soft dependency, no auto-unblock
   project?: string | null,      // default requester's project
+  area?: string | null,         // default requester's area
 }) -> Task
 ```
 
@@ -364,14 +368,15 @@ list_tasks({
   include_terminal?: boolean,  // default false
   limit?: number,              // default 100, max 500
   project?: string,             // concrete project or "*" for all
+  area?: string,                // concrete area or "*" for all
 }) -> Task[]
 ```
 
 By default terminal tasks (`completed`, `failed`, `canceled`) are hidden.
 Active tasks may include `stale: true` when the holder has not
 heartbeated within `AGENT_BUS_TASK_STALE_MS` (default 5 minutes).
-Concrete project filters hide null-project legacy tasks; `project: "*"`
-returns all projects.
+Concrete project and area filters hide null-scope legacy tasks;
+`project: "*"` and `area: "*"` return all projects/areas.
 
 ## get_task
 

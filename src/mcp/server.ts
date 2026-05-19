@@ -29,12 +29,12 @@ import {
   whois,
 } from "../bus.js";
 import { BusError } from "../util/errors.js";
-import { deriveProject } from "../util/project.js";
+import { deriveScope } from "../util/project.js";
 
 // MCP servers inherit cwd from the spawning session, so this is the
-// project context for everything this process handles. Derived once at
+// project/area context for everything this process handles. Derived once at
 // startup (the cwd doesn't change for the life of an MCP child process).
-const SESSION_PROJECT: string | null = deriveProject();
+const SESSION_SCOPE = deriveScope();
 
 const TASK_STATES = [
   "open",
@@ -50,12 +50,15 @@ const TaskStateEnum = z.enum(TASK_STATES);
 // project filter accepts "*" (global) or a project slug or null/omit (default scope)
 const ProjectField = z.string().min(1).max(64).nullable().optional();
 const ProjectFilterField = z.string().min(1).max(64).optional();
+const AreaField = z.string().min(1).max(64).nullable().optional();
+const AreaFilterField = z.string().min(1).max(64).optional();
 
 const RegisterInput = z.object({
   name: z.string().min(1).max(64),
   capabilities: z.array(z.string()).max(32).optional(),
   replace: z.boolean().optional(),
   project: ProjectField,
+  area: AreaField,
 });
 
 const SendInput = z.object({
@@ -94,6 +97,7 @@ const AskBestInput = z.object({
   timeout_s: z.number().int().positive().max(110).optional(),
   thread_id: z.string().optional(),
   project: ProjectFilterField,
+  area: AreaFilterField,
 });
 
 const ReplyInput = z.object({
@@ -125,6 +129,7 @@ const ThreadInput = z.object({
 
 const WhoisInput = z.object({
   project: ProjectFilterField,
+  area: AreaFilterField,
 });
 
 const CreateTaskInput = z.object({
@@ -136,6 +141,7 @@ const CreateTaskInput = z.object({
   cwd: z.string().optional(),
   blocked_on_task_id: z.number().int().positive().optional(),
   project: ProjectField,
+  area: AreaField,
 });
 
 const ClaimTaskInput = z.object({
@@ -166,6 +172,7 @@ const ListTasksInput = z.object({
   include_terminal: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
   project: ProjectFilterField,
+  area: AreaFilterField,
 });
 
 const GetTaskInput = z.object({
@@ -175,6 +182,7 @@ const GetTaskInput = z.object({
 const RecentInput = z.object({
   limit: z.number().int().positive().max(500).optional(),
   project: ProjectFilterField,
+  area: AreaFilterField,
 });
 
 const TOOLS = [
@@ -197,6 +205,14 @@ const TOOLS = [
         replace: {
           type: "boolean",
           description: "Take over the name even if another session holds it",
+        },
+        project: {
+          type: ["string", "null"],
+          description: "Optional project scope; defaults to this MCP session's cwd-derived project",
+        },
+        area: {
+          type: ["string", "null"],
+          description: "Optional subfolder/domain scope from .agent-bus.json, e.g. ios or backend",
         },
       },
       required: ["name"],
@@ -303,6 +319,8 @@ const TOOLS = [
         question: { type: "string" },
         timeout_s: { type: "number" },
         thread_id: { type: "string" },
+        project: { type: "string", description: "Optional project filter; '*' searches all projects" },
+        area: { type: "string", description: "Optional area filter; '*' searches every area" },
       },
       required: ["from", "capability", "question"],
     },
@@ -393,7 +411,13 @@ const TOOLS = [
     name: "whois",
     description:
       "List every agent currently registered on the bus along with capabilities and last-seen timestamps.",
-    inputSchema: { type: "object", properties: {} },
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+      },
+    },
   },
   {
     name: "recent",
@@ -402,6 +426,8 @@ const TOOLS = [
       type: "object",
       properties: {
         limit: { type: "number", description: "Default 50, max 500" },
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
       },
     },
   },
@@ -421,6 +447,8 @@ const TOOLS = [
         priority: { type: "number", description: "Higher = sorts first in list_tasks" },
         cwd: { type: "string", description: "Working directory the task targets" },
         blocked_on_task_id: { type: "number" },
+        project: { type: ["string", "null"], description: "Optional project scope; defaults to requester" },
+        area: { type: ["string", "null"], description: "Optional area scope; defaults to requester" },
       },
       required: ["requested_by", "title"],
     },
@@ -508,6 +536,8 @@ const TOOLS = [
         thread_id: { type: "string" },
         include_terminal: { type: "boolean" },
         limit: { type: "number" },
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
       },
     },
   },
@@ -557,7 +587,8 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       const input = RegisterInput.parse(raw);
       return register({
         ...input,
-        project: input.project === undefined ? SESSION_PROJECT : input.project,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
       });
     }
     case "send": {
@@ -579,7 +610,8 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       const input = AskBestInput.parse(raw);
       return askBest({
         ...input,
-        project: input.project ?? (SESSION_PROJECT ?? undefined),
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
     case "reply":
@@ -607,20 +639,25 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "whois": {
       const input = WhoisInput.parse(raw);
-      return whois({ project: input.project ?? (SESSION_PROJECT ?? undefined) });
+      return whois({
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
     }
     case "recent": {
       const input = RecentInput.parse(raw);
       return recentMessages({
         limit: input.limit ?? 50,
-        project: input.project ?? (SESSION_PROJECT ?? undefined),
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
     case "create_task": {
       const input = CreateTaskInput.parse(raw);
       return createTask({
         ...input,
-        project: input.project === undefined ? SESSION_PROJECT : input.project,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
       });
     }
     case "claim_task":
@@ -633,7 +670,8 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       const input = ListTasksInput.parse(raw);
       return listTasks({
         ...input,
-        project: input.project ?? (SESSION_PROJECT ?? undefined),
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
     case "get_task":

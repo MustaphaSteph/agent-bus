@@ -36,9 +36,10 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 6. **Pass `thread_id` when continuing a conversation.** The thread_id is
    on every message you receive. Pass it back in your replies/sends so
    threads stay coherent.
-7. **Project scope is automatic for MCP sessions.** Register defaults to
-   the repo cwd-derived project. Use `project: "*"` only when you really
-   want global routing/listing.
+7. **Project/area scope is automatic for MCP sessions.** Register
+   defaults to the repo cwd-derived project and optional `.agent-bus.json`
+   area. Use `project: "*"` / `area: "*"` only when you really want
+   broader routing/listing.
 
 ## Tool reference
 
@@ -51,6 +52,7 @@ Input:
 - `capabilities?: string[]` — tags for capability routing
 - `replace?: boolean` — take over an actively-held name
 - `project?: string | null` — MCP default is repo cwd; null is global
+- `area?: string | null` — MCP default from `.agent-bus.json`; null is no area
 
 Returns the `Agent` row.
 
@@ -135,10 +137,12 @@ Input:
 - `timeout_s?: number`
 - `thread_id?: string`
 - `project?: string` — default asker's project; `"*"` searches globally
+- `area?: string` — default asker's area; `"*"` searches every area
 
 Picks the most-recently-active agent with that capability in the selected
-project. Refuses matches stale beyond 5 minutes. If no in-project match
-exists, fails with a hint to pass `project: "*"` for global search.
+project/area. Refuses matches stale beyond 5 minutes. If no in-scope
+match exists, fails with a hint to pass `project: "*"` or `area: "*"` for
+broader search.
 
 Errors: `UNKNOWN_AGENT` (no match or stale), plus everything `ask` can throw.
 
@@ -213,6 +217,7 @@ List every registered agent.
 
 Input:
 - `project?: string` — default current project in MCP; `"*"` means all
+- `area?: string` — default current area in MCP; `"*"` means all
 
 Returns `Agent[]` sorted by `last_seen` DESC.
 
@@ -223,6 +228,7 @@ Read the most recent messages on the bus regardless of recipient.
 Input:
 - `limit?: number` — default 50, max 500
 - `project?: string` — concrete project or `"*"` for all
+- `area?: string` — concrete area or `"*"` for all
 
 Returns `Message[]`.
 
@@ -239,6 +245,7 @@ Input:
 - `cwd?: string`
 - `blocked_on_task_id?: number` — soft dependency
 - `project?: string | null` — default requester agent's project
+- `area?: string | null` — default requester agent's area
 
 Returns `Task`.
 
@@ -293,6 +300,7 @@ Input:
 - `include_terminal?: boolean` — default false
 - `limit?: number` — default 100, max 500
 - `project?: string` — concrete project or `"*"` for all
+- `area?: string` — concrete area or `"*"` for all
 
 Returns `Task[]`. Active tasks may include `stale: true` when the holder
 has not heartbeated within `AGENT_BUS_TASK_STALE_MS`.
@@ -318,6 +326,7 @@ Returns `Task`.
   last_seen: number      // ms epoch
   paused: boolean
   project: string | null
+  area: string | null
 }
 ```
 
@@ -340,6 +349,7 @@ Returns `Task`.
   claimed_by: string | null
   channel: string | null    // set on channel fan-outs
   project: string | null
+  area: string | null
 }
 ```
 
@@ -365,6 +375,7 @@ Returns `Task`.
   claimed_at: number | null
   finished_at: number | null
   project: string | null
+  area: string | null
   stale?: boolean
 }
 ```
@@ -471,12 +482,14 @@ The worker claims, moves to `working`, and finishes with `completed`,
 `failed`, or `blocked`. Use `list_tasks` to see what is open, active, or
 stale.
 
-### Multi-project default
+### Multi-project / multi-area default
 
 If you are running inside a repo, your MCP server usually registers you
-with that repo-derived project automatically. Reads and `ask_best` default
-to that project. Use `project: "*"` only for intentional global views or
-cross-project capability routing.
+with that repo-derived project automatically. If `.agent-bus.json`
+defines path areas, sessions under matching folders also register with
+that area. Reads, tasks, and `ask_best` default to that scope. Use
+`project: "*"` or `area: "*"` only for intentional broader views or
+capability routing.
 
 ## Limits and caps
 
@@ -484,8 +497,8 @@ cross-project capability routing.
 - Message body: no cap on the bus; recipients may see truncation around
   1 MB depending on the MCP client.
 - Agent names: 1-64 chars, `[a-zA-Z0-9_.-]`.
-- Project names: 1-64 chars, `[a-zA-Z0-9_.-]`; `"*"` means all projects
-  in filter arguments.
+- Project and area names: 1-64 chars, `[a-zA-Z0-9_.-]`; `"*"` means all
+  values for that filter dimension.
 - Channel names: 1-64 chars, `[a-zA-Z0-9_.:#-]`.
 - `ack` claim window: passed by caller in `claim_s` (no fixed maximum at
   the MCP layer, but the Zod schema caps at 3600 s = 1 hour).

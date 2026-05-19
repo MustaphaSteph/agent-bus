@@ -19,6 +19,7 @@ export type MessageKind = "msg" | "ask" | "reply";
 export type MessageStatus = "pending" | "delivered" | "answered";
 
 export const PROJECT_WILDCARD = "*";
+export const AREA_WILDCARD = PROJECT_WILDCARD;
 
 export interface Agent {
   name: string;
@@ -27,6 +28,7 @@ export interface Agent {
   last_seen: number;
   paused: boolean;
   project: string | null;
+  area: string | null;
 }
 
 export interface Message {
@@ -45,6 +47,7 @@ export interface Message {
   claimed_by: string | null;
   channel: string | null;
   project: string | null;
+  area: string | null;
 }
 
 export interface Subscription {
@@ -60,6 +63,7 @@ interface AgentRow {
   last_seen: number;
   paused: number;
   project: string | null;
+  area: string | null;
 }
 
 interface MessageRow {
@@ -78,6 +82,7 @@ interface MessageRow {
   claimed_by: string | null;
   channel: string | null;
   project: string | null;
+  area: string | null;
 }
 
 function toAgent(row: AgentRow): Agent {
@@ -88,6 +93,7 @@ function toAgent(row: AgentRow): Agent {
     last_seen: row.last_seen,
     paused: row.paused === 1,
     project: row.project,
+    area: row.area,
   };
 }
 
@@ -108,20 +114,29 @@ function toMessage(row: MessageRow): Message {
     claimed_by: row.claimed_by,
     channel: row.channel,
     project: row.project,
+    area: row.area,
   };
 }
 
-function validateProject(project: string | null | undefined): void {
-  if (project === null || project === undefined) return;
-  if (typeof project !== "string" || project.length === 0 || project.length > 64) {
-    throw new BusError("INVALID_INPUT", "project must be 1-64 chars or omitted");
+function validateScopeName(kind: "project" | "area", value: string | null | undefined): void {
+  if (value === null || value === undefined) return;
+  if (typeof value !== "string" || value.length === 0 || value.length > 64) {
+    throw new BusError("INVALID_INPUT", `${kind} must be 1-64 chars or omitted`);
   }
-  if (!/^[a-zA-Z0-9_.-]+$/.test(project)) {
+  if (!/^[a-zA-Z0-9_.-]+$/.test(value)) {
     throw new BusError(
       "INVALID_INPUT",
-      "project may only contain letters, digits, _ . -",
+      `${kind} may only contain letters, digits, _ . -`,
     );
   }
+}
+
+function validateProject(project: string | null | undefined): void {
+  validateScopeName("project", project);
+}
+
+function validateArea(area: string | null | undefined): void {
+  validateScopeName("area", area);
 }
 
 function requireAgent(name: string): Agent {
@@ -165,11 +180,13 @@ export interface RegisterOptions {
   capabilities?: string[];
   replace?: boolean;
   project?: string | null;
+  area?: string | null;
 }
 
 export function register(opts: RegisterOptions): Agent {
   validateName(opts.name);
   validateProject(opts.project);
+  validateArea(opts.area);
   const caps = opts.capabilities ?? [];
   const db = getDb();
   const existing = db
@@ -188,16 +205,18 @@ export function register(opts: RegisterOptions): Agent {
   }
 
   const project = opts.project ?? null;
+  const area = opts.area ?? null;
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project)
-       VALUES (@name, @capabilities, @ts, @ts, 0, @project)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
        last_seen = excluded.last_seen,
        paused = 0,
-       project = excluded.project`,
-  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project });
+       project = excluded.project,
+       area = excluded.area`,
+  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area });
 
   return requireAgent(opts.name);
 }
@@ -209,25 +228,29 @@ export function heartbeat(name: string): void {
 
 export interface WhoisOptions {
   project?: string;
+  area?: string;
 }
 
 export function whois(opts: WhoisOptions = {}): Agent[] {
   const db = getDb();
-  if (opts.project === undefined || opts.project === PROJECT_WILDCARD) {
-    const rows = db
-      .prepare("SELECT * FROM agents ORDER BY last_seen DESC")
-      .all() as AgentRow[];
-    return rows.map(toAgent);
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    validateProject(opts.project);
+    where.push("(project = ? OR project IS NULL)");
+    params.push(opts.project);
   }
-  validateProject(opts.project);
-  // Scoped: include matching-project agents AND NULL-project (legacy/global) agents.
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    validateArea(opts.area);
+    where.push("(area = ? OR area IS NULL)");
+    params.push(opts.area);
+  }
   const rows = db
     .prepare(
-      `SELECT * FROM agents
-         WHERE project = ? OR project IS NULL
+      `SELECT * FROM agents${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
          ORDER BY last_seen DESC`,
     )
-    .all(opts.project) as AgentRow[];
+    .all(...params) as AgentRow[];
   return rows.map(toAgent);
 }
 
@@ -245,14 +268,15 @@ function insertMessage(
   opts: SendOptions,
   threadId: string,
   senderProject: string | null,
+  senderArea: string | null,
 ): Message {
   const db = getDb();
   const ts = now();
   const info = db
     .prepare(
       `INSERT INTO messages
-         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel, project)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel, project, area)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.from,
@@ -264,6 +288,7 @@ function insertMessage(
       threadId,
       opts.channel ?? null,
       senderProject,
+      senderArea,
     );
 
   const row = db
@@ -281,7 +306,7 @@ export function send(opts: SendOptions): Message {
   const sender = requireAgent(opts.from);
   requireAgent(opts.to);
   heartbeat(opts.from);
-  return insertMessage(opts, opts.thread_id ?? newThreadId(), sender.project);
+  return insertMessage(opts, opts.thread_id ?? newThreadId(), sender.project, sender.area);
 }
 
 export interface InboxOptions {
@@ -491,6 +516,7 @@ export function reply(opts: ReplyOptions): Message {
     },
     threadId,
     replier.project,
+    replier.area,
   );
   heartbeat(opts.from);
 
@@ -508,16 +534,18 @@ export interface AskBestOptions {
   timeout_s?: number;
   thread_id?: string;
   project?: string;
+  area?: string;
 }
 
 export async function askBest(opts: AskBestOptions): Promise<Message> {
   validateName(opts.from);
   const asker = requireAgent(opts.from);
 
-  // Resolve the scope: explicit > asker.project. PROJECT_WILDCARD means global.
-  const scope = opts.project !== undefined ? opts.project : asker.project;
-  if (scope !== null && scope !== PROJECT_WILDCARD) validateProject(scope);
-  const isGlobal = scope === PROJECT_WILDCARD || scope === null;
+  // Resolve scope: explicit > asker metadata. "*" means no filter on that dimension.
+  const projectScope = opts.project !== undefined ? opts.project : asker.project;
+  const areaScope = opts.area !== undefined ? opts.area : asker.area;
+  if (projectScope !== null && projectScope !== PROJECT_WILDCARD) validateProject(projectScope);
+  if (areaScope !== null && areaScope !== AREA_WILDCARD) validateArea(areaScope);
 
   const db = getDb();
   const ts = now();
@@ -533,15 +561,37 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
     .map(toAgent)
     .filter((a) => !a.paused && a.capabilities.includes(opts.capability));
 
-  const scoped = isGlobal
-    ? all
-    : all.filter((a) => a.project === scope || a.project === null);
+  const scoped = all.filter((a) => {
+    const projectOk =
+      projectScope === null ||
+      projectScope === PROJECT_WILDCARD ||
+      a.project === projectScope ||
+      a.project === null;
+    const areaOk =
+      areaScope === null ||
+      areaScope === AREA_WILDCARD ||
+      a.area === areaScope;
+    return projectOk && areaOk;
+  });
 
   if (scoped.length === 0) {
-    const hint = isGlobal
-      ? `no registered agent has capability '${opts.capability}'`
-      : `no active agent with capability '${opts.capability}' in project '${scope}'; pass project="${PROJECT_WILDCARD}" to search globally`;
-    throw new BusError("UNKNOWN_AGENT", hint);
+    const scopedParts = [
+      projectScope !== null && projectScope !== PROJECT_WILDCARD ? `project '${projectScope}'` : null,
+      areaScope !== null && areaScope !== AREA_WILDCARD ? `area '${areaScope}'` : null,
+    ].filter(Boolean);
+    const scopeText = scopedParts.length > 0 ? ` in ${scopedParts.join(", ")}` : "";
+    const hintParts = [
+      projectScope !== null && projectScope !== PROJECT_WILDCARD ? `project="${PROJECT_WILDCARD}"` : null,
+      areaScope !== null && areaScope !== AREA_WILDCARD ? `area="${AREA_WILDCARD}"` : null,
+    ].filter(Boolean);
+    const hint =
+      hintParts.length > 0
+        ? `; pass ${hintParts.join(" and ")} to search more broadly`
+        : "";
+    throw new BusError(
+      "UNKNOWN_AGENT",
+      `no active agent with capability '${opts.capability}'${scopeText}${hint}`,
+    );
   }
 
   const target = scoped[0]!;
@@ -633,6 +683,7 @@ export function sendChannel(opts: SendChannelOptions): Message[] {
         },
         threadId,
         sender.project,
+        sender.area,
       ),
     );
   }
@@ -649,6 +700,7 @@ export function setPaused(name: string, paused: boolean): void {
 export interface RecentMessagesOptions {
   limit?: number;
   project?: string;
+  area?: string;
 }
 
 export function recentMessages(arg: number | RecentMessagesOptions = 100): Message[] {
@@ -656,43 +708,46 @@ export function recentMessages(arg: number | RecentMessagesOptions = 100): Messa
   const limit = Math.min(Math.max(opts.limit ?? 100, 1), 1000);
 
   const db = getDb();
-  if (opts.project === undefined || opts.project === PROJECT_WILDCARD) {
-    const rows = db
-      .prepare("SELECT * FROM messages ORDER BY id DESC LIMIT ?")
-      .all(limit) as MessageRow[];
-    return rows.reverse().map(toMessage);
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    validateProject(opts.project);
+    where.push("(project = ? OR project IS NULL)");
+    params.push(opts.project);
   }
-  validateProject(opts.project);
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    validateArea(opts.area);
+    where.push("(area = ? OR area IS NULL)");
+    params.push(opts.area);
+  }
   const rows = db
     .prepare(
-      `SELECT * FROM messages
-         WHERE project = ? OR project IS NULL
+      `SELECT * FROM messages${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
          ORDER BY id DESC
          LIMIT ?`,
     )
-    .all(opts.project, limit) as MessageRow[];
+    .all(...params, limit) as MessageRow[];
   return rows.reverse().map(toMessage);
 }
 
-export function messagesSince(id: number, limit = 100, project?: string): Message[] {
+export function messagesSince(id: number, limit = 100, project?: string, area?: string): Message[] {
   const boundedLimit = Math.min(Math.max(limit, 1), 1000);
+  const where: string[] = ["id > ?"];
+  const params: unknown[] = [id];
   if (project !== undefined && project !== PROJECT_WILDCARD) {
     validateProject(project);
-    const rows = getDb()
-      .prepare(
-        `SELECT * FROM messages
-           WHERE id > ?
-             AND (project = ? OR project IS NULL)
-           ORDER BY id ASC
-           LIMIT ?`,
-      )
-      .all(id, project, boundedLimit) as MessageRow[];
-    return rows.map(toMessage);
+    where.push("(project = ? OR project IS NULL)");
+    params.push(project);
+  }
+  if (area !== undefined && area !== AREA_WILDCARD) {
+    validateArea(area);
+    where.push("(area = ? OR area IS NULL)");
+    params.push(area);
   }
 
   const rows = getDb()
-    .prepare("SELECT * FROM messages WHERE id > ? ORDER BY id ASC LIMIT ?")
-    .all(id, boundedLimit) as MessageRow[];
+    .prepare(`SELECT * FROM messages WHERE ${where.join(" AND ")} ORDER BY id ASC LIMIT ?`)
+    .all(...params, boundedLimit) as MessageRow[];
   return rows.map(toMessage);
 }
 
@@ -736,6 +791,7 @@ export interface Task {
   claimed_at: number | null;
   finished_at: number | null;
   project: string | null;
+  area: string | null;
   stale?: boolean;
 }
 
@@ -757,6 +813,7 @@ interface TaskRow {
   claimed_at: number | null;
   finished_at: number | null;
   project: string | null;
+  area: string | null;
 }
 
 function readTaskStaleThresholdMs(): number {
@@ -803,6 +860,7 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     claimed_at: row.claimed_at,
     finished_at: row.finished_at,
     project: row.project,
+    area: row.area,
   };
   if (
     lastSeenByAgent &&
@@ -841,6 +899,7 @@ export interface CreateTaskOptions {
   cwd?: string;
   blocked_on_task_id?: number;
   project?: string | null;
+  area?: string | null;
 }
 
 export function createTask(opts: CreateTaskOptions): Task {
@@ -855,6 +914,7 @@ export function createTask(opts: CreateTaskOptions): Task {
     throw new BusError("INVALID_INPUT", "priority must be a number");
   }
   validateProject(opts.project);
+  validateArea(opts.area);
   const requester = requireAgent(opts.requested_by);
   heartbeat(opts.requested_by);
 
@@ -874,11 +934,12 @@ export function createTask(opts: CreateTaskOptions): Task {
   const ts = now();
   const threadId = opts.thread_id ?? newThreadId();
   const project = opts.project !== undefined ? opts.project : requester.project;
+  const area = opts.area !== undefined ? opts.area : requester.area;
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -891,6 +952,7 @@ export function createTask(opts: CreateTaskOptions): Task {
       ts,
       ts,
       project,
+      area,
     );
 
   return toTask(getTaskRow(info.lastInsertRowid as number));
@@ -1068,6 +1130,7 @@ export interface ListTasksOptions {
   include_terminal?: boolean;
   limit?: number;
   project?: string;
+  area?: string;
 }
 
 export function listTasks(opts: ListTasksOptions = {}): Task[] {
@@ -1088,6 +1151,12 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
     // Scoped: only this project. NULL tasks are hidden until project='*'.
     where.push("project = ?");
     params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    validateArea(opts.area);
+    // Scoped: only this area. NULL-area tasks are hidden until area='*'.
+    where.push("area = ?");
+    params.push(opts.area);
   }
   if (opts.claimed_by !== undefined) {
     where.push("claimed_by = ?");

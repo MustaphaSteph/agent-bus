@@ -2,21 +2,21 @@ import kleur from "kleur";
 import { messagesSince, whois } from "../bus.js";
 import { sleep } from "../util/time.js";
 import { formatMessage } from "./format.js";
+import { scopeBanner, type ScopeOptions } from "./project-scope.js";
 
-export interface WatchOptions {
+export interface WatchOptions extends ScopeOptions {
   intervalMs?: number;
   fromId?: number;
-  project?: string;
 }
 
 export async function watch(opts: WatchOptions = {}): Promise<never> {
   const interval = opts.intervalMs ?? 250;
-  let lastId = opts.fromId ?? mostRecentId(opts.project);
+  let lastId = opts.fromId ?? mostRecentId(opts);
 
-  printHeader(opts.project);
+  printHeader(opts);
 
   for (;;) {
-    const fresh = messagesSince(lastId, 200, opts.project);
+    const fresh = messagesSince(lastId, 200, opts.project, opts.area);
     for (const m of fresh) {
       console.log(formatMessage(m));
       lastId = m.id;
@@ -25,17 +25,16 @@ export async function watch(opts: WatchOptions = {}): Promise<never> {
   }
 }
 
-function mostRecentId(project: string | undefined): number {
-  const recent = messagesSince(0, 1, project).at(-1);
+function mostRecentId(scope: ScopeOptions): number {
+  const recent = messagesSince(0, 1, scope.project, scope.area).at(-1);
   return recent ? recent.id - 1 : 0;
 }
 
-function printHeader(project: string | undefined): void {
-  const agents = whois({ project });
+function printHeader(scope: ScopeOptions): void {
+  const agents = whois(scope);
   console.log(kleur.bold("agent-bus watch"));
-  if (project !== undefined && project !== "*") {
-    console.log(kleur.gray(`scoped: ${project} (use --project all for global)`));
-  }
+  const banner = scopeBanner(scope);
+  if (banner) console.log(banner);
   if (agents.length === 0) {
     console.log(kleur.gray("  no agents registered yet"));
   } else {
@@ -49,8 +48,9 @@ function printHeader(project: string | undefined): void {
             : kleur.gray("stale");
       const caps = a.capabilities.length > 0 ? ` [${a.capabilities.join(", ")}]` : "";
       const projectChip = a.project ? ` {${a.project}}` : " {no-project}";
+      const areaChip = a.area ? `/${a.area}` : "";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`  ${status}  ${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip)}${paused}`);
+      console.log(`  ${status}  ${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip)}${paused}`);
     }
   }
   console.log(kleur.gray("---"));

@@ -13,10 +13,11 @@ shows kind (`msg`/`ask`/`reply`) and reply chains.
 agent-bus watch
 agent-bus watch --interval 100   # change poll interval in ms (default 250)
 agent-bus watch --project all    # global
+agent-bus watch --area all       # all areas in current project
 ```
 
 By default, `watch` is scoped to the current repo-derived project and
-prints `scoped: <project> (use --project all for global)` when scoped.
+the current configured area. It prints a scope banner when scoped.
 Ctrl+C to exit.
 
 ### `agent-bus log`
@@ -27,6 +28,7 @@ Snapshot of the most recent messages.
 agent-bus log                  # last 50
 agent-bus log -n 200           # last 200
 agent-bus log --project all    # global
+agent-bus log --area backend    # specific configured area
 ```
 
 ### `agent-bus whois`
@@ -36,10 +38,12 @@ List every registered agent with capabilities, last-seen, paused state.
 ```bash
 agent-bus whois
 agent-bus whois --project all
+agent-bus whois --area all
 ```
 
 Scoped output includes agents in the current project plus null-project
-legacy/global agents. Null-project agents render with `{no-project}`.
+legacy/global agents. Area-scoped output includes matching-area plus
+null-area legacy agents. Null-project agents render with `{no-project}`.
 
 ### `agent-bus tasks`
 
@@ -52,10 +56,30 @@ agent-bus tasks --all              # include completed/failed/canceled
 agent-bus tasks --watch            # print new or changed tasks
 agent-bus tasks --watch --interval 500
 agent-bus tasks --project all      # global
+agent-bus tasks --area ios         # only the ios task lane
 ```
 
 Rows show id, priority, state, title, requester, holder, and abbreviated
 thread id. Stale active tasks are highlighted red.
+
+## Area config
+
+Put `.agent-bus.json` in a repo root when one project has multiple lanes:
+
+```json
+{
+  "project": "my-app",
+  "areas": {
+    "ios": ["ios/**"],
+    "backend": ["backend/**", "api/**"],
+    "frontend": ["frontend/**", "web/**"]
+  }
+}
+```
+
+MCP sessions and CLI read commands derive the area from cwd. Use
+`--area all` when a project manager wants every lane in the current
+project.
 
 ### `agent-bus inject`
 
@@ -183,10 +207,12 @@ Format per task:
 
 If `stale` is true, the line ends with `stale` and is colored red.
 
-## Project scoping
+## Project and area scoping
 
-Read commands derive a default project from the current working
-directory by walking up to `.git` and using the repo folder name:
+Read commands derive a default project from the current working directory
+by walking up to `.git` and using the repo folder name. If
+`.agent-bus.json` exists, they also derive an area from the matching path
+pattern:
 
 ```bash
 agent-bus watch
@@ -195,6 +221,7 @@ agent-bus whois
 agent-bus tasks
 ```
 
-Use `--project all` for the whole bus, or `--project <name>` for a
-specific project. CLI relay/admin commands (`inject`, `register`) default
-to null/global project instead of deriving from cwd.
+Use `--project all` for all projects, `--area all` for all areas in the
+selected project, or concrete names for specific scopes. CLI relay/admin
+commands (`inject`, `register`) default to null/global project and area
+instead of deriving from cwd.

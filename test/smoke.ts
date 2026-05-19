@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
@@ -33,7 +33,7 @@ const {
 } = await import("../src/bus.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
-const { deriveProject } = await import("../src/util/project.js");
+const { deriveProject, deriveScope } = await import("../src/util/project.js");
 
 let passed = 0;
 let failed = 0;
@@ -358,6 +358,34 @@ await test("deriveProject uses git root basename and sanitizes", () => {
   rmSync(fallback, { recursive: true, force: true });
 });
 
+await test("deriveScope reads .agent-bus.json areas from cwd", () => {
+  const root = mkdtempSync(join(tmpdir(), "agent bus scoped!"));
+  mkdirSync(join(root, ".git"));
+  mkdirSync(join(root, "apps", "ios"), { recursive: true });
+  mkdirSync(join(root, "services", "api"), { recursive: true });
+  writeFileSync(
+    join(root, ".agent-bus.json"),
+    JSON.stringify({
+      project: "mobile-suite",
+      areas: {
+        ios: ["apps/ios/**"],
+        backend: ["services/api/**"],
+      },
+    }),
+  );
+
+  assert.deepEqual(deriveScope(join(root, "apps", "ios", "Sources")), {
+    project: "mobile-suite",
+    area: "ios",
+  });
+  assert.deepEqual(deriveScope(join(root, "services", "api")), {
+    project: "mobile-suite",
+    area: "backend",
+  });
+
+  rmSync(root, { recursive: true, force: true });
+});
+
 await test("project: register, whois, send, recent, and messagesSince scope", () => {
   register({ name: "p1-alice", project: "p1", capabilities: ["review"] });
   register({ name: "p1-bob", project: "p1" });
@@ -371,6 +399,7 @@ await test("project: register, whois, send, recent, and messagesSince scope", ()
   assert.equal(p1.project, "p1");
   assert.equal(p2.project, "p2");
   assert.equal(global.project, null);
+  assert.equal(p1.area, null);
 
   const p1Whois = whois({ project: "p1" }).map((a) => a.name);
   assert.ok(p1Whois.includes("p1-alice"));
@@ -391,6 +420,70 @@ await test("project: register, whois, send, recent, and messagesSince scope", ()
   assert.ok(p1Since.includes(p1.id));
   assert.ok(p1Since.includes(global.id));
   assert.ok(!p1Since.includes(p2.id));
+});
+
+await test("area: register, messages, ask_best, and tasks stay in lane", async () => {
+  register({ name: "area-asker", project: "app", area: "ios" });
+  register({ name: "area-ios", project: "app", area: "ios", capabilities: ["build"] });
+  register({ name: "area-backend", project: "app", area: "backend", capabilities: ["build"] });
+  register({ name: "area-manager", project: "app", area: "pm", capabilities: ["plan"] });
+
+  const iosMsg = send({ from: "area-ios", to: "area-manager", content: "ios update" });
+  const backendMsg = send({ from: "area-backend", to: "area-manager", content: "backend update" });
+  assert.equal(iosMsg.area, "ios");
+  assert.equal(backendMsg.area, "backend");
+
+  const iosWhois = whois({ project: "app", area: "ios" }).map((a) => a.name);
+  assert.ok(iosWhois.includes("area-ios"));
+  assert.ok(!iosWhois.includes("area-backend"));
+
+  const iosRecent = recentMessages({ project: "app", area: "ios", limit: 50 }).map((m) => m.id);
+  assert.ok(iosRecent.includes(iosMsg.id));
+  assert.ok(!iosRecent.includes(backendMsg.id));
+
+  const replier = setTimeout(async () => {
+    const pending = await inbox({ agent: "area-ios" });
+    const askMsg = pending.find((m) => m.kind === "ask");
+    assert.ok(askMsg, "expected area-scoped ask");
+    reply({ from: "area-ios", ask_id: askMsg.id, answer: "ios build answer" });
+  }, 200);
+
+  const answer = await askBest({
+    from: "area-asker",
+    capability: "build",
+    question: "build?",
+    timeout_s: 5,
+  });
+  clearTimeout(replier);
+  assert.equal(answer.from_agent, "area-ios");
+
+  await assert.rejects(
+    () =>
+      askBest({
+        from: "area-asker",
+        capability: "plan",
+        question: "?",
+        timeout_s: 1,
+      }),
+    (e: unknown) =>
+      e instanceof BusError &&
+      e.code === "UNKNOWN_AGENT" &&
+      e.message.includes("area 'ios'") &&
+      e.message.includes('area="*"'),
+  );
+
+  const iosTask = createTask({ requested_by: "area-ios", title: "ios task" });
+  const backendTask = createTask({ requested_by: "area-backend", title: "backend task" });
+  assert.equal(iosTask.area, "ios");
+  assert.equal(backendTask.area, "backend");
+
+  const iosTasks = listTasks({ project: "app", area: "ios", include_terminal: true }).map((t) => t.id);
+  assert.ok(iosTasks.includes(iosTask.id));
+  assert.ok(!iosTasks.includes(backendTask.id));
+
+  const allAreaTasks = listTasks({ project: "app", area: PROJECT_WILDCARD, include_terminal: true }).map((t) => t.id);
+  assert.ok(allAreaTasks.includes(iosTask.id));
+  assert.ok(allAreaTasks.includes(backendTask.id));
 });
 
 await test("project: ask_best is scoped and fails loud for wrong project", async () => {

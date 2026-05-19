@@ -20,27 +20,31 @@ register({ name: "alpha", capabilities: ["react", "css"] })
 `capabilities` is an array of tags. They're used by `ask_best` to route
 questions to the best-matching agent. Nothing else looks at them.
 
-## Project
+## Project And Area
 
-A soft scope derived from the repo cwd. MCP sessions default `project` by
-walking up to `.git` and using the repo folder name; CLI read commands do
-the same. Agent names remain globally unique, so project-specific names
-such as `agent-bus-verifier` are still recommended.
+A soft scope derived from cwd. MCP sessions default `project` by walking
+up to `.git` and using the repo folder name; CLI read commands do the
+same. If a repo contains `.agent-bus.json`, sessions can also derive an
+`area` from path patterns such as `ios/**` or `backend/**`. Agent names
+remain globally unique, so project-specific names such as
+`agent-bus-verifier` are still recommended.
 
-Project scoping reduces noise without isolating the bus:
+Project/area scoping reduces noise without isolating the bus:
 
-- `agents.project` is a filter attribute. `NULL` agents are legacy/global.
-- `messages.project` is copied from the sender at insert time. Scoped
-  `recent`, `log`, and `watch` include matching messages plus `NULL`
-  legacy/global messages.
-- `tasks.project` is set at creation, defaulting to the requester
-  agent's project. Scoped task lists hide `NULL` tasks; `project: "*"`
-  shows all tasks.
-- `ask_best` searches the asker's project by default and fails loudly
-  with a hint to pass `project: "*"` for global routing.
+- `agents.project` and `agents.area` are filter attributes. `NULL`
+  agents are legacy/global for that dimension.
+- `messages.project` and `messages.area` are copied from the sender at
+  insert time. Scoped `recent`, `log`, and `watch` include matching
+  messages plus `NULL` legacy/global messages.
+- `tasks.project` and `tasks.area` are set at creation, defaulting to the
+  requester agent. Scoped task lists hide `NULL` tasks for concrete
+  filters; `project: "*"` / `area: "*"` broadens the view.
+- `ask_best` searches the asker's project/area by default and fails
+  loudly with a hint to pass `project: "*"` or `area: "*"` for broader
+  routing.
 
-Direct `send`, `ask`, and `reply` still work across projects by explicit
-agent name.
+Direct `send`, `ask`, and `reply` still work across projects and areas by
+explicit agent name.
 
 ## Message
 
@@ -52,7 +56,7 @@ A row in the `messages` table. Fields you care about:
 - `content`: the payload (string, no size cap)
 - `thread_id`: the conversation it belongs to (auto-generated if you don't
   provide one)
-- `project`: copied from the sender agent at insert time
+- `project`, `area`: copied from the sender agent at insert time
 - `reply_to`: for `reply` kind, points back at the `ask` id
 - `channel`: for channel broadcasts, the channel name (otherwise NULL)
 - `status`: `pending`, `delivered`, or `answered`
@@ -103,7 +107,7 @@ other `msg` in their inbox — except `m.channel` is set.
 
 A queryable unit of work in the `tasks` table. Use tasks when you need
 coordination state, not just an event. A task has a title, optional
-description, thread_id, project, requester, optional holder, state,
+description, thread_id, project, area, requester, optional holder, state,
 priority, cwd, blocker metadata, result, and timestamps.
 
 The state machine is strict:

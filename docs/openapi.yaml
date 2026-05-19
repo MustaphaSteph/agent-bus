@@ -241,9 +241,10 @@ paths:
       summary: Route an ask to the best capability match
       description: |
         Picks the most-recently-active agent that has the given
-        capability tag in the selected project, then performs `ask`.
-        Pass `project: "*"` to search globally. Refuses matches where
-        the candidate hasn't been seen in 5 minutes.
+        capability tag in the selected project/area, then performs
+        `ask`. Pass `project: "*"` or `area: "*"` to search more
+        broadly. Refuses matches where the candidate hasn't been seen in
+        5 minutes.
       operationId: ask_best
       requestBody:
         required: true
@@ -466,14 +467,18 @@ paths:
               properties:
                 project:
                   $ref: '#/components/schemas/ProjectFilter'
+                area:
+                  $ref: '#/components/schemas/AreaFilter'
               additionalProperties: false
             examples:
               scoped:
                 value:
                   project: agent-bus
+                  area: frontend
               global:
                 value:
                   project: "*"
+                  area: "*"
       responses:
         '200':
           description: The list of agents.
@@ -492,8 +497,8 @@ paths:
       summary: Read recent messages regardless of recipient
       description: |
         Useful for catching up on the bus. Does not mutate status.
-        A `project` filter returns messages from that project plus
-        legacy/global `null` project messages. Pass `"*"` for global.
+        Project and area filters return matching messages plus legacy/global
+        `null` scope messages. Pass `"*"` for global on a dimension.
       operationId: recent
       requestBody:
         required: true
@@ -668,8 +673,9 @@ paths:
         Terminal tasks are excluded by default unless `include_terminal`
         is true or a terminal `state` filter is provided. Active tasks
         may include `stale: true` when their holder has not heartbeated
-        within `AGENT_BUS_TASK_STALE_MS`. A concrete `project` filter
-        hides `null` project legacy tasks; `project: "*"` returns all.
+        within `AGENT_BUS_TASK_STALE_MS`. Concrete `project` and `area`
+        filters hide null-scope legacy tasks; `project: "*"` and
+        `area: "*"` broaden the view.
       operationId: list_tasks
       requestBody:
         required: true
@@ -763,6 +769,21 @@ components:
           enum: ['*']
           description: Wildcard meaning all projects.
 
+    AreaName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-zA-Z0-9_.-]+$'
+      description: Area scope derived from `.agent-bus.json` or supplied explicitly.
+      example: frontend
+
+    AreaFilter:
+      oneOf:
+        - $ref: '#/components/schemas/AreaName'
+        - type: string
+          enum: ['*']
+          description: Wildcard meaning all areas.
+
     MessageKind:
       type: string
       enum: [msg, ask, reply]
@@ -789,7 +810,7 @@ components:
 
     Agent:
       type: object
-      required: [name, capabilities, registered_at, last_seen, paused, project]
+      required: [name, capabilities, registered_at, last_seen, paused, project, area]
       properties:
         name:
           $ref: '#/components/schemas/AgentName'
@@ -811,6 +832,9 @@ components:
         project:
           type: [string, 'null']
           description: Project associated with this globally unique agent name. Null means legacy/global.
+        area:
+          type: [string, 'null']
+          description: Area associated with this agent. Null means no area/legacy.
 
     Message:
       type: object
@@ -824,6 +848,7 @@ components:
         - created_at
         - thread_id
         - project
+        - area
       properties:
         id:
           type: integer
@@ -867,6 +892,9 @@ components:
         project:
           type: [string, 'null']
           description: Project copied from the sender agent at insert time. Null means legacy/global.
+        area:
+          type: [string, 'null']
+          description: Area copied from the sender agent at insert time. Null means no area/legacy.
 
     Task:
       type: object
@@ -880,6 +908,7 @@ components:
         - created_at
         - updated_at
         - project
+        - area
       properties:
         id:
           type: integer
@@ -933,6 +962,9 @@ components:
         project:
           type: [string, 'null']
           description: Project scope for this task. Null tasks only appear in global task listings.
+        area:
+          type: [string, 'null']
+          description: Area scope for this task. Null-area tasks only appear in global area task listings.
 
     Subscription:
       type: object
@@ -996,6 +1028,9 @@ components:
         project:
           type: [string, 'null']
           description: Optional project association. MCP sessions default this from cwd; null is global/legacy.
+        area:
+          type: [string, 'null']
+          description: Optional area association. MCP sessions default this from `.agent-bus.json`; null is no area.
 
     SendRequest:
       type: object
@@ -1090,6 +1125,8 @@ components:
           $ref: '#/components/schemas/ThreadId'
         project:
           $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
 
     ReplyRequest:
       type: object
@@ -1158,6 +1195,8 @@ components:
           maximum: 500
         project:
           $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
 
     CreateTaskRequest:
       type: object
@@ -1185,6 +1224,9 @@ components:
         project:
           type: [string, 'null']
           description: Optional project. Defaults to the requester agent's project.
+        area:
+          type: [string, 'null']
+          description: Optional area. Defaults to the requester agent's area.
 
     ClaimTaskRequest:
       type: object
@@ -1255,6 +1297,8 @@ components:
           maximum: 500
         project:
           $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
 
     GetTaskRequest:
       type: object

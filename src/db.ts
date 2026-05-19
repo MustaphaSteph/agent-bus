@@ -113,15 +113,24 @@ function migrate(db: Database.Database): void {
   if (!messageCols.has("project")) {
     db.exec(`ALTER TABLE messages ADD COLUMN project TEXT`);
   }
+  if (!messageCols.has("area")) {
+    db.exec(`ALTER TABLE messages ADD COLUMN area TEXT`);
+  }
 
   const agentCols = tableColumns(db, "agents");
   if (!agentCols.has("project")) {
     db.exec(`ALTER TABLE agents ADD COLUMN project TEXT`);
   }
+  if (!agentCols.has("area")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN area TEXT`);
+  }
 
   const taskCols = tableColumns(db, "tasks");
   if (!taskCols.has("project")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN project TEXT`);
+  }
+  if (!taskCols.has("area")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN area TEXT`);
   }
 
   db.exec(`
@@ -131,9 +140,15 @@ function migrate(db: Database.Database): void {
       ON messages(claim_deadline);
     CREATE INDEX IF NOT EXISTS idx_messages_project
       ON messages(project);
+    CREATE INDEX IF NOT EXISTS idx_messages_area
+      ON messages(area);
     CREATE INDEX IF NOT EXISTS idx_agents_project
       ON agents(project);
+    CREATE INDEX IF NOT EXISTS idx_agents_area
+      ON agents(area);
     CREATE INDEX IF NOT EXISTS idx_tasks_project
       ON tasks(project);
+    CREATE INDEX IF NOT EXISTS idx_tasks_area
+      ON tasks(area);
   `);
 }
