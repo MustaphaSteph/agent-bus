@@ -21,7 +21,9 @@ naturally, you translate their intent into agent-bus tool calls.
 
 Before using any bus tools, run `scripts/check-setup.sh`. If it exits
 non-zero, halt and show the user the install hint it printed. Do not
-try to use the bus until the check passes.
+try to use the bus until the check passes. If the user asks you to fix
+the setup, run `scripts/check-setup.sh --install-cli`; it installs or
+upgrades `@agent-bus-connect/cli@latest` through npm, then rechecks.
 
 If `mcp__agent-bus__register` is not in your available tools, the MCP
 server is not wired into this session. Tell the user to add it — the
@@ -180,4 +182,4 @@ intent calls for them.
 | `ASK_TIMEOUT` | recipient didn't reply in time | tell the user, suggest re-sending as `send` or asking the user to nudge the recipient session |
 | `ASK_CYCLE` | mutual deadlock — recipient has a pending ask to you | resolve their ask first, then retry |
 | The user names a helper that isn't on the bus | not registered | offer to spin up a listener (`/listen <name>` in Claude Code, or paste `agent-bus listen-prompt <name>` output into Codex/Cursor) |
-| Setup check fails | MCP not installed / wrong version | print install hint, halt — don't try to call tools |
+| Setup check fails | MCP not installed / wrong version | print install hint; if the user approves, run `scripts/check-setup.sh --install-cli`, then retry |

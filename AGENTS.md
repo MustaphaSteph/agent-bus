@@ -200,6 +200,18 @@ install instructions, storage behavior, or limits, update:
 - [`docs/cli.md`](docs/cli.md) — CLI reference
 - [`docs/patterns.md`](docs/patterns.md) — if a new tool unlocks a new pattern
 - [`llms.txt`](llms.txt) — agent-consumable reference
+- [`CLAUDE.md`](CLAUDE.md) — Claude Code repo context
+- [`skills/agent-bus/`](skills/agent-bus/) — canonical Agent Skill
+
+If the Agent Skill changes, sync the plugin repo:
+
+```bash
+cd /Users/air/Documents/Projects/agent-bus-plugins
+npm run sync-skill
+```
+
+Update plugin manifests/docs there when tool counts, minimum CLI
+versions, slash-command behavior, or install/setup behavior changes.
 
 ## Tunables
 

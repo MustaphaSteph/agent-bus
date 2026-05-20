@@ -8,12 +8,14 @@ MCP.
 
 ## Current state
 
-- **Version**: `0.4.0`
+- **Version**: `0.5.0`
 - **npm**: `@agent-bus-connect/cli` (https://www.npmjs.com/package/@agent-bus-connect/cli)
 - **GitHub**: https://github.com/MustaphaSteph/agent-bus (public, MIT)
-- **Latest tag**: `v0.4.0`
-- **20 MCP tools** — messaging (14) + tasks (6)
-- **40 passing smoke tests** + project-flow + task-flow + cross-process
+- **Latest npm/tag**: npm `0.5.0`, git tag `v0.5.0`
+- **28 MCP tools** — messaging, ask/reply, channels, capability/role
+  routing, directory, tasks, assignment, agent status, decisions, final
+  reports
+- **48 passing smoke tests** + cross-process
 
 ## Where to look
 
@@ -28,6 +30,7 @@ MCP.
 | Tests | `test/smoke.ts` (in-process), `test/project-flow.ts`, `test/task-flow.ts`, `test/cross-process.ts` |
 | OpenAPI spec | `docs/openapi.yaml` — lint-clean, renders to `docs/api-static.html` |
 | LLM context | `llms.txt` — single-file primer for an agent USING the bus |
+| Plugin skills | `skills/agent-bus/` — canonical skill vendored into `agent-bus-plugins` |
 
 ## Architecture rules (don't break these)
 
@@ -63,8 +66,12 @@ The pattern, in order:
 2. Add a Zod schema and dispatch case in `src/mcp/server.ts`. Update the `TOOLS` array with description + JSON Schema.
 3. Add coverage to `test/smoke.ts` (happy path + every expected error).
 4. Update `docs/openapi.yaml` (schemas + path) and re-lint with `npm run docs:lint`.
-5. Update `docs/tools.md`, `llms.txt`, and `AGENTS.md` blurbs. Bump the "X MCP tools" count if applicable.
+5. Update `docs/tools.md`, `llms.txt`, `AGENTS.md`, `CLAUDE.md`, and
+   `skills/agent-bus/` blurbs. Bump the "X MCP tools" count if
+   applicable.
 6. Rebuild `dist/` so the new code reaches MCP clients on next session start.
+7. Sync `agent-bus-plugins` with `npm run sync-skill` and update plugin
+   manifests/docs when the skill or slash-command behavior changes.
 
 ## Working with other agents on this same project (self-hosting)
 
@@ -82,15 +89,22 @@ When you start a fresh Claude Code session in this repo:
 2. If you intend to coordinate with another session, `register` as
    something descriptive (e.g. `claude-<your-task>`). The bus auto-scopes
    to project `agent-bus` since this repo has `.git`.
-3. Use the existing thread `t_mp41zhfh_zl1rejy0` for ongoing v0.4
-   design discussions, or start a fresh thread for new work.
+3. Use a fresh thread for new v0.5+ work unless the user names an
+   existing thread.
 4. Ping with `send` first; switch to `ask` only if a synchronous reply
    is required.
 
 The collaboration pattern that has worked:
 
 - One agent takes schema + bus.ts + MCP (the "domain" side).
-- The other takes CLI + tests + docs (the "shell" side).
+- The other takes CLI + tests + docs/plugin context (the "shell" side).
+- Use areas (`backend`, `ios`, `frontend`, `docs`) and `file_scope` on
+  tasks to prevent agents from overlapping.
+- Use task `mode` (`investigate_only`, `propose_patch`, `edit_files`,
+  `test_only`) so verifier sessions do not edit by accident.
+- Use `directory()` for the team board, `sleep_agent`/`wake_agent` for
+  manager state, `record_decision` for durable decisions, and
+  `final_report` before commit/push/deploy.
 - Both verify independently before declaring done.
 
 ## Things to be careful about
@@ -132,9 +146,14 @@ The collaboration pattern that has worked:
   column on agents/tasks/messages. Auto-derived from cwd at MCP/CLI
   boundary. Read paths default scoped; cross-project send/ask still
   works. `ask_best` fails loud with hint when no in-project match.
-- **README polish + npm publish**: package lives at
-  `@agent-bus-connect/cli` (npm flagged the shorter names; created
-  an org and scoped publish). Banner + badges + tag pushed.
+- **v0.5.0**: area scoping, role/routing weights, priority inbox,
+  directory/team board, task modes and file scopes, assignment and
+  claim-best helpers, agent sleep/wake/status, decisions, final report,
+  updated Agent Skill and plugin sync.
+- **README/docs/plugins + npm publish**: package lives at
+  `@agent-bus-connect/cli`. Public docs, `llms.txt`, canonical skill,
+  Claude/Codex plugin skills, and plugin manifests now describe the
+  v0.5 manager workflow.
 
 ## Future ideas
 
