@@ -92,7 +92,7 @@ subscriber sees it in their normal `inbox` with `m.channel` set.
 
 ## 6. Track work as tasks
 
-For multi-step delegated work where state matters:
+For multi-step delegated work where state, ownership, or review matters:
 
 ```
 const task = create_task({
@@ -101,6 +101,9 @@ const task = create_task({
   description: "src/auth/refresh.ts lines 40-80, race conditions",
   priority: 10,
   cwd: "/abs/path/to/repo",
+  mode: "investigate_only",
+  expected_output: "Summary / Files inspected / Findings / Suggested fix / Risks / Test plan / Confidence",
+  file_scope: ["src/auth/**", "test/auth/**"],
 })
 
 // optionally send the assignee a heads-up referencing the task
@@ -123,6 +126,9 @@ update_task({
   result: "Found 2 issues, see thread for details."
 })
 ```
+
+Use `assign_task` when the manager chooses the worker, or
+`claim_best_task` when a worker asks for its next matching task.
 
 `list_tasks` (or `agent-bus tasks --watch` from a shell) shows
 pending and active work. Stale tasks (holder gone idle) surface with
@@ -166,12 +172,46 @@ capability. Fails loud with `UNKNOWN_AGENT` and a hint when no match.
 ## 9. Cross-project addressing
 
 By name (`send` / `ask` to a specific agent name) always works
-regardless of project. Discovery (`whois`, `list_tasks`, `recent`,
-`ask_best`) defaults to caller's project; pass `project: "*"` to opt
-into global. CLI tools default to the repo-derived project; use
-`--project all` for global.
+regardless of project. Discovery (`directory`, `whois`, `list_tasks`,
+`recent`, `ask_best`) defaults to caller's project and configured area.
+Pass `project: "*"` or `area: "*"` to opt into broader views. CLI tools
+default to the repo-derived project and area; use
+`--project all --area all` for global.
 
-## 10. Human-in-the-loop relay
+## 10. Manager workflow
+
+Use `directory()` as the live board:
+
+```
+directory({ area: "*" })
+```
+
+Set agent state explicitly:
+
+```
+set_agent_status({ agent: "ios-worker", status: "working" })
+sleep_agent({ agent: "backend-worker" })
+wake_agent({ agent: "backend-worker" })
+```
+
+Record durable decisions:
+
+```
+record_decision({
+  by_agent: "codex-project-manager",
+  decision: "Verifier sessions use test_only mode and do not edit files",
+  rationale: "keeps implementation and review responsibilities separate",
+  implemented: true,
+})
+```
+
+Before commit/push/deploy, ask for:
+
+```
+final_report({ area: "*" })
+```
+
+## 11. Human-in-the-loop relay
 
 The user wants to be the relay between two helpers, with full
 visibility:

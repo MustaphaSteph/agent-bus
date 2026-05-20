@@ -1,198 +1,181 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. All 20 tools, their inputs, returns, and
-error codes.
+doesn't cover in detail. There are 28 MCP tools. All return JSON.
+Errors return `{ error: { code: string, message: string } }` with
+`isError: true`.
 
-Every error response is `{ error: { code: string, message: string } }`
-with `isError: true`.
+Use project/area defaults unless the user asks for a broader view.
+`project: "*"` means all projects. `area: "*"` means all areas.
 
-## Identity
+## Identity and Team Board
 
 ### register
-Claim a name on the bus. Idempotent with `replace: true`.
-```
+Claim or refresh a name on the bus. Use `replace: true` for stable
+agent identities across restarts.
+```ts
 register({
-  name: string,                // 1-64 chars, [a-zA-Z0-9_.-]
-  capabilities?: string[],     // tags for ask_best routing
+  name: string,
+  capabilities?: string[],
   replace?: boolean,
-  project?: string | null,     // MCP auto-derives from cwd if omitted
+  project?: string | null,
+  area?: string | null,
+  role?: string | null,
+  routing_weight?: number,
+  status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
 }) -> Agent
 ```
-Errors: `INVALID_INPUT`, `NAME_TAKEN`.
 
-### whois
-List registered agents (optionally scoped to project).
+### whois / directory
+```ts
+whois({ project?: string | "*", area?: string | "*" }) -> Agent[]
+directory({ project?: string | "*", area?: string | "*" }) -> AgentDirectoryEntry[]
 ```
-whois({ project?: string | "*" }) -> Agent[]
-```
+`directory` includes presence, status, age, role, area, and active task.
+Prefer it for manager/team-board views.
 
-## Direct messaging
+### set_agent_status / sleep_agent / wake_agent
+```ts
+set_agent_status({ agent: string, status: "idle" | "working" | "blocked" | "waiting_review" | "sleeping" }) -> Agent
+sleep_agent({ agent: string }) -> Agent
+wake_agent({ agent: string }) -> Agent
+```
+Status is manager metadata, separate from `pause`/`resume` delivery.
+
+## Direct Messaging
 
 ### send
-Fire-and-forget direct message. Returns immediately.
-```
+```ts
 send({
   from: string,
   to: string,
   message: string,
   thread_id?: string,
+  priority?: "low" | "normal" | "high" | "urgent",
 }) -> Message
 ```
-Errors: `INVALID_INPUT`, `UNKNOWN_AGENT`.
 
-### inbox
-Read pending messages addressed to caller.
-```
+### inbox / ack
+```ts
 inbox({
   agent: string,
-  wait_s?: number,       // block up to N seconds (max 110)
-  claim_s?: number,      // at-least-once mode: keep pending until ack
+  wait_s?: number,       // max 110
+  claim_s?: number,      // at-least-once mode; ack after processing
   since_id?: number,
   mark_delivered?: boolean,
   limit?: number,
 }) -> Message[]
-```
-Errors: `INVALID_INPUT`, `UNKNOWN_AGENT`.
 
-### ack
-Acknowledge a claimed message (used with `inbox(claim_s)`).
-```
 ack({ agent: string, message_id: number }) -> Message
 ```
-Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
+Use `wait_s: 110` for listener loops. Use `claim_s` for work that must
+not be lost; skipped ack means redelivery after the claim expires.
 
-## Request / response
+## Request / Response
 
-### ask
-Send a question, BLOCK until reply (max 110s).
-```
+### ask / ask_best / reply
+```ts
 ask({
   from: string,
   to: string,
   question: string,
-  timeout_s?: number,
+  timeout_s?: number,    // max 110
   thread_id?: string,
-}) -> Message            // the reply
-```
-Errors: `INVALID_INPUT`, `UNKNOWN_AGENT`, `ASK_CYCLE`, `ASK_TIMEOUT`.
+  priority?: "low" | "normal" | "high" | "urgent",
+}) -> Message
 
-### ask_best
-Route an ask to the best capability match. Defaults to caller's
-project; pass `project: "*"` for global.
-```
 ask_best({
   from: string,
   capability: string,
   question: string,
   timeout_s?: number,
   thread_id?: string,
-  project?: string,
+  project?: string | "*",
+  area?: string | "*",
+  role?: string,
+  priority?: "low" | "normal" | "high" | "urgent",
 }) -> Message
-```
-Errors: `UNKNOWN_AGENT` (no match, with hint), plus all `ask` errors.
 
-### reply
-Answer a pending ask. Inherits thread_id.
+reply({ from: string, ask_id: number, answer: string }) -> Message
 ```
-reply({
-  from: string,          // must equal ask's to_agent
-  ask_id: number,
-  answer: string,
-}) -> Message
-```
-Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
+`ask_best` defaults to the caller's project/area and refuses stale
+agents. Use wildcards only for deliberate cross-project/cross-area work.
 
-## Channels (1-to-many)
+## Channels
 
-### subscribe / unsubscribe
-```
+```ts
 subscribe({ agent: string, channel: string }) -> Subscription
 unsubscribe({ agent: string, channel: string }) -> { ok: true }
-```
-
-### send_channel
-Fan out to every subscriber. Sender excluded.
-```
-send_channel({
-  from: string,
-  channel: string,
-  message: string,
-  thread_id?: string,
-}) -> Message[]
-```
-
-### subscribers
-```
+send_channel({ from: string, channel: string, message: string, thread_id?: string }) -> Message[]
 subscribers({ channel: string }) -> string[]
 ```
 
 ## Discovery
 
-### thread
-Every message in a conversation, in order.
-```
+```ts
 thread({ thread_id: string, limit?: number }) -> Message[]
-```
-
-### recent
-Recent traffic regardless of recipient.
-```
-recent({ limit?: number, project?: string }) -> Message[]
+recent({ limit?: number, project?: string | "*", area?: string | "*" }) -> Message[]
 ```
 
 ## Tasks
 
 ### create_task
-```
+```ts
 create_task({
   requested_by: string,
-  title: string,                  // 1-200 chars
+  title: string,
   description?: string,
   thread_id?: string,
   priority?: number,
   cwd?: string,
   blocked_on_task_id?: number,
-  project?: string | null,        // MCP auto-derives if omitted
+  required_capability?: string,
+  project?: string | null,
+  area?: string | null,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string,
+  deadline_at?: string,
+  checkin_at?: string,
+  file_scope?: string[],
 }) -> Task
 ```
 
-### claim_task
-Atomically claim an open task. Concurrent losers get `TASK_NOT_CLAIMABLE`.
-```
+### claim_task / assign_task / claim_best_task
+```ts
 claim_task({ agent: string, task_id: number }) -> Task
+assign_task({ task_id: number, to_agent: string }) -> Task
+claim_best_task({
+  agent: string,
+  project?: string | "*",
+  area?: string | "*",
+  required_capability?: string,
+}) -> Task | null
 ```
+Use `assign_task` when the manager chooses the worker. Use
+`claim_best_task` when a worker asks for its next best task.
 
-### update_task
-Move state or update metadata. Strict transitions:
-`open → claimed | canceled`,
-`claimed → working | open | canceled | failed`,
-`working → blocked | completed | failed | canceled`,
-`blocked → working | completed | failed | canceled`.
-Terminal states (`completed`, `failed`, `canceled`) don't transition.
-```
+### update_task / release_task / list_tasks / get_task
+```ts
 update_task({
   agent: string,
   task_id: number,
-  state?: TaskState,
+  state?: "open" | "claimed" | "working" | "blocked" | "completed" | "failed" | "canceled",
   blocked_reason?: string | null,
   blocked_on_task_id?: number | null,
   result?: string | null,
   priority?: number,
+  required_capability?: string | null,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string | null,
+  deadline_at?: string | null,
+  checkin_at?: string | null,
+  final_answer?: string | null,
+  manager_reviewed?: boolean,
+  file_scope?: string[],
 }) -> Task
-```
-Errors: `TASK_NOT_FOUND`, `TASK_INVALID_TRANSITION`, `TASK_FORBIDDEN`.
 
-### release_task
-Return a non-terminal task to open.
-```
 release_task({ agent: string, task_id: number }) -> Task
-```
 
-### list_tasks
-Scoped to caller's project by default; `project: "*"` for global.
-Includes `stale: true` when active task's holder is idle.
-```
 list_tasks({
   state?: TaskState | TaskState[],
   claimed_by?: string,
@@ -200,26 +183,55 @@ list_tasks({
   thread_id?: string,
   include_terminal?: boolean,
   limit?: number,
-  project?: string,
+  project?: string | "*",
+  area?: string | "*",
+  required_capability?: string,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  manager_reviewed?: boolean,
 }) -> Task[]
-```
 
-### get_task
-```
 get_task({ task_id: number }) -> Task
+```
+Terminal states cannot transition. Only requester or current holder can
+update/release. Stale active tasks are surfaced, not auto-requeued.
+
+## Decisions and Final Report
+
+```ts
+record_decision({
+  by_agent: string,
+  decision: string,
+  rationale?: string,
+  implemented?: boolean,
+  project?: string | null,
+  area?: string | null,
+}) -> Decision
+
+list_decisions({ project?: string | "*", area?: string | "*", limit?: number }) -> Decision[]
+
+final_report({ project?: string | "*", area?: string | "*" }) -> {
+  implemented: string[],
+  not_implemented: string[],
+  known_risks: string[],
+  tests_passed: string[],
+  manual_tests_needed: string[],
+  safe_to_commit: boolean,
+  safe_to_push: boolean,
+  safe_to_deploy: boolean,
+}
 ```
 
 ## Error codes summary
 
-| Code | When | Recovery hint |
-|---|---|---|
-| `INVALID_INPUT` | Validation failed | Fix the input — check name/channel regex, project format |
-| `UNKNOWN_AGENT` | Recipient not registered, or `ask_best` no match | `whois` to see who's around; suggest registering or `project: "*"` |
-| `NAME_TAKEN` | Name held by active session | `replace: true` or pick a different name |
-| `ASK_TIMEOUT` | No reply in timeout window | Use `send` instead, or have user nudge the recipient |
-| `ASK_CYCLE` | Mutual ask deadlock | Resolve the other side first |
-| `ASK_NOT_FOUND` | Bad ask_id or message_id | Check the id; the ask may have been answered already |
-| `TASK_NOT_FOUND` | Bad task_id or blocked_on_task_id | Verify the id with `list_tasks` |
-| `TASK_NOT_CLAIMABLE` | Task already claimed | `get_task` to see current holder |
-| `TASK_INVALID_TRANSITION` | Not in allowed transitions | Check current state and the transition map above |
-| `TASK_FORBIDDEN` | Only holder/requester can do this | Different agent needs to perform the action |
+| Code | Recovery hint |
+|---|---|
+| `INVALID_INPUT` | Fix name/channel/project/area format or invalid enum |
+| `UNKNOWN_AGENT` | Use `directory`/`whois`; register a helper or broaden scope |
+| `NAME_TAKEN` | Use `replace: true` intentionally or pick a new name |
+| `ASK_TIMEOUT` | Switch to `send`, increase readiness, or nudge the recipient |
+| `ASK_CYCLE` | Resolve the other side's pending ask first |
+| `ASK_NOT_FOUND` | Check the id; the ask may already be answered |
+| `TASK_NOT_FOUND` | Verify with `list_tasks` |
+| `TASK_NOT_CLAIMABLE` | Task is already claimed or not open |
+| `TASK_INVALID_TRANSITION` | Check current task state and allowed transitions |
+| `TASK_FORBIDDEN` | Only requester or current holder can update/release |

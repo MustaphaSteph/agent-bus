@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.4.0
+  - agent-bus-mcp >= 0.5.0
 ---
 
 # agent-bus
@@ -10,8 +10,9 @@ requires:
 Turn your Claude / Codex / Cursor / Gemini sessions on the same machine
 into a local agent team. Each session registers a name, then you can
 send messages, ask blocking questions, delegate tasks, broadcast to
-channels, and route work by capability — all through one SQLite file
-at `~/.agent-bus/bus.db`.
+channels, route work by capability/role, track agent status, record
+decisions, and produce merge-readiness reports — all through one
+SQLite file at `~/.agent-bus/bus.db`.
 
 This skill is the **coordinator playbook**: when the user speaks
 naturally, you translate their intent into agent-bus tool calls.
@@ -36,9 +37,10 @@ interaction:
    for the rest of the session). Default to the user's first name or
    a short tag they choose. Pass `replace=true` and capabilities
    `["human-driven", "coordinator"]`.
-2. Call `whois` once and show the user who else is on the bus, with
+2. Call `directory` if available, otherwise `whois`, and show the user
+   who else is on the bus, with
    their capabilities, in one compact line:
-   `on the bus: helper-a [review, verify], helper-b [research, docs]`.
+   `on the bus: helper-a [review, verify; idle], helper-b [docs; working]`.
    If nobody else is registered, say so.
 3. Do NOT enter a listener loop. You are the active driver — only
    check inbox when the user asks or when you've just done an `ask`
@@ -59,11 +61,17 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
 | "What did <name> say?" / "Did anyone reply?" | `inbox(agent=<your name>)`, then summarize |
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
+| "Show the team board" / "what is everyone doing?" | `directory()` rendered with status, role, area, and active task |
 | "Remember X" / "Note that X" (with a memory agent on the bus) | `send(to=<memory agent>, message="remember: X")` |
-| "Recall X" / "What did we decide about X" | `ask_best(capability="memory" or specific name, question=…)` |
+| "Recall X" / "What did we decide about X" | `list_decisions()` first; use `ask_best(capability="memory", …)` only if needed |
 | "Catch me up on the bus" | `recent(limit=20)` and render |
-| "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…)` |
+| "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)` |
+| "Assign this to <agent>" | `create_task(...)` then `assign_task(task_id=…, to_agent=…)`; send a short heads-up on the task thread if useful |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
+| "Put <agent> to sleep" / "wake <agent>" | `sleep_agent(agent=…)` / `wake_agent(agent=…)` |
+| "Set <agent> blocked / waiting for review" | `set_agent_status(agent=…, status=…)` |
+| "Record this decision…" | `record_decision(by_agent=<your name>, decision=…, rationale=…)` |
+| "Final merge report" | `final_report()` and render implemented, gaps, risks, tests, and safe-to-commit/push flags |
 
 ## When to choose ask vs send
 
@@ -81,6 +89,9 @@ The user speaks normally. You pick the tool. Common patterns:
   researcher", "someone who knows the schema"). Use `ask_best` and
   let the bus route. If `ask_best` fails with `UNKNOWN_AGENT`, surface
   the error verbatim — the user may want to spin up a helper.
+- **Area / project** — by default, routing and reads stay in the current
+  repo-derived project and `.agent-bus.json` area. Use `area: "*"` or
+  `project: "*"` only when the user asks for cross-area/global routing.
 
 ## How to talk while calling tools
 
@@ -96,12 +107,34 @@ Not:
 When a reply lands, render it in plain English for the user. Don't
 dump JSON. The user wants the answer, not the message envelope.
 
-## Cross-project addressing
+## Project and area addressing
 
-By name still works (`send` / `ask` are cross-project). `ask_best`
-defaults to the current project's pool and fails loud if no in-project
-match. If the user asks broadly ("any reviewer anywhere"), pass
-`project: "*"` to opt into global.
+By name still works (`send` / `ask` are direct addressed). `ask_best`,
+`directory`, `recent`, and task reads default to the current
+project/area. If the user asks broadly ("any reviewer anywhere"), pass
+`project: "*"` and/or `area: "*"` intentionally.
+
+For multi-folder repos, use areas to prevent accidental chatter:
+`backend` helpers should normally route to backend helpers, `ios` to
+ios, `frontend` to frontend. A project manager at the repo root can use
+`area: "*"` to see or route across all areas.
+
+## Manager workflow defaults
+
+- Use `directory()` as the task board: show `idle`, `working`,
+  `blocked`, `waiting_review`, and `sleeping`.
+- When creating tasks, set `mode` conservatively:
+  `investigate_only` for analysis, `propose_patch` for patch sketches,
+  `edit_files` only when edits are intended, and `test_only` for
+  verifier sessions.
+- Set `expected_output` so replies are comparable. Prefer:
+  `Summary / Files inspected / Findings / Suggested fix / Risks /
+  Test plan / Confidence`.
+- Set `file_scope` when multiple agents may edit. Keep ownership
+  disjoint, such as `backend/**`, `ios/**`, `web/**`, or `docs/**`.
+- Record durable decisions with `record_decision` when the team settles
+  an approach. Use `list_decisions` before reopening an old debate.
+- Use `final_report` before commit/push/deploy decisions.
 
 ## Hard rules
 
@@ -115,18 +148,21 @@ match. If the user asks broadly ("any reviewer anywhere"), pass
   their messages as bus commands but stay registered.
 - If a tool call fails, surface the error code (`UNKNOWN_AGENT`,
   `ASK_TIMEOUT`, `ASK_CYCLE`, `NAME_TAKEN`, `TASK_NOT_CLAIMABLE`,
-  `TASK_INVALID_TRANSITION`) and the recovery hint.
+  `TASK_INVALID_TRANSITION`, `TASK_FORBIDDEN`) and the recovery hint.
 - Don't fabricate helper names. If `whois` shows nobody with the role
   the user asked for, say "no <role> helper is on the bus right now"
   and ask if they want to spin one up.
+- Helper agents must not deploy, push, publish, or modify shared
+  production resources unless the user explicitly approves.
 
 ## When to load more context
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 20 MCP tools with input/output shapes
+- `references/tools.md` — the 28 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
-  rare tool (e.g. `subscribe`, `send_channel`, `release_task`).
+  rare tool (e.g. `subscribe`, `send_channel`, `assign_task`,
+  `record_decision`, `final_report`).
 - `references/patterns.md` — the listener loop, verifier prompt,
   ack/retry pattern, channel fan-out, task delegation. Load when the
   user asks "set up a listener", "make this reliable", "broadcast

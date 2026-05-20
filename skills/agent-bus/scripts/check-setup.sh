@@ -6,7 +6,7 @@
 set -e
 
 MIN_NODE_MAJOR=20
-MIN_AGENT_BUS="0.4.0"
+MIN_AGENT_BUS="0.5.0"
 
 fail() {
   printf "\n[agent-bus skill] setup check failed: %s\n\n" "$1" >&2
