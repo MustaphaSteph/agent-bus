@@ -393,3 +393,85 @@ create_task({ requested_by: "pm", title: "fix iOS login", area: "ios" })
   explicitly.
 - CLI `inject` and CLI `register` are relay/admin commands and default
   to global/null project.
+
+## 12. Codex as manager for an existing web app
+
+**When**: you already have a web app and want one Codex session to plan,
+assign, and review work while Claude/Codex worker sessions handle
+frontend, backend, and verification lanes.
+
+**How**: add a repo-level `.agent-bus.json` first:
+
+```json
+{
+  "project": "webapp",
+  "areas": {
+    "frontend": ["src/**", "app/**", "pages/**", "components/**"],
+    "backend": ["api/**", "server/**", "routes/**", "db/**"],
+    "tests": ["test/**", "tests/**", "e2e/**", "__tests__/**"],
+    "docs": ["docs/**", "README.md"]
+  }
+}
+```
+
+Start Codex in the repo root and paste:
+
+```text
+You are webapp-manager for this repo. Use agent-bus as the coordination layer.
+
+Register as webapp-manager with role pm, area "*", capabilities
+["planning","coordination","review","qa"], replace true.
+
+Your job:
+- inspect the project structure
+- create tasks with clear mode, expected_output, and file_scope
+- assign tasks to area workers
+- use ask_best when no exact agent is named
+- keep one verifier in test_only mode
+- record decisions with record_decision
+- record pinned handoffs with remember(kind="handoff", pinned=true)
+- use session_brief at start and final_report before commit/push
+- do not let workers edit outside their file_scope
+- do not push/deploy unless I explicitly approve
+
+First call directory and session_brief, then tell me who is available
+and what the next task should be.
+```
+
+Start worker sessions:
+
+```text
+Register yourself as webapp-frontend with role worker, area frontend,
+capabilities react, typescript, css, ui, replace true. Listen for
+assigned tasks. Only edit files inside the task file_scope.
+```
+
+```text
+Register yourself as webapp-backend with role worker, area backend,
+capabilities node, api, database, auth, replace true. Listen for
+assigned tasks. Only edit files inside the task file_scope.
+```
+
+```text
+Register yourself as webapp-verifier with role verifier, area "*",
+capabilities test, review, qa, replace true. Do not edit implementation
+files. Review diffs, run tests, report bugs and risks.
+```
+
+Then talk to the manager naturally:
+
+```text
+Create frontend, backend, and verifier tasks for password reset.
+Assign frontend UI to webapp-frontend and backend API to webapp-backend.
+Ask the verifier to review the current diff.
+Record a pinned handoff memory for what remains.
+```
+
+**Failure modes**:
+
+- Worker edits outside `file_scope` -> stop and reassign with a narrower
+  task. The bus records scope; agents must still respect it.
+- Verifier starts implementing -> set its task mode to `test_only` and
+  remind it not to edit implementation files.
+- Manager cannot find a worker -> call `directory`, start the missing
+  listener, or use `area: "*"` / `project: "*"` intentionally.

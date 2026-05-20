@@ -280,6 +280,57 @@ Optional area config at the repo root:
 }
 ```
 
+### Use Codex as a project manager
+
+In an existing web app, open Codex at the repo root and make it the
+manager:
+
+```text
+You are webapp-manager for this repo. Use agent-bus as the coordination layer.
+
+Register as webapp-manager with role pm, area "*", capabilities
+["planning","coordination","review","qa"], replace true.
+
+Your job:
+- inspect the project structure
+- create tasks with clear mode, expected_output, and file_scope
+- assign tasks to area workers
+- use ask_best when no exact agent is named
+- keep one verifier in test_only mode
+- record decisions with record_decision
+- record pinned handoffs with remember(kind="handoff", pinned=true)
+- use session_brief at start and final_report before commit/push
+- do not let workers edit outside their file_scope
+- do not push/deploy unless I explicitly approve
+
+First call directory and session_brief, then tell me who is available
+and what the next task should be.
+```
+
+Start workers in Claude Code, Codex, or another MCP-capable tool:
+
+```text
+Register yourself as webapp-frontend with role worker, area frontend,
+capabilities react, typescript, css, ui, replace true. Listen for
+assigned tasks. Only edit files inside the task file_scope. Reply with
+Summary, Files changed, Risks, and Tests.
+```
+
+```text
+Register yourself as webapp-verifier with role verifier, area "*",
+capabilities test, review, qa, replace true. Do not edit implementation
+files. Review diffs, run tests, report bugs and risks.
+```
+
+Then tell the manager things like:
+
+```text
+Create frontend, backend, and verifier tasks for password reset.
+Assign frontend UI to webapp-frontend and backend API to webapp-backend.
+Ask the verifier to review the current diff.
+Record a pinned handoff memory for what remains.
+```
+
 > `/main` and `/listen` each register their session once. After that the
 > names live in `~/.agent-bus/bus.db` and survive restarts. The
 > coordinator phrases — "ask helper-a", "delegate this", "get a second

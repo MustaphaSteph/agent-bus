@@ -143,6 +143,15 @@ ios, `frontend` to frontend. A project manager at the repo root can use
   to another agent.
 - Use `final_report` before commit/push/deploy decisions.
 
+For an existing web app, a strong default team is:
+`webapp-manager` (`role=pm`, `area="*"`), `webapp-frontend`
+(`role=worker`, `area=frontend`), `webapp-backend` (`role=worker`,
+`area=backend`), and `webapp-verifier` (`role=verifier`, `area="*"`).
+The manager should create tasks with `mode`, `expected_output`, and
+`file_scope`; frontend/backend workers should only edit within
+`file_scope`; the verifier should use `test_only` and avoid
+implementation edits.
+
 ## Hard rules
 
 - Do not auto-poll the inbox between user turns. Only check inbox when
