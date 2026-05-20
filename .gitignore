@@ -4,5 +4,9 @@ dist/
 .DS_Store
 test/.tmp/
 
+# Local agent context files
+AGENTS.md
+CLAUDE.md
+
 # Local-only brainstorm / planning notes — not for publication
 ideas/
