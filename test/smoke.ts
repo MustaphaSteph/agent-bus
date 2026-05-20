@@ -8,8 +8,11 @@ process.env.AGENT_BUS_DIR = tmp;
 
 const {
   ack,
+  assignTask,
   claimTask,
+  claimBestTask,
   createTask,
+  directory,
   getTask,
   ask,
   askBest,
@@ -83,6 +86,14 @@ await test("send + inbox round-trip", async () => {
   const messages = await inbox({ agent: "bob" });
   assert.equal(messages.length, 1);
   assert.equal(messages[0]?.content, "hello bob");
+});
+
+await test("message priority: urgent inbox rows come first", async () => {
+  send({ from: "alice", to: "bob", content: "low", priority: "low" });
+  send({ from: "alice", to: "bob", content: "urgent", priority: "urgent" });
+  const rows = await inbox({ agent: "bob", limit: 2 });
+  assert.equal(rows[0]?.content, "urgent");
+  assert.equal(rows[0]?.priority, "urgent");
 });
 
 await test("inbox marks delivered", async () => {
@@ -334,6 +345,32 @@ await test("ask_best routes to a capability-matching agent", async () => {
   assert.equal(answer.from_agent, "react-expert");
 });
 
+await test("register roles influence directory and ask_best routing", async () => {
+  register({ name: "role-asker", replace: true });
+  register({ name: "role-worker", capabilities: ["audit"], role: "worker", routing_weight: 1 });
+  register({ name: "role-verifier", capabilities: ["audit"], role: "verifier", routing_weight: 5 });
+
+  const listing = directory().find((a) => a.name === "role-verifier");
+  assert.equal(listing?.role, "verifier");
+  assert.equal(listing?.status, "online");
+
+  const replier = setTimeout(async () => {
+    const pending = await inbox({ agent: "role-verifier" });
+    const askMsg = pending.find((m) => m.kind === "ask");
+    assert.ok(askMsg, "expected role-scoped ask");
+    reply({ from: "role-verifier", ask_id: askMsg.id, answer: "verified" });
+  }, 200);
+  const answer = await askBest({
+    from: "role-asker",
+    capability: "audit",
+    role: "verifier",
+    question: "?",
+    timeout_s: 5,
+  });
+  clearTimeout(replier);
+  assert.equal(answer.from_agent, "role-verifier");
+});
+
 await test("ask_best fails when no agent has the capability", async () => {
   await assert.rejects(
     () => askBest({ from: "alice", capability: "rust-async-runtime", question: "?", timeout_s: 1 }),
@@ -566,6 +603,27 @@ await test("tasks: create + get round-trip", () => {
   const fetched = getTask(t.id);
   assert.equal(fetched.id, t.id);
   assert.equal(fetched.title, "verify current diff");
+});
+
+await test("tasks: capability requirements, assign, and claim_best", () => {
+  register({ name: "task-rust", capabilities: ["rust"], replace: true, project: "taskp", area: "backend" });
+  register({ name: "task-js", capabilities: ["js"], replace: true, project: "taskp", area: "backend" });
+  const t = createTask({
+    requested_by: "task-rust",
+    title: "rust task",
+    required_capability: "rust",
+    project: "taskp",
+    area: "backend",
+  });
+  assert.equal(t.required_capability, "rust");
+  assert.throws(
+    () => assignTask({ task_id: t.id, to_agent: "task-js" }),
+    (e: unknown) => e instanceof BusError && e.code === "TASK_FORBIDDEN",
+  );
+
+  const claimed = claimBestTask({ agent: "task-rust" });
+  assert.equal(claimed?.id, t.id);
+  assert.equal(claimed?.claimed_by, "task-rust");
 });
 
 await test("tasks: atomic claim rejects second claimant", () => {

@@ -20,8 +20,9 @@ agent-to-agent messaging without a daemon or cloud service.
 - `src/bus.ts` is the domain layer. Owns: agent registration, heartbeat,
   inbox delivery (with optional blocking and at-least-once claim/ack),
   ask/reply flow, channels (subscribe/unsubscribe/send_channel),
-  capability routing (ask_best), threads, pause/resume, recent-message
-  reads, thread reads, and task lifecycle operations.
+  capability/role routing (ask_best), threads, pause/resume,
+  recent-message reads, thread reads, directory reads, and task lifecycle
+  operations.
 - `src/db.ts` owns the `better-sqlite3` connection, WAL pragmas, and
   idempotent migrations (including column existence checks before ALTERs).
 - `src/mcp/server.ts` is the MCP stdio adapter. Keep input validation
@@ -46,8 +47,9 @@ Schema created in `src/db.ts`.
 ### `agents`
 
 `name` PK, JSON `capabilities`, `registered_at`, `last_seen`, `paused`,
-nullable `project`, nullable `area`. Agent names remain globally unique;
-`project` and `area` are filter attributes, not part of identity.
+nullable `project`, nullable `area`, nullable `role`, integer
+`routing_weight`. Agent names remain globally unique; `project` and
+`area` are filter attributes, not part of identity.
 
 ### `messages`
 
@@ -55,7 +57,7 @@ nullable `project`, nullable `area`. Agent names remain globally unique;
 `content` (no size cap), `reply_to` FK, `status`
 (`pending`/`delivered`/`answered`), timestamps, `thread_id`,
 `claim_deadline`, `claimed_by`, `channel`, nullable `project` and `area`
-copied from the sender agent.
+copied from the sender agent, `priority`.
 
 Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
 `claim_deadline`.
@@ -69,7 +71,8 @@ Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
 `id` PK auto, `title`, `description`, `thread_id`, `requested_by`,
 `claimed_by`, `state` (`open`/`claimed`/`working`/`blocked`/
 `completed`/`failed`/`canceled`), `priority`, `cwd`, blocker metadata,
-`result`, timestamps, `finished_at`, nullable `project`, nullable `area`.
+`required_capability`, `result`, timestamps, `finished_at`, nullable
+`project`, nullable `area`.
 
 ### Semantics
 
@@ -85,13 +88,16 @@ Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
   marks the ask `answered`.
 - `send_channel()` reads subscribers, generates one shared `thread_id`,
   inserts one row per recipient with `channel = <name>`.
-- `ask_best()` matches by capability, prefers most recent `last_seen`,
-  scopes to the asker's project/area by default, and refuses matches >5
-  minutes stale. Concrete areas are strict; use `area: "*"` for a manager
-  or cross-area search.
+- `ask_best()` matches by capability and optional role, prefers
+  `routing_weight` then most recent `last_seen`, scopes to the asker's
+  project/area by default, and refuses matches >5 minutes stale. Concrete
+  areas are strict; use `area: "*"` for a manager or cross-area search.
 - Tasks are first-class work records. `claimTask()` is atomic; updates
   follow `ALLOWED_TRANSITIONS`; stale active tasks are surfaced by
   comparing the holder's `last_seen` with `AGENT_BUS_TASK_STALE_MS`.
+  `assignTask()` directly claims an open task for an agent, and
+  `claimBestTask()` chooses the highest-priority open task matching the
+  agent's scope and capabilities.
 - Project/area scoping is soft. MCP sessions and CLI read commands
   derive a project from cwd and area from `.agent-bus.json`; direct
   addressed messaging remains cross-project/cross-area. Use

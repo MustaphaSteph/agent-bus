@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
 
 const PROJECT_NAME_RE = /^[a-zA-Z0-9_.-]+$/;
@@ -9,9 +9,11 @@ export interface SessionScope {
   area: string | null;
 }
 
-interface ScopeConfig {
+export interface ScopeConfig {
   project?: unknown;
   areas?: unknown;
+  routing?: unknown;
+  hooks?: unknown;
 }
 
 /**
@@ -73,7 +75,12 @@ function findConfigRoot(start: string): string | null {
   }
 }
 
-function readScopeConfig(cwd: string): { root: string | null; config: ScopeConfig | null } {
+export function scopeConfigPath(cwd: string = process.cwd()): string | null {
+  const root = findConfigRoot(cwd);
+  return root === null ? null : `${root}/${CONFIG_FILE}`;
+}
+
+export function readScopeConfig(cwd: string = process.cwd()): { root: string | null; config: ScopeConfig | null } {
   const root = findConfigRoot(cwd);
   if (root === null) return { root, config: null };
   try {
@@ -82,6 +89,18 @@ function readScopeConfig(cwd: string): { root: string | null; config: ScopeConfi
   } catch {
     return { root, config: null };
   }
+}
+
+export function writeScopeConfig(config: ScopeConfig, cwd: string = process.cwd()): string {
+  const root = findGitRoot(cwd) ?? resolve(cwd);
+  const path = `${root}/${CONFIG_FILE}`;
+  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`);
+  return path;
+}
+
+export function configuredAreas(cwd: string = process.cwd()): Record<string, string[]> {
+  const { config } = readScopeConfig(cwd);
+  return isAreaMap(config?.areas) ? config.areas : {};
 }
 
 function deriveAreaFromConfig(

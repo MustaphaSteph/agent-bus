@@ -2,12 +2,22 @@
 import { Command } from "commander";
 import kleur from "kleur";
 import {
+  ack,
+  directory,
+  inbox,
   recentMessages,
   register,
   send,
   setPaused,
   whois,
 } from "../bus.js";
+import { dbPath } from "../util/paths.js";
+import {
+  configuredAreas,
+  deriveScope,
+  scopeConfigPath,
+  writeScopeConfig,
+} from "../util/project.js";
 import { formatMessage } from "./format.js";
 import { installHook, uninstallHook } from "./install-hook.js";
 import { listenPrompt } from "./listen-prompt.js";
@@ -63,18 +73,127 @@ program
     const scope = resolveScopeOptions(opts.project, opts.area);
     const banner = scopeBanner(scope);
     if (banner) console.log(banner);
-    const agents = whois(scope);
+    const agents = directory(scope);
     if (agents.length === 0) {
       console.log(kleur.gray("(no agents registered)"));
       return;
     }
     for (const a of agents) {
-      const age = Math.round((Date.now() - a.last_seen) / 1000);
       const caps = a.capabilities.length > 0 ? ` [${a.capabilities.join(", ")}]` : "";
       const projectChip = a.project ? ` {${a.project}}` : " {no-project}";
       const areaChip = a.area ? `/${a.area}` : "";
+      const role = a.role ? ` role=${a.role}` : "";
+      const active = a.active_task_id ? ` task=#${a.active_task_id}` : "";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip)}${paused}  ${kleur.gray(`seen ${age}s ago`)}`);
+      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + role + active)}${paused}  ${kleur.gray(`${a.status}, seen ${a.age_s}s ago`)}`);
+    }
+  });
+
+program
+  .command("scope")
+  .description("Show the project/area derived from the current directory")
+  .action(() => {
+    const scope = deriveScope();
+    console.log(JSON.stringify({ ...scope, config: scopeConfigPath() }, null, 2));
+  });
+
+program
+  .command("areas")
+  .description("List areas from .agent-bus.json")
+  .action(() => {
+    const areas = configuredAreas();
+    if (Object.keys(areas).length === 0) {
+      console.log(kleur.gray("(no areas configured)"));
+      return;
+    }
+    for (const [name, patterns] of Object.entries(areas)) {
+      console.log(`${kleur.bold(name)} ${kleur.gray(patterns.join(", "))}`);
+    }
+  });
+
+program
+  .command("init")
+  .description("Create a .agent-bus.json scope config")
+  .option("--project <name>", "project name (default derived from cwd)")
+  .option("--areas <list>", "comma-separated area names", "backend,frontend,ios")
+  .option("--force", "overwrite existing config")
+  .action((opts: { project?: string; areas: string; force?: boolean }) => {
+    const existing = scopeConfigPath();
+    if (existing && opts.force !== true) {
+      throw new Error(`${existing} already exists; pass --force to overwrite`);
+    }
+    const project = opts.project ?? deriveScope().project ?? "agent-bus-project";
+    const areas = Object.fromEntries(
+      opts.areas
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((area) => [area, [`${area}/**`]]),
+    );
+    const path = writeScopeConfig({
+      project,
+      areas,
+      routing: { default: "same-area", managerAreas: ["pm"] },
+      hooks: {},
+    });
+    console.log(`${kleur.green("created")} ${path}`);
+  });
+
+program
+  .command("team")
+  .description("Team topology helpers")
+  .command("init <areas...>")
+  .description("Create .agent-bus.json and print recommended agent names")
+  .option("--project <name>", "project name (default derived from cwd)")
+  .action((areas: string[], opts: { project?: string }) => {
+    const project = opts.project ?? deriveScope().project ?? "agent-bus-project";
+    const path = writeScopeConfig({
+      project,
+      areas: Object.fromEntries(areas.map((area) => [area, [`${area}/**`]])),
+      routing: { default: "same-area", managerAreas: ["pm"] },
+      hooks: {},
+    });
+    console.log(`${kleur.green("created")} ${path}`);
+    console.log("recommended agents:");
+    console.log(`  ${project}-pm`);
+    for (const area of areas) {
+      console.log(`  ${project}-${area}-worker`);
+      console.log(`  ${project}-${area}-verifier`);
+    }
+  });
+
+program
+  .command("doctor")
+  .description("Check local bus health and current scope")
+  .action(() => {
+    const scope = deriveScope();
+    const agents = directory({ project: scope.project ?? undefined, area: scope.area ?? undefined });
+    const stale = agents.filter((a) => a.status === "stale").length;
+    console.log(`db: ${dbPath()}`);
+    console.log(`scope: project=${scope.project ?? "-"} area=${scope.area ?? "-"}`);
+    console.log(`config: ${scopeConfigPath() ?? "-"}`);
+    console.log(`agents: ${agents.length} (${stale} stale)`);
+    console.log(`areas: ${Object.keys(configuredAreas()).join(", ") || "-"}`);
+  });
+
+program
+  .command("listen")
+  .description("Long-running local inbox listener")
+  .requiredOption("--agent <name>", "agent name")
+  .option("--claim-s <seconds>", "claim window before redelivery", "300")
+  .option("--wait-s <seconds>", "blocking inbox wait per poll", "110")
+  .action(async (opts: { agent: string; claimS: string; waitS: string }) => {
+    console.log(kleur.bold(`listening as ${opts.agent}`));
+    for (;;) {
+      const messages = await inbox({
+        agent: opts.agent,
+        wait_s: Number(opts.waitS),
+        claim_s: Number(opts.claimS),
+      });
+      for (const message of messages) {
+        console.log(formatMessage(message));
+        ack({ agent: opts.agent, message_id: message.id });
+      }
     }
   });
 
@@ -87,12 +206,14 @@ program
   .option("--interval <ms>", "watch poll interval in ms", "1000")
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
-  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string }) => {
+  .option("--required-capability <name>", "filter by required task capability")
+  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string; requiredCapability?: string }) => {
     await tasks({
       state: opts.state,
       all: opts.all,
       watch: opts.watch,
       intervalMs: Number(opts.interval),
+      requiredCapability: opts.requiredCapability,
       ...resolveScopeOptions(opts.project, opts.area),
     });
   });
@@ -130,13 +251,25 @@ program
   .description("Manually register an agent name (mostly for testing)")
   .requiredOption("--name <name>")
   .option("--capabilities <list>", "comma-separated tags", "")
+  .option("--role <role>", "agent role (pm, worker, verifier, reviewer, listener)")
+  .option("--weight <n>", "routing weight for ask_best", "0")
+  .option("--project <name>", "project scope")
+  .option("--area <name>", "area scope")
   .option("--replace", "take over the name if already held")
-  .action((opts: { name: string; capabilities: string; replace?: boolean }) => {
+  .action((opts: { name: string; capabilities: string; role?: string; weight: string; project?: string; area?: string; replace?: boolean }) => {
     const caps = opts.capabilities
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    const a = register({ name: opts.name, capabilities: caps, replace: opts.replace });
+    const a = register({
+      name: opts.name,
+      capabilities: caps,
+      replace: opts.replace,
+      role: opts.role,
+      routing_weight: Number(opts.weight),
+      project: opts.project,
+      area: opts.area,
+    });
     console.log(`${kleur.green("registered")} ${a.name}`);
   });
 

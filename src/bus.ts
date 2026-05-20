@@ -1,5 +1,6 @@
 import { getDb } from "./db.js";
 import { BusError } from "./util/errors.js";
+import { runLocalHook } from "./util/hooks.js";
 import { now, sleep } from "./util/time.js";
 
 export const MAX_ASK_TIMEOUT_S = 110;
@@ -17,6 +18,8 @@ export const POLL_INTERVAL_MS = readPollInterval();
 
 export type MessageKind = "msg" | "ask" | "reply";
 export type MessageStatus = "pending" | "delivered" | "answered";
+export type MessagePriority = "low" | "normal" | "high" | "urgent";
+export type AgentRole = "pm" | "worker" | "verifier" | "reviewer" | "listener" | string;
 
 export const PROJECT_WILDCARD = "*";
 export const AREA_WILDCARD = PROJECT_WILDCARD;
@@ -29,6 +32,8 @@ export interface Agent {
   paused: boolean;
   project: string | null;
   area: string | null;
+  role: AgentRole | null;
+  routing_weight: number;
 }
 
 export interface Message {
@@ -48,6 +53,7 @@ export interface Message {
   channel: string | null;
   project: string | null;
   area: string | null;
+  priority: MessagePriority;
 }
 
 export interface Subscription {
@@ -64,6 +70,8 @@ interface AgentRow {
   paused: number;
   project: string | null;
   area: string | null;
+  role: AgentRole | null;
+  routing_weight: number;
 }
 
 interface MessageRow {
@@ -83,6 +91,7 @@ interface MessageRow {
   channel: string | null;
   project: string | null;
   area: string | null;
+  priority: MessagePriority;
 }
 
 function toAgent(row: AgentRow): Agent {
@@ -94,6 +103,8 @@ function toAgent(row: AgentRow): Agent {
     paused: row.paused === 1,
     project: row.project,
     area: row.area,
+    role: row.role,
+    routing_weight: row.routing_weight,
   };
 }
 
@@ -115,10 +126,11 @@ function toMessage(row: MessageRow): Message {
     channel: row.channel,
     project: row.project,
     area: row.area,
+    priority: row.priority,
   };
 }
 
-function validateScopeName(kind: "project" | "area", value: string | null | undefined): void {
+function validateScopeName(kind: "project" | "area" | "role", value: string | null | undefined): void {
   if (value === null || value === undefined) return;
   if (typeof value !== "string" || value.length === 0 || value.length > 64) {
     throw new BusError("INVALID_INPUT", `${kind} must be 1-64 chars or omitted`);
@@ -137,6 +149,17 @@ function validateProject(project: string | null | undefined): void {
 
 function validateArea(area: string | null | undefined): void {
   validateScopeName("area", area);
+}
+
+function validateRole(role: string | null | undefined): void {
+  validateScopeName("role", role);
+}
+
+function validatePriority(priority: MessagePriority | undefined): void {
+  if (priority === undefined) return;
+  if (!["low", "normal", "high", "urgent"].includes(priority)) {
+    throw new BusError("INVALID_INPUT", "priority must be low, normal, high, or urgent");
+  }
 }
 
 function requireAgent(name: string): Agent {
@@ -181,12 +204,18 @@ export interface RegisterOptions {
   replace?: boolean;
   project?: string | null;
   area?: string | null;
+  role?: AgentRole | null;
+  routing_weight?: number;
 }
 
 export function register(opts: RegisterOptions): Agent {
   validateName(opts.name);
   validateProject(opts.project);
   validateArea(opts.area);
+  validateRole(opts.role);
+  if (opts.routing_weight !== undefined && !Number.isFinite(opts.routing_weight)) {
+    throw new BusError("INVALID_INPUT", "routing_weight must be a number");
+  }
   const caps = opts.capabilities ?? [];
   const db = getDb();
   const existing = db
@@ -206,17 +235,21 @@ export function register(opts: RegisterOptions): Agent {
 
   const project = opts.project ?? null;
   const area = opts.area ?? null;
+  const role = opts.role ?? null;
+  const routingWeight = Math.trunc(opts.routing_weight ?? 0);
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area)
-       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, role, routing_weight)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @role, @routingWeight)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
        last_seen = excluded.last_seen,
        paused = 0,
        project = excluded.project,
-       area = excluded.area`,
-  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area });
+       area = excluded.area,
+       role = excluded.role,
+       routing_weight = excluded.routing_weight`,
+  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, role, routingWeight });
 
   return requireAgent(opts.name);
 }
@@ -254,6 +287,48 @@ export function whois(opts: WhoisOptions = {}): Agent[] {
   return rows.map(toAgent);
 }
 
+export interface AgentDirectoryEntry extends Agent {
+  status: "online" | "idle" | "stale" | "paused";
+  age_s: number;
+  active_task_id: number | null;
+}
+
+export function directory(opts: WhoisOptions = {}): AgentDirectoryEntry[] {
+  const agents = whois(opts);
+  const db = getDb();
+  const activeRows = db
+    .prepare(
+      `SELECT claimed_by, id
+         FROM tasks
+        WHERE claimed_by IS NOT NULL
+          AND state IN ('claimed','working','blocked')
+        ORDER BY updated_at DESC`,
+    )
+    .all() as { claimed_by: string; id: number }[];
+  const activeByAgent = new Map<string, number>();
+  for (const row of activeRows) {
+    if (!activeByAgent.has(row.claimed_by)) activeByAgent.set(row.claimed_by, row.id);
+  }
+  const ts = now();
+  return agents.map((agent) => {
+    const age_s = Math.max(0, Math.round((ts - agent.last_seen) / 1000));
+    const status =
+      agent.paused
+        ? "paused"
+        : age_s < 60
+          ? "online"
+          : age_s < 300
+            ? "idle"
+            : "stale";
+    return {
+      ...agent,
+      status,
+      age_s,
+      active_task_id: activeByAgent.get(agent.name) ?? null,
+    };
+  });
+}
+
 export interface SendOptions {
   from: string;
   to: string;
@@ -262,6 +337,7 @@ export interface SendOptions {
   reply_to?: number;
   thread_id?: string;
   channel?: string | null;
+  priority?: MessagePriority;
 }
 
 function insertMessage(
@@ -270,13 +346,15 @@ function insertMessage(
   senderProject: string | null,
   senderArea: string | null,
 ): Message {
+  validatePriority(opts.priority);
   const db = getDb();
   const ts = now();
+  const priority = opts.priority ?? "normal";
   const info = db
     .prepare(
       `INSERT INTO messages
-         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel, project, area)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel, project, area, priority)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.from,
@@ -289,12 +367,15 @@ function insertMessage(
       opts.channel ?? null,
       senderProject,
       senderArea,
+      priority,
     );
 
   const row = db
     .prepare("SELECT * FROM messages WHERE id = ?")
     .get(info.lastInsertRowid as number) as MessageRow;
-  return toMessage(row);
+  const message = toMessage(row);
+  runLocalHook("message.created", message);
+  return message;
 }
 
 export function send(opts: SendOptions): Message {
@@ -351,7 +432,12 @@ function readInbox(opts: InboxOptions): Message[] {
            AND id > ?
            AND status = 'pending'
            AND (claim_deadline IS NULL OR claim_deadline < ?)
-         ORDER BY id ASC
+         ORDER BY CASE priority
+           WHEN 'urgent' THEN 3
+           WHEN 'high' THEN 2
+           WHEN 'normal' THEN 1
+           ELSE 0
+         END DESC, id ASC
          LIMIT ?`,
     )
     .all(opts.agent, since, ts, limit) as MessageRow[];
@@ -535,6 +621,7 @@ export interface AskBestOptions {
   thread_id?: string;
   project?: string;
   area?: string;
+  role?: AgentRole;
 }
 
 export async function askBest(opts: AskBestOptions): Promise<Message> {
@@ -546,6 +633,7 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
   const areaScope = opts.area !== undefined ? opts.area : asker.area;
   if (projectScope !== null && projectScope !== PROJECT_WILDCARD) validateProject(projectScope);
   if (areaScope !== null && areaScope !== AREA_WILDCARD) validateArea(areaScope);
+  validateRole(opts.role);
 
   const db = getDb();
   const ts = now();
@@ -571,13 +659,19 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
       areaScope === null ||
       areaScope === AREA_WILDCARD ||
       a.area === areaScope;
-    return projectOk && areaOk;
+    const roleOk = opts.role === undefined || a.role === opts.role;
+    return projectOk && areaOk && roleOk;
+  }).sort((a, b) => {
+    const weightDiff = b.routing_weight - a.routing_weight;
+    if (weightDiff !== 0) return weightDiff;
+    return b.last_seen - a.last_seen;
   });
 
   if (scoped.length === 0) {
     const scopedParts = [
       projectScope !== null && projectScope !== PROJECT_WILDCARD ? `project '${projectScope}'` : null,
       areaScope !== null && areaScope !== AREA_WILDCARD ? `area '${areaScope}'` : null,
+      opts.role !== undefined ? `role '${opts.role}'` : null,
     ].filter(Boolean);
     const scopeText = scopedParts.length > 0 ? ` in ${scopedParts.join(", ")}` : "";
     const hintParts = [
@@ -792,6 +886,7 @@ export interface Task {
   finished_at: number | null;
   project: string | null;
   area: string | null;
+  required_capability: string | null;
   stale?: boolean;
 }
 
@@ -814,6 +909,7 @@ interface TaskRow {
   finished_at: number | null;
   project: string | null;
   area: string | null;
+  required_capability: string | null;
 }
 
 function readTaskStaleThresholdMs(): number {
@@ -861,6 +957,7 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     finished_at: row.finished_at,
     project: row.project,
     area: row.area,
+    required_capability: row.required_capability,
   };
   if (
     lastSeenByAgent &&
@@ -900,6 +997,7 @@ export interface CreateTaskOptions {
   blocked_on_task_id?: number;
   project?: string | null;
   area?: string | null;
+  required_capability?: string | null;
 }
 
 export function createTask(opts: CreateTaskOptions): Task {
@@ -915,6 +1013,9 @@ export function createTask(opts: CreateTaskOptions): Task {
   }
   validateProject(opts.project);
   validateArea(opts.area);
+  if (opts.required_capability !== undefined && opts.required_capability !== null && opts.required_capability.length === 0) {
+    throw new BusError("INVALID_INPUT", "required_capability must be non-empty or null");
+  }
   const requester = requireAgent(opts.requested_by);
   heartbeat(opts.requested_by);
 
@@ -935,11 +1036,12 @@ export function createTask(opts: CreateTaskOptions): Task {
   const threadId = opts.thread_id ?? newThreadId();
   const project = opts.project !== undefined ? opts.project : requester.project;
   const area = opts.area !== undefined ? opts.area : requester.area;
+  const requiredCapability = opts.required_capability ?? null;
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -953,9 +1055,12 @@ export function createTask(opts: CreateTaskOptions): Task {
       ts,
       project,
       area,
+      requiredCapability,
     );
 
-  return toTask(getTaskRow(info.lastInsertRowid as number));
+  const task = toTask(getTaskRow(info.lastInsertRowid as number));
+  runLocalHook("task.created", task);
+  return task;
 }
 
 export interface ClaimTaskOptions {
@@ -965,10 +1070,23 @@ export interface ClaimTaskOptions {
 
 export function claimTask(opts: ClaimTaskOptions): Task {
   validateName(opts.agent);
-  requireAgent(opts.agent);
+  const agent = requireAgent(opts.agent);
   heartbeat(opts.agent);
 
   const db = getDb();
+  const row = getTaskRow(opts.task_id);
+  if (row.required_capability !== null && !agent.capabilities.includes(row.required_capability)) {
+    throw new BusError(
+      "TASK_FORBIDDEN",
+      `task ${opts.task_id} requires capability '${row.required_capability}'`,
+    );
+  }
+  if (row.project !== null && agent.project !== null && row.project !== agent.project) {
+    throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} belongs to project '${row.project}'`);
+  }
+  if (row.area !== null && agent.area !== null && row.area !== agent.area) {
+    throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} belongs to area '${row.area}'`);
+  }
   const ts = now();
   const info = db
     .prepare(
@@ -989,7 +1107,9 @@ export function claimTask(opts: ClaimTaskOptions): Task {
     );
   }
 
-  return toTask(getTaskRow(opts.task_id));
+  const task = toTask(getTaskRow(opts.task_id));
+  runLocalHook("task.claimed", task);
+  return task;
 }
 
 export interface UpdateTaskOptions {
@@ -1083,7 +1203,9 @@ export function updateTask(opts: UpdateTaskOptions): Task {
 
   params.push(opts.task_id);
   db.prepare(`UPDATE tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params);
-  return toTask(getTaskRow(opts.task_id));
+  const task = toTask(getTaskRow(opts.task_id));
+  runLocalHook(`task.${task.state}`, task);
+  return task;
 }
 
 export interface ReleaseTaskOptions {
@@ -1131,6 +1253,7 @@ export interface ListTasksOptions {
   limit?: number;
   project?: string;
   area?: string;
+  required_capability?: string;
 }
 
 export function listTasks(opts: ListTasksOptions = {}): Task[] {
@@ -1158,6 +1281,10 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
     where.push("area = ?");
     params.push(opts.area);
   }
+  if (opts.required_capability !== undefined) {
+    where.push("required_capability = ?");
+    params.push(opts.required_capability);
+  }
   if (opts.claimed_by !== undefined) {
     where.push("claimed_by = ?");
     params.push(opts.claimed_by);
@@ -1178,6 +1305,58 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
   const rows = db.prepare(sql).all(...params, limit) as TaskRow[];
   const seen = lastSeenMap();
   return rows.map((r) => toTask(r, seen));
+}
+
+export interface AssignTaskOptions {
+  task_id: number;
+  to_agent: string;
+}
+
+export function assignTask(opts: AssignTaskOptions): Task {
+  validateName(opts.to_agent);
+  const agent = requireAgent(opts.to_agent);
+  const row = getTaskRow(opts.task_id);
+  if (row.state !== "open" || row.claimed_by !== null) {
+    throw new BusError("TASK_NOT_CLAIMABLE", `task ${opts.task_id} is in state '${row.state}'`);
+  }
+  if (row.required_capability !== null && !agent.capabilities.includes(row.required_capability)) {
+    throw new BusError("TASK_FORBIDDEN", `agent '${opts.to_agent}' lacks capability '${row.required_capability}'`);
+  }
+  const ts = now();
+  getDb()
+    .prepare(
+      `UPDATE tasks
+         SET state = 'claimed', claimed_by = ?, claimed_at = ?, updated_at = ?
+       WHERE id = ? AND state = 'open' AND claimed_by IS NULL`,
+    )
+    .run(opts.to_agent, ts, ts, opts.task_id);
+  heartbeat(opts.to_agent);
+  const task = toTask(getTaskRow(opts.task_id));
+  runLocalHook("task.claimed", task);
+  return task;
+}
+
+export interface ClaimBestTaskOptions {
+  agent: string;
+  project?: string;
+  area?: string;
+}
+
+export function claimBestTask(opts: ClaimBestTaskOptions): Task | null {
+  const agent = requireAgent(opts.agent);
+  heartbeat(opts.agent);
+  const project = opts.project !== undefined ? opts.project : agent.project;
+  const area = opts.area !== undefined ? opts.area : agent.area;
+  const tasks = listTasks({
+    state: "open",
+    include_terminal: false,
+    project: project ?? undefined,
+    area: area ?? undefined,
+    limit: 100,
+  }).filter((task) => task.required_capability === null || agent.capabilities.includes(task.required_capability));
+  const task = tasks[0];
+  if (!task) return null;
+  return claimTask({ agent: opts.agent, task_id: task.id });
 }
 
 export function getTask(id: number): Task {

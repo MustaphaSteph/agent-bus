@@ -55,6 +55,7 @@ a file and a process.
 
 - **Pair debugging.** Ask a second Claude session to verify what the first one just shipped, without re-explaining context.
 - **Specialist routing.** Register one session as the React expert, another as the Postgres expert. Use `ask_best(capability=…)` and the bus picks.
+- **Role-aware teams.** Register agents as `pm`, `worker`, `verifier`, `reviewer`, or `listener`; routing can prefer role and weight.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive an `area` like `ios` or `backend` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
@@ -306,7 +307,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **20 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability routing, conversation threads, at-least-once delivery with claim+ack, and first-class tasks with strict state machine.
+- **23 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, and first-class tasks with assignment/claim-best helpers.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, and tasks survive restarts via SQLite WAL.
 - **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, or CLI `--project all --area all`.
@@ -320,7 +321,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 | [`docs/install.md`](docs/install.md) | Install for Claude Code, Codex CLI, Codex Desktop |
 | [`docs/agent-prompts.md`](docs/agent-prompts.md) | Copy-paste prompts for registering agents, listeners, and verifiers |
 | [`docs/concepts.md`](docs/concepts.md) | Mental model: agents, messages, threads, channels, claims, tasks |
-| [`docs/tools.md`](docs/tools.md) | All 20 MCP tools — signatures, errors, examples |
+| [`docs/tools.md`](docs/tools.md) | All MCP tools — signatures, errors, examples |
 | [`docs/cli.md`](docs/cli.md) | `agent-bus` CLI reference |
 | [`docs/patterns.md`](docs/patterns.md) | Listener mode, async chat, capability routing, broadcast, ack/retry, threading |
 | [`docs/architecture.md`](docs/architecture.md) | Schema, internals, tuning, what it can and can't do |

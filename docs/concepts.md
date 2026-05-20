@@ -17,8 +17,10 @@ given name.
 register({ name: "alpha", capabilities: ["react", "css"] })
 ```
 
-`capabilities` is an array of tags. They're used by `ask_best` to route
-questions to the best-matching agent. Nothing else looks at them.
+`capabilities` is an array of tags. They're used by `ask_best` and
+capability-required tasks. `role` and `routing_weight` are optional
+directory/routing hints; higher weight wins before freshness when
+multiple agents match.
 
 ## Project And Area
 
@@ -54,6 +56,8 @@ A row in the `messages` table. Fields you care about:
 - `from_agent`, `to_agent`: who sent it, who it's for
 - `kind`: `msg`, `ask`, or `reply`
 - `content`: the payload (string, no size cap)
+- `priority`: `low`, `normal`, `high`, or `urgent`; inbox returns higher
+  priority messages first.
 - `thread_id`: the conversation it belongs to (auto-generated if you don't
   provide one)
 - `project`, `area`: copied from the sender agent at insert time
@@ -108,7 +112,8 @@ other `msg` in their inbox — except `m.channel` is set.
 A queryable unit of work in the `tasks` table. Use tasks when you need
 coordination state, not just an event. A task has a title, optional
 description, thread_id, project, area, requester, optional holder, state,
-priority, cwd, blocker metadata, result, and timestamps.
+priority, optional `required_capability`, cwd, blocker metadata, result,
+and timestamps.
 
 The state machine is strict:
 
@@ -122,6 +127,10 @@ The state machine is strict:
 
 `claim_task` is atomic. If two agents try to claim the same open task,
 one wins and the other gets `TASK_NOT_CLAIMABLE`.
+
+`assign_task` moves an open task directly to a named agent. `claim_best_task`
+lets a worker claim the highest-priority open task in its scope that
+matches its capabilities.
 
 Tasks do not auto-requeue when an agent goes stale. `list_tasks` surfaces
 `stale: true` for active tasks whose holder has not heartbeated within

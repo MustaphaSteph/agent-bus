@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 20 MCP tools, all prefixed with the server name `agent-bus` in
+You have 23 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -53,6 +53,8 @@ Input:
 - `replace?: boolean` — take over an actively-held name
 - `project?: string | null` — MCP default is repo cwd; null is global
 - `area?: string | null` — MCP default from `.agent-bus.json`; null is no area
+- `role?: string | null` — pm, worker, verifier, reviewer, listener, etc.
+- `routing_weight?: number` — higher preferred by `ask_best`
 
 Returns the `Agent` row.
 
@@ -138,11 +140,12 @@ Input:
 - `thread_id?: string`
 - `project?: string` — default asker's project; `"*"` searches globally
 - `area?: string` — default asker's area; `"*"` searches every area
+- `role?: string` — optional role filter
 
 Picks the most-recently-active agent with that capability in the selected
-project/area. Refuses matches stale beyond 5 minutes. If no in-scope
-match exists, fails with a hint to pass `project: "*"` or `area: "*"` for
-broader search.
+project/area, preferring higher `routing_weight`. Refuses matches stale
+beyond 5 minutes. If no in-scope match exists, fails with a hint to pass
+`project: "*"` or `area: "*"` for broader search.
 
 Errors: `UNKNOWN_AGENT` (no match or stale), plus everything `ask` can throw.
 
@@ -221,6 +224,10 @@ Input:
 
 Returns `Agent[]` sorted by `last_seen` DESC.
 
+### directory
+
+Like `whois`, but includes `status`, `age_s`, and `active_task_id`.
+
 ### recent
 
 Read the most recent messages on the bus regardless of recipient.
@@ -246,6 +253,7 @@ Input:
 - `blocked_on_task_id?: number` — soft dependency
 - `project?: string | null` — default requester agent's project
 - `area?: string | null` — default requester agent's area
+- `required_capability?: string | null` — only matching agents can claim
 
 Returns `Task`.
 
@@ -305,6 +313,23 @@ Input:
 Returns `Task[]`. Active tasks may include `stale: true` when the holder
 has not heartbeated within `AGENT_BUS_TASK_STALE_MS`.
 
+### assign_task
+
+Input:
+- `task_id: number`
+- `to_agent: string`
+
+Assigns an open task to an agent.
+
+### claim_best_task
+
+Input:
+- `agent: string`
+- `project?: string`
+- `area?: string`
+
+Claims the best open task in scope that matches the agent's capabilities.
+
 ### get_task
 
 Fetch one task.
@@ -327,6 +352,8 @@ Returns `Task`.
   paused: boolean
   project: string | null
   area: string | null
+  role: string | null
+  routing_weight: number
 }
 ```
 
@@ -350,6 +377,7 @@ Returns `Task`.
   channel: string | null    // set on channel fan-outs
   project: string | null
   area: string | null
+  priority: "low" | "normal" | "high" | "urgent"
 }
 ```
 
@@ -376,6 +404,7 @@ Returns `Task`.
   finished_at: number | null
   project: string | null
   area: string | null
+  required_capability: string | null
   stale?: boolean
 }
 ```

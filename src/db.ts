@@ -116,6 +116,9 @@ function migrate(db: Database.Database): void {
   if (!messageCols.has("area")) {
     db.exec(`ALTER TABLE messages ADD COLUMN area TEXT`);
   }
+  if (!messageCols.has("priority")) {
+    db.exec(`ALTER TABLE messages ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'`);
+  }
 
   const agentCols = tableColumns(db, "agents");
   if (!agentCols.has("project")) {
@@ -124,6 +127,12 @@ function migrate(db: Database.Database): void {
   if (!agentCols.has("area")) {
     db.exec(`ALTER TABLE agents ADD COLUMN area TEXT`);
   }
+  if (!agentCols.has("role")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN role TEXT`);
+  }
+  if (!agentCols.has("routing_weight")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN routing_weight INTEGER NOT NULL DEFAULT 0`);
+  }
 
   const taskCols = tableColumns(db, "tasks");
   if (!taskCols.has("project")) {
@@ -131,6 +140,9 @@ function migrate(db: Database.Database): void {
   }
   if (!taskCols.has("area")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN area TEXT`);
+  }
+  if (!taskCols.has("required_capability")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN required_capability TEXT`);
   }
 
   db.exec(`
@@ -142,13 +154,19 @@ function migrate(db: Database.Database): void {
       ON messages(project);
     CREATE INDEX IF NOT EXISTS idx_messages_area
       ON messages(area);
+    CREATE INDEX IF NOT EXISTS idx_messages_priority
+      ON messages(priority);
     CREATE INDEX IF NOT EXISTS idx_agents_project
       ON agents(project);
     CREATE INDEX IF NOT EXISTS idx_agents_area
       ON agents(area);
+    CREATE INDEX IF NOT EXISTS idx_agents_role
+      ON agents(role);
     CREATE INDEX IF NOT EXISTS idx_tasks_project
       ON tasks(project);
     CREATE INDEX IF NOT EXISTS idx_tasks_area
       ON tasks(area);
+    CREATE INDEX IF NOT EXISTS idx_tasks_required_capability
+      ON tasks(required_capability);
   `);
 }

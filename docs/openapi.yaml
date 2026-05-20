@@ -835,6 +835,12 @@ components:
         area:
           type: [string, 'null']
           description: Area associated with this agent. Null means no area/legacy.
+        role:
+          type: [string, 'null']
+          description: Optional routing role.
+        routing_weight:
+          type: integer
+          description: Higher values are preferred by ask_best.
 
     Message:
       type: object
@@ -895,6 +901,9 @@ components:
         area:
           type: [string, 'null']
           description: Area copied from the sender agent at insert time. Null means no area/legacy.
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
 
     Task:
       type: object
@@ -965,6 +974,9 @@ components:
         area:
           type: [string, 'null']
           description: Area scope for this task. Null-area tasks only appear in global area task listings.
+        required_capability:
+          type: [string, 'null']
+          description: Capability required to claim this task.
 
     Subscription:
       type: object
@@ -1031,6 +1043,10 @@ components:
         area:
           type: [string, 'null']
           description: Optional area association. MCP sessions default this from `.agent-bus.json`; null is no area.
+        role:
+          type: [string, 'null']
+        routing_weight:
+          type: integer
 
     SendRequest:
       type: object
@@ -1127,6 +1143,8 @@ components:
           $ref: '#/components/schemas/ProjectFilter'
         area:
           $ref: '#/components/schemas/AreaFilter'
+        role:
+          type: string
 
     ReplyRequest:
       type: object
@@ -1227,6 +1245,9 @@ components:
         area:
           type: [string, 'null']
           description: Optional area. Defaults to the requester agent's area.
+        required_capability:
+          type: [string, 'null']
+          description: Optional capability required to claim this task.
 
     ClaimTaskRequest:
       type: object
@@ -1299,6 +1320,8 @@ components:
           $ref: '#/components/schemas/ProjectFilter'
         area:
           $ref: '#/components/schemas/AreaFilter'
+        required_capability:
+          type: string
 
     GetTaskRequest:
       type: object

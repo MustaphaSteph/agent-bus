@@ -10,6 +10,7 @@ export interface TasksOptions extends ScopeOptions {
   all?: boolean;
   watch?: boolean;
   intervalMs?: number;
+  requiredCapability?: string;
 }
 
 export async function tasks(opts: TasksOptions): Promise<void> {
@@ -31,12 +32,14 @@ export async function tasks(opts: TasksOptions): Promise<void> {
 function readTasks(
   state: TaskState | undefined,
   includeTerminal: boolean,
-  scope: ScopeOptions,
+  scope: ScopeOptions & { requiredCapability?: string },
 ): Task[] {
+  const { requiredCapability, ...busScope } = scope;
   return listTasks({
     state,
     include_terminal: includeTerminal,
-    ...scope,
+    required_capability: requiredCapability,
+    ...busScope,
   });
 }
 
@@ -81,6 +84,7 @@ function taskFingerprint(task: Task): string {
     requested_by: task.requested_by,
     project: task.project,
     area: task.area,
+    required_capability: task.required_capability,
     updated_at: task.updated_at,
     stale: task.stale === true,
   });
@@ -93,9 +97,10 @@ export function formatTask(task: Task): string {
   const thread = abbreviateThread(task.thread_id);
   const project = task.project ? `, project=${task.project}` : ", project=no-project";
   const area = task.area ? `, area=${task.area}` : "";
+  const cap = task.required_capability ? `, capability=${task.required_capability}` : "";
   const line =
     `#${task.id} p${task.priority} ${state} ${truncate(task.title, 80)} ` +
-    `${kleur.gray("-")} by ${task.requested_by}, held=${held}, thread=${thread}${kleur.gray(project + area)}`;
+    `${kleur.gray("-")} by ${task.requested_by}, held=${held}, thread=${thread}${kleur.gray(project + area + cap)}`;
   return stale ? kleur.red(`${line} stale`) : line;
 }
 

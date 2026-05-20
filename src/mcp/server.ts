@@ -8,10 +8,13 @@ import {
 import { z } from "zod";
 import {
   ack,
+  assignTask,
   ask,
   askBest,
   claimTask,
+  claimBestTask,
   createTask,
+  directory,
   getTask,
   inbox,
   listTasks,
@@ -59,6 +62,8 @@ const RegisterInput = z.object({
   replace: z.boolean().optional(),
   project: ProjectField,
   area: AreaField,
+  role: z.string().min(1).max(64).nullable().optional(),
+  routing_weight: z.number().int().optional(),
 });
 
 const SendInput = z.object({
@@ -98,6 +103,7 @@ const AskBestInput = z.object({
   thread_id: z.string().optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+  role: z.string().min(1).max(64).optional(),
 });
 
 const ReplyInput = z.object({
@@ -142,11 +148,23 @@ const CreateTaskInput = z.object({
   blocked_on_task_id: z.number().int().positive().optional(),
   project: ProjectField,
   area: AreaField,
+  required_capability: z.string().min(1).nullable().optional(),
 });
 
 const ClaimTaskInput = z.object({
   agent: z.string().min(1),
   task_id: z.number().int().positive(),
+});
+
+const AssignTaskInput = z.object({
+  task_id: z.number().int().positive(),
+  to_agent: z.string().min(1),
+});
+
+const ClaimBestTaskInput = z.object({
+  agent: z.string().min(1),
+  project: ProjectFilterField,
+  area: AreaFilterField,
 });
 
 const UpdateTaskInput = z.object({
@@ -173,6 +191,7 @@ const ListTasksInput = z.object({
   limit: z.number().int().positive().max(500).optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+  required_capability: z.string().min(1).optional(),
 });
 
 const GetTaskInput = z.object({
@@ -214,6 +233,8 @@ const TOOLS = [
           type: ["string", "null"],
           description: "Optional subfolder/domain scope from .agent-bus.json, e.g. ios or backend",
         },
+        role: { type: ["string", "null"], description: "Optional role such as pm, worker, verifier, reviewer, listener" },
+        routing_weight: { type: "number", description: "Optional routing preference weight for ask_best" },
       },
       required: ["name"],
     },
@@ -321,6 +342,7 @@ const TOOLS = [
         thread_id: { type: "string" },
         project: { type: "string", description: "Optional project filter; '*' searches all projects" },
         area: { type: "string", description: "Optional area filter; '*' searches every area" },
+        role: { type: "string", description: "Optional role filter such as verifier or worker" },
       },
       required: ["from", "capability", "question"],
     },
@@ -420,6 +442,18 @@ const TOOLS = [
     },
   },
   {
+    name: "directory",
+    description:
+      "List registered agents with status, age, scope, role, capabilities, and active task id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+      },
+    },
+  },
+  {
     name: "recent",
     description: "Read the most recent messages on the bus regardless of recipient. Useful for catching up.",
     inputSchema: {
@@ -449,6 +483,7 @@ const TOOLS = [
         blocked_on_task_id: { type: "number" },
         project: { type: ["string", "null"], description: "Optional project scope; defaults to requester" },
         area: { type: ["string", "null"], description: "Optional area scope; defaults to requester" },
+        required_capability: { type: ["string", "null"], description: "Optional capability required to claim this task" },
       },
       required: ["requested_by", "title"],
     },
@@ -465,6 +500,32 @@ const TOOLS = [
         task_id: { type: "number" },
       },
       required: ["agent", "task_id"],
+    },
+  },
+  {
+    name: "assign_task",
+    description: "Assign an open task directly to an agent, moving it to claimed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "number" },
+        to_agent: { type: "string" },
+      },
+      required: ["task_id", "to_agent"],
+    },
+  },
+  {
+    name: "claim_best_task",
+    description:
+      "Claim the highest-priority open task in this agent's project/area that matches its capabilities. Returns null if none.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string" },
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+      },
+      required: ["agent"],
     },
   },
   {
@@ -538,6 +599,7 @@ const TOOLS = [
         limit: { type: "number" },
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        required_capability: { type: "string" },
       },
     },
   },
@@ -644,6 +706,13 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
+    case "directory": {
+      const input = WhoisInput.parse(raw);
+      return directory({
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
     case "recent": {
       const input = RecentInput.parse(raw);
       return recentMessages({
@@ -662,6 +731,16 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "claim_task":
       return claimTask(ClaimTaskInput.parse(raw));
+    case "assign_task":
+      return assignTask(AssignTaskInput.parse(raw));
+    case "claim_best_task": {
+      const input = ClaimBestTaskInput.parse(raw);
+      return claimBestTask({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
     case "update_task":
       return updateTask(UpdateTaskInput.parse(raw));
     case "release_task":

@@ -33,7 +33,8 @@ agent-bus log --area backend    # specific configured area
 
 ### `agent-bus whois`
 
-List every registered agent with capabilities, last-seen, paused state.
+List every registered agent with capabilities, status, role, active task,
+last-seen, and paused state.
 
 ```bash
 agent-bus whois
@@ -57,6 +58,7 @@ agent-bus tasks --watch            # print new or changed tasks
 agent-bus tasks --watch --interval 500
 agent-bus tasks --project all      # global
 agent-bus tasks --area ios         # only the ios task lane
+agent-bus tasks --required-capability swift
 ```
 
 Rows show id, priority, state, title, requester, holder, and abbreviated
@@ -80,6 +82,43 @@ Put `.agent-bus.json` in a repo root when one project has multiple lanes:
 MCP sessions and CLI read commands derive the area from cwd. Use
 `--area all` when a project manager wants every lane in the current
 project.
+
+```bash
+agent-bus init --project my-app --areas backend,frontend,ios
+agent-bus scope
+agent-bus areas
+agent-bus team init backend frontend ios
+agent-bus doctor
+```
+
+`init` writes `.agent-bus.json`; `scope` prints the current derived
+project/area; `areas` lists configured path patterns; `team init` also
+prints suggested PM/worker/verifier names; `doctor` checks db path,
+scope, config, area list, and agent counts.
+
+Optional local hook commands can be placed in `.agent-bus.json`:
+
+```json
+{
+  "hooks": {
+    "message.created": "node scripts/on-message.js",
+    "task.blocked": "agent-bus inject --to pm 'task blocked'"
+  }
+}
+```
+
+Hook commands run locally with `AGENT_BUS_EVENT` and
+`AGENT_BUS_EVENT_JSON` in the environment.
+
+### `agent-bus listen`
+
+Long-running local inbox listener. It blocks in `inbox(wait_s)`, claims
+messages, prints them, and acks after printing.
+
+```bash
+agent-bus listen --agent worker-a
+agent-bus listen --agent worker-a --claim-s 300 --wait-s 110
+```
 
 ### `agent-bus inject`
 
@@ -107,6 +146,7 @@ Manually create or update an agent row. Useful for scripting.
 
 ```bash
 agent-bus register --name worker-1 --capabilities "tests,ci" --replace
+agent-bus register --name ios-verifier --capabilities "swift,tests" --role verifier --area ios --replace
 ```
 
 ## Listener support

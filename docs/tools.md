@@ -14,6 +14,8 @@ register({
   replace?: boolean,           // take over an actively-held name
   project?: string | null,      // MCP default is derived from cwd; null is global
   area?: string | null,         // MCP default from .agent-bus.json; null is no area
+  role?: string | null,         // pm, worker, verifier, reviewer, listener, ...
+  routing_weight?: number,      // higher wins when ask_best candidates tie
 }) → Agent
 ```
 
@@ -38,6 +40,7 @@ send({
   from: string,
   to: string,
   message: string,
+  priority?: "low" | "normal" | "high" | "urgent",
   thread_id?: string,          // continue an existing thread; auto-generated otherwise
 }) → Message
 ```
@@ -143,12 +146,14 @@ ask_best({
   thread_id?: string,
   project?: string,             // default asker's project; "*" searches globally
   area?: string,                // default asker's area; "*" searches every area
+  role?: string,                // optional role filter
 }) → Message                   // the reply
 ```
 
 Picks the candidate with the most recent `last_seen` in the selected
-project and area. Refuses matches where the candidate hasn't been seen
-in 5 minutes. If no in-scope match exists, it fails with a hint to pass
+project and area, preferring higher `routing_weight` first. Refuses
+matches where the candidate hasn't been seen in 5 minutes. If no
+in-scope match exists, it fails with a hint to pass
 `project: "*"` and/or `area: "*"` for a broader search.
 
 **Errors**: `UNKNOWN_AGENT` (no registered agent has the capability, or
@@ -262,6 +267,14 @@ List every registered agent with capabilities and last-seen.
 whois({ project?: string, area?: string }) → Agent[]   // "*" = all
 ```
 
+## directory
+
+List agents with derived status and active task metadata.
+
+```ts
+directory({ project?: string, area?: string }) → AgentDirectoryEntry[]
+```
+
 ## recent
 
 Read the most recent messages on the bus, regardless of who sent them or
@@ -291,6 +304,7 @@ create_task({
   blocked_on_task_id?: number, // soft dependency, no auto-unblock
   project?: string | null,      // default requester's project
   area?: string | null,         // default requester's area
+  required_capability?: string | null,
 }) -> Task
 ```
 
@@ -310,6 +324,27 @@ claim_task({
 
 Only succeeds when `state='open'` and `claimed_by IS NULL`; concurrent
 claimers get `TASK_NOT_CLAIMABLE`.
+
+## assign_task
+
+Assign an open task directly to an agent.
+
+```ts
+assign_task({ task_id: number, to_agent: string }) -> Task
+```
+
+## claim_best_task
+
+Claim the highest-priority open task in the agent's project/area that
+matches its capabilities.
+
+```ts
+claim_best_task({
+  agent: string,
+  project?: string,
+  area?: string,
+}) -> Task | null
+```
 
 ## update_task
 
@@ -369,6 +404,7 @@ list_tasks({
   limit?: number,              // default 100, max 500
   project?: string,             // concrete project or "*" for all
   area?: string,                // concrete area or "*" for all
+  required_capability?: string,
 }) -> Task[]
 ```
 

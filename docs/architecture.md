@@ -60,8 +60,11 @@ checks before `ALTER TABLE`).
 | `last_seen` | INTEGER | updated on every send/inbox/register |
 | `paused` | INTEGER | 0 or 1 |
 | `project` | TEXT nullable | repo-derived scope; null means legacy/global |
+| `area` | TEXT nullable | path-derived lane; null means no area |
+| `role` | TEXT nullable | pm / worker / verifier / reviewer / listener / custom |
+| `routing_weight` | INTEGER | higher preferred by `ask_best` |
 
-Index on `(project)`.
+Indexes on `project`, `area`, and `role`.
 
 ### `messages`
 
@@ -82,6 +85,8 @@ Index on `(project)`.
 | `claimed_by` | TEXT nullable | who claimed it |
 | `channel` | TEXT nullable | set for fan-outs from `send_channel` |
 | `project` | TEXT nullable | copied from sender agent at insert time |
+| `area` | TEXT nullable | copied from sender agent at insert time |
+| `priority` | TEXT | `low` / `normal` / `high` / `urgent` |
 
 Indexes:
 - `(to_agent, status, id)` — drives the inbox query
@@ -89,6 +94,8 @@ Indexes:
 - `thread_id`
 - `claim_deadline`
 - `project`
+- `area`
+- `priority`
 
 ### `tasks`
 
@@ -111,6 +118,8 @@ Indexes:
 | `claimed_at` | INTEGER nullable | when holder claimed |
 | `finished_at` | INTEGER nullable | when task became terminal |
 | `project` | TEXT nullable | requester project unless supplied explicitly |
+| `area` | TEXT nullable | requester area unless supplied explicitly |
+| `required_capability` | TEXT nullable | claimant must have this capability |
 
 Indexes include `state`, `claimed_by`, `requested_by`, `thread_id`,
 `updated_at`, and `project`.
