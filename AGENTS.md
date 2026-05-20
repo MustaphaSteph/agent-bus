@@ -48,8 +48,9 @@ Schema created in `src/db.ts`.
 
 `name` PK, JSON `capabilities`, `registered_at`, `last_seen`, `paused`,
 nullable `project`, nullable `area`, nullable `role`, integer
-`routing_weight`. Agent names remain globally unique; `project` and
-`area` are filter attributes, not part of identity.
+`routing_weight`, work `status` (`idle`/`working`/`blocked`/
+`waiting_review`/`sleeping`). Agent names remain globally unique;
+`project` and `area` are filter attributes, not part of identity.
 
 ### `messages`
 
@@ -71,8 +72,14 @@ Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
 `id` PK auto, `title`, `description`, `thread_id`, `requested_by`,
 `claimed_by`, `state` (`open`/`claimed`/`working`/`blocked`/
 `completed`/`failed`/`canceled`), `priority`, `cwd`, blocker metadata,
-`required_capability`, `result`, timestamps, `finished_at`, nullable
-`project`, nullable `area`.
+`required_capability`, task `mode`, manager checklist fields, JSON
+`file_scope`, `result`, timestamps, `finished_at`, nullable `project`,
+nullable `area`.
+
+### `decisions`
+
+`id` PK auto, `by_agent`, `decision`, optional `rationale`,
+`implemented`, nullable `project`, nullable `area`, timestamps.
 
 ### Semantics
 
@@ -98,6 +105,10 @@ Indexes: `(to_agent, status, id)`, `reply_to`, `thread_id`,
   `assignTask()` directly claims an open task for an agent, and
   `claimBestTask()` chooses the highest-priority open task matching the
   agent's scope and capabilities.
+- Agent status is separate from pause/resume delivery. Sleeping agents
+  can still receive queued messages; status is for the manager board.
+- Decisions are durable project memory and final reports are generated
+  from task state/checklist fields.
 - Project/area scoping is soft. MCP sessions and CLI read commands
   derive a project from cwd and area from `.agent-bus.json`; direct
   addressed messaging remains cross-project/cross-area. Use

@@ -20,7 +20,8 @@ register({ name: "alpha", capabilities: ["react", "css"] })
 `capabilities` is an array of tags. They're used by `ask_best` and
 capability-required tasks. `role` and `routing_weight` are optional
 directory/routing hints; higher weight wins before freshness when
-multiple agents match.
+multiple agents match. `status` is the work-board state: `idle`,
+`working`, `blocked`, `waiting_review`, or `sleeping`.
 
 ## Project And Area
 
@@ -112,8 +113,9 @@ other `msg` in their inbox — except `m.channel` is set.
 A queryable unit of work in the `tasks` table. Use tasks when you need
 coordination state, not just an event. A task has a title, optional
 description, thread_id, project, area, requester, optional holder, state,
-priority, optional `required_capability`, cwd, blocker metadata, result,
-and timestamps.
+priority, optional `required_capability`, `mode`, `expected_output`,
+deadlines/check-ins, `file_scope`, final answer, manager review flag, cwd,
+blocker metadata, result, and timestamps.
 
 The state machine is strict:
 
@@ -131,6 +133,16 @@ one wins and the other gets `TASK_NOT_CLAIMABLE`.
 `assign_task` moves an open task directly to a named agent. `claim_best_task`
 lets a worker claim the highest-priority open task in its scope that
 matches its capabilities.
+
+Task modes communicate edit permission: `investigate_only`,
+`propose_patch`, `edit_files`, or `test_only`. The bus stores the mode and
+file scope; agents are expected to respect them.
+
+## Decision
+
+A durable note recording what was decided, why, who suggested it, and
+whether it was implemented. Use this for project memory that should
+survive across sessions.
 
 Tasks do not auto-requeue when an agent goes stale. `list_tasks` surfaces
 `stale: true` for active tasks whose holder has not heartbeated within

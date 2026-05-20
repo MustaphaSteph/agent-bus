@@ -59,6 +59,8 @@ agent-bus tasks --watch --interval 500
 agent-bus tasks --project all      # global
 agent-bus tasks --area ios         # only the ios task lane
 agent-bus tasks --required-capability swift
+agent-bus tasks --mode investigate_only
+agent-bus tasks --manager-reviewed
 ```
 
 Rows show id, priority, state, title, requester, holder, and abbreviated
@@ -119,6 +121,23 @@ messages, prints them, and acks after printing.
 agent-bus listen --agent worker-a
 agent-bus listen --agent worker-a --claim-s 300 --wait-s 110
 ```
+
+### Agent state and reports
+
+```bash
+agent-bus sleep claude-developer-2
+agent-bus wake claude-developer-2
+agent-bus status claude-developer-1 waiting_review
+
+agent-bus decision --by codex-project-manager --decision "Use task modes" --rationale "prevents accidental edits"
+agent-bus decision --list
+
+agent-bus final-report
+```
+
+`sleep`/`wake` are semantic work states, separate from `pause`/`resume`
+delivery. `final-report` summarizes implemented work, gaps, risks, tests,
+manual checks, and commit/push/deploy safety.
 
 ### `agent-bus inject`
 

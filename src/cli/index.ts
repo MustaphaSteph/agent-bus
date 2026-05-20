@@ -4,11 +4,17 @@ import kleur from "kleur";
 import {
   ack,
   directory,
+  finalReport,
   inbox,
+  listDecisions,
   recentMessages,
   register,
+  recordDecision,
   send,
+  setAgentStatus,
   setPaused,
+  sleepAgent,
+  wakeAgent,
   whois,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
@@ -85,7 +91,7 @@ program
       const role = a.role ? ` role=${a.role}` : "";
       const active = a.active_task_id ? ` task=#${a.active_task_id}` : "";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + role + active)}${paused}  ${kleur.gray(`${a.status}, seen ${a.age_s}s ago`)}`);
+      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + role + active)}${paused}  ${kleur.gray(`${a.status}/${a.presence}, seen ${a.age_s}s ago`)}`);
     }
   });
 
@@ -168,7 +174,7 @@ program
   .action(() => {
     const scope = deriveScope();
     const agents = directory({ project: scope.project ?? undefined, area: scope.area ?? undefined });
-    const stale = agents.filter((a) => a.status === "stale").length;
+    const stale = agents.filter((a) => a.presence === "stale").length;
     console.log(`db: ${dbPath()}`);
     console.log(`scope: project=${scope.project ?? "-"} area=${scope.area ?? "-"}`);
     console.log(`config: ${scopeConfigPath() ?? "-"}`);
@@ -207,13 +213,17 @@ program
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
   .option("--required-capability <name>", "filter by required task capability")
-  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string; requiredCapability?: string }) => {
+  .option("--mode <mode>", "filter by task mode")
+  .option("--manager-reviewed", "only reviewed tasks")
+  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string; requiredCapability?: string; mode?: string; managerReviewed?: boolean }) => {
     await tasks({
       state: opts.state,
       all: opts.all,
       watch: opts.watch,
       intervalMs: Number(opts.interval),
       requiredCapability: opts.requiredCapability,
+      mode: opts.mode,
+      managerReviewed: opts.managerReviewed,
       ...resolveScopeOptions(opts.project, opts.area),
     });
   });
@@ -236,6 +246,79 @@ program
   .action((agent: string) => {
     setPaused(agent, true);
     console.log(kleur.yellow(`paused ${agent}`));
+  });
+
+program
+  .command("sleep <agent>")
+  .description("Mark an agent as sleeping")
+  .action((agent: string) => {
+    sleepAgent(agent);
+    console.log(kleur.yellow(`sleeping ${agent}`));
+  });
+
+program
+  .command("wake <agent>")
+  .description("Wake a sleeping agent")
+  .action((agent: string) => {
+    wakeAgent(agent);
+    console.log(kleur.green(`awake ${agent}`));
+  });
+
+program
+  .command("status <agent> <status>")
+  .description("Set agent status: idle, working, blocked, waiting_review, sleeping")
+  .action((agent: string, status: string) => {
+    setAgentStatus(agent, status as never);
+    console.log(kleur.green(`${agent} status=${status}`));
+  });
+
+program
+  .command("decision")
+  .description("Record or list project decisions")
+  .option("--by <agent>", "agent recording the decision")
+  .option("--decision <text>", "decision text")
+  .option("--rationale <text>", "why this was decided")
+  .option("--implemented", "mark decision implemented")
+  .option("--list", "list decisions")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { by?: string; decision?: string; rationale?: string; implemented?: boolean; list?: boolean; project?: string; area?: string }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area);
+    if (opts.list) {
+      const rows = listDecisions({ ...scope });
+      for (const row of rows) {
+        const mark = row.implemented ? "done" : "open";
+        console.log(`#${row.id} [${mark}] ${row.decision}${row.rationale ? kleur.gray(` - ${row.rationale}`) : ""}`);
+      }
+      return;
+    }
+    if (!opts.by || !opts.decision) throw new Error("--by and --decision are required unless --list is used");
+    const row = recordDecision({
+      by_agent: opts.by,
+      decision: opts.decision,
+      rationale: opts.rationale,
+      implemented: opts.implemented,
+      project: scope.project ?? null,
+      area: scope.area ?? null,
+    });
+    console.log(`${kleur.green("recorded")} decision #${row.id}`);
+  });
+
+program
+  .command("final-report")
+  .description("Generate a merge-readiness report from tasks")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { project?: string; area?: string }) => {
+    const report = finalReport(resolveScopeOptions(opts.project, opts.area));
+    console.log(`Implemented:\n${formatList(report.implemented)}`);
+    console.log(`Not implemented:\n${formatList(report.not_implemented)}`);
+    console.log(`Known risks:\n${formatList(report.known_risks)}`);
+    console.log(`Tests passed:\n${formatList(report.tests_passed)}`);
+    console.log(`Manual tests needed:\n${formatList(report.manual_tests_needed)}`);
+    console.log(`Safe to commit: ${report.safe_to_commit ? "yes" : "no"}`);
+    console.log(`Safe to push: ${report.safe_to_push ? "yes" : "no"}`);
+    console.log("Safe to deploy: no unless user approves");
   });
 
 program
@@ -327,3 +410,7 @@ program.parseAsync(process.argv).catch((err) => {
   console.error(kleur.red("error:"), err instanceof Error ? err.message : err);
   process.exit(1);
 });
+
+function formatList(values: string[]): string {
+  return values.length === 0 ? "  - none" : values.map((value) => `  - ${value}`).join("\n");
+}

@@ -16,6 +16,7 @@ register({
   area?: string | null,         // MCP default from .agent-bus.json; null is no area
   role?: string | null,         // pm, worker, verifier, reviewer, listener, ...
   routing_weight?: number,      // higher wins when ask_best candidates tie
+  status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
 }) → Agent
 ```
 
@@ -275,6 +276,16 @@ List agents with derived status and active task metadata.
 directory({ project?: string, area?: string }) → AgentDirectoryEntry[]
 ```
 
+## set_agent_status / sleep_agent / wake_agent
+
+Update an agent's work state.
+
+```ts
+set_agent_status({ agent: string, status: "idle" | "working" | "blocked" | "waiting_review" | "sleeping" }) → Agent
+sleep_agent({ agent: string }) → Agent
+wake_agent({ agent: string }) → Agent
+```
+
 ## recent
 
 Read the most recent messages on the bus, regardless of who sent them or
@@ -305,6 +316,13 @@ create_task({
   project?: string | null,      // default requester's project
   area?: string | null,         // default requester's area
   required_capability?: string | null,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string | null,
+  deadline_at?: number | null,  // ms epoch
+  checkin_at?: number | null,   // ms epoch
+  final_answer?: string | null,
+  manager_reviewed?: boolean,
+  file_scope?: string[],
 }) -> Task
 ```
 
@@ -360,6 +378,13 @@ update_task({
   blocked_on_task_id?: number | null,
   result?: string | null,
   priority?: number,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string | null,
+  deadline_at?: number | null,
+  checkin_at?: number | null,
+  final_answer?: string | null,
+  manager_reviewed?: boolean,
+  file_scope?: string[],
 }) -> Task
 ```
 
@@ -405,6 +430,8 @@ list_tasks({
   project?: string,             // concrete project or "*" for all
   area?: string,                // concrete area or "*" for all
   required_capability?: string,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  manager_reviewed?: boolean,
 }) -> Task[]
 ```
 
@@ -423,6 +450,45 @@ get_task({ task_id: number }) -> Task
 ```
 
 **Errors**: `TASK_NOT_FOUND`.
+
+## record_decision / list_decisions
+
+Persist project decisions so agents do not repeat the same debate.
+
+```ts
+record_decision({
+  by_agent: string,
+  decision: string,
+  rationale?: string | null,
+  implemented?: boolean,
+  project?: string | null,
+  area?: string | null,
+}) -> Decision
+
+list_decisions({
+  project?: string,
+  area?: string,
+  implemented?: boolean,
+  limit?: number,
+}) -> Decision[]
+```
+
+## final_report
+
+Generate merge-readiness output from tasks.
+
+```ts
+final_report({ project?: string, area?: string }) -> {
+  implemented: string[],
+  not_implemented: string[],
+  known_risks: string[],
+  tests_passed: string[],
+  manual_tests_needed: string[],
+  safe_to_commit: boolean,
+  safe_to_push: boolean,
+  safe_to_deploy: false,
+}
+```
 
 ---
 

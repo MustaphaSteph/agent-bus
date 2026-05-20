@@ -55,6 +55,7 @@ Input:
 - `area?: string | null` — MCP default from `.agent-bus.json`; null is no area
 - `role?: string | null` — pm, worker, verifier, reviewer, listener, etc.
 - `routing_weight?: number` — higher preferred by `ask_best`
+- `status?: string` — idle, working, blocked, waiting_review, or sleeping
 
 Returns the `Agent` row.
 
@@ -228,6 +229,11 @@ Returns `Agent[]` sorted by `last_seen` DESC.
 
 Like `whois`, but includes `status`, `age_s`, and `active_task_id`.
 
+### set_agent_status / sleep_agent / wake_agent
+
+Set the work-board state for an agent. Sleeping is a status, not delivery
+pause.
+
 ### recent
 
 Read the most recent messages on the bus regardless of recipient.
@@ -254,6 +260,13 @@ Input:
 - `project?: string | null` — default requester agent's project
 - `area?: string | null` — default requester agent's area
 - `required_capability?: string | null` — only matching agents can claim
+- `mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only"`
+- `expected_output?: string | null`
+- `deadline_at?: number | null`
+- `checkin_at?: number | null`
+- `final_answer?: string | null`
+- `manager_reviewed?: boolean`
+- `file_scope?: string[]`
 
 Returns `Task`.
 
@@ -330,6 +343,15 @@ Input:
 
 Claims the best open task in scope that matches the agent's capabilities.
 
+### record_decision / list_decisions
+
+Store and read durable project decisions.
+
+### final_report
+
+Generate implemented / not implemented / risks / tests / manual checks
+and safe-to-commit/push/deploy flags from tasks.
+
 ### get_task
 
 Fetch one task.
@@ -354,6 +376,7 @@ Returns `Task`.
   area: string | null
   role: string | null
   routing_weight: number
+  status: "idle" | "working" | "blocked" | "waiting_review" | "sleeping"
 }
 ```
 
@@ -405,6 +428,13 @@ Returns `Task`.
   project: string | null
   area: string | null
   required_capability: string | null
+  mode: "investigate_only" | "propose_patch" | "edit_files" | "test_only"
+  expected_output: string | null
+  deadline_at: number | null
+  checkin_at: number | null
+  final_answer: string | null
+  manager_reviewed: boolean
+  file_scope: string[]
   stale?: boolean
 }
 ```

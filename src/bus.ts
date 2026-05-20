@@ -20,6 +20,8 @@ export type MessageKind = "msg" | "ask" | "reply";
 export type MessageStatus = "pending" | "delivered" | "answered";
 export type MessagePriority = "low" | "normal" | "high" | "urgent";
 export type AgentRole = "pm" | "worker" | "verifier" | "reviewer" | "listener" | string;
+export type AgentStatus = "idle" | "working" | "blocked" | "waiting_review" | "sleeping";
+export type TaskMode = "investigate_only" | "propose_patch" | "edit_files" | "test_only";
 
 export const PROJECT_WILDCARD = "*";
 export const AREA_WILDCARD = PROJECT_WILDCARD;
@@ -34,6 +36,7 @@ export interface Agent {
   area: string | null;
   role: AgentRole | null;
   routing_weight: number;
+  status: AgentStatus;
 }
 
 export interface Message {
@@ -72,6 +75,7 @@ interface AgentRow {
   area: string | null;
   role: AgentRole | null;
   routing_weight: number;
+  status: AgentStatus;
 }
 
 interface MessageRow {
@@ -105,6 +109,7 @@ function toAgent(row: AgentRow): Agent {
     area: row.area,
     role: row.role,
     routing_weight: row.routing_weight,
+    status: row.status,
   };
 }
 
@@ -162,6 +167,20 @@ function validatePriority(priority: MessagePriority | undefined): void {
   }
 }
 
+function validateAgentStatus(status: AgentStatus | undefined): void {
+  if (status === undefined) return;
+  if (!["idle", "working", "blocked", "waiting_review", "sleeping"].includes(status)) {
+    throw new BusError("INVALID_INPUT", "status must be idle, working, blocked, waiting_review, or sleeping");
+  }
+}
+
+function validateTaskMode(mode: TaskMode | undefined): void {
+  if (mode === undefined) return;
+  if (!["investigate_only", "propose_patch", "edit_files", "test_only"].includes(mode)) {
+    throw new BusError("INVALID_INPUT", "mode must be investigate_only, propose_patch, edit_files, or test_only");
+  }
+}
+
 function requireAgent(name: string): Agent {
   const db = getDb();
   const row = db.prepare("SELECT * FROM agents WHERE name = ?").get(name) as
@@ -206,6 +225,7 @@ export interface RegisterOptions {
   area?: string | null;
   role?: AgentRole | null;
   routing_weight?: number;
+  status?: AgentStatus;
 }
 
 export function register(opts: RegisterOptions): Agent {
@@ -213,6 +233,7 @@ export function register(opts: RegisterOptions): Agent {
   validateProject(opts.project);
   validateArea(opts.area);
   validateRole(opts.role);
+  validateAgentStatus(opts.status);
   if (opts.routing_weight !== undefined && !Number.isFinite(opts.routing_weight)) {
     throw new BusError("INVALID_INPUT", "routing_weight must be a number");
   }
@@ -237,9 +258,10 @@ export function register(opts: RegisterOptions): Agent {
   const area = opts.area ?? null;
   const role = opts.role ?? null;
   const routingWeight = Math.trunc(opts.routing_weight ?? 0);
+  const status = opts.status ?? "idle";
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, role, routing_weight)
-       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @role, @routingWeight)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, role, routing_weight, status)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @role, @routingWeight, @status)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
@@ -248,8 +270,9 @@ export function register(opts: RegisterOptions): Agent {
        project = excluded.project,
        area = excluded.area,
        role = excluded.role,
-       routing_weight = excluded.routing_weight`,
-  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, role, routingWeight });
+       routing_weight = excluded.routing_weight,
+       status = excluded.status`,
+  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, role, routingWeight, status });
 
   return requireAgent(opts.name);
 }
@@ -288,7 +311,7 @@ export function whois(opts: WhoisOptions = {}): Agent[] {
 }
 
 export interface AgentDirectoryEntry extends Agent {
-  status: "online" | "idle" | "stale" | "paused";
+  presence: "online" | "idle" | "stale" | "paused";
   age_s: number;
   active_task_id: number | null;
 }
@@ -312,7 +335,7 @@ export function directory(opts: WhoisOptions = {}): AgentDirectoryEntry[] {
   const ts = now();
   return agents.map((agent) => {
     const age_s = Math.max(0, Math.round((ts - agent.last_seen) / 1000));
-    const status =
+    const presence =
       agent.paused
         ? "paused"
         : age_s < 60
@@ -322,7 +345,7 @@ export function directory(opts: WhoisOptions = {}): AgentDirectoryEntry[] {
             : "stale";
     return {
       ...agent,
-      status,
+      presence,
       age_s,
       active_task_id: activeByAgent.get(agent.name) ?? null,
     };
@@ -791,6 +814,24 @@ export function setPaused(name: string, paused: boolean): void {
     .run(paused ? 1 : 0, name);
 }
 
+export function setAgentStatus(name: string, status: AgentStatus): Agent {
+  validateName(name);
+  validateAgentStatus(status);
+  requireAgent(name);
+  getDb()
+    .prepare("UPDATE agents SET status = ?, last_seen = ? WHERE name = ?")
+    .run(status, now(), name);
+  return requireAgent(name);
+}
+
+export function sleepAgent(name: string): Agent {
+  return setAgentStatus(name, "sleeping");
+}
+
+export function wakeAgent(name: string): Agent {
+  return setAgentStatus(name, "idle");
+}
+
 export interface RecentMessagesOptions {
   limit?: number;
   project?: string;
@@ -887,6 +928,13 @@ export interface Task {
   project: string | null;
   area: string | null;
   required_capability: string | null;
+  mode: TaskMode;
+  expected_output: string | null;
+  deadline_at: number | null;
+  checkin_at: number | null;
+  final_answer: string | null;
+  manager_reviewed: boolean;
+  file_scope: string[];
   stale?: boolean;
 }
 
@@ -910,6 +958,13 @@ interface TaskRow {
   project: string | null;
   area: string | null;
   required_capability: string | null;
+  mode: TaskMode;
+  expected_output: string | null;
+  deadline_at: number | null;
+  checkin_at: number | null;
+  final_answer: string | null;
+  manager_reviewed: number;
+  file_scope: string;
 }
 
 function readTaskStaleThresholdMs(): number {
@@ -958,6 +1013,13 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     project: row.project,
     area: row.area,
     required_capability: row.required_capability,
+    mode: row.mode,
+    expected_output: row.expected_output,
+    deadline_at: row.deadline_at,
+    checkin_at: row.checkin_at,
+    final_answer: row.final_answer,
+    manager_reviewed: row.manager_reviewed === 1,
+    file_scope: JSON.parse(row.file_scope) as string[],
   };
   if (
     lastSeenByAgent &&
@@ -998,6 +1060,13 @@ export interface CreateTaskOptions {
   project?: string | null;
   area?: string | null;
   required_capability?: string | null;
+  mode?: TaskMode;
+  expected_output?: string | null;
+  deadline_at?: number | null;
+  checkin_at?: number | null;
+  final_answer?: string | null;
+  manager_reviewed?: boolean;
+  file_scope?: string[];
 }
 
 export function createTask(opts: CreateTaskOptions): Task {
@@ -1013,8 +1082,12 @@ export function createTask(opts: CreateTaskOptions): Task {
   }
   validateProject(opts.project);
   validateArea(opts.area);
+  validateTaskMode(opts.mode);
   if (opts.required_capability !== undefined && opts.required_capability !== null && opts.required_capability.length === 0) {
     throw new BusError("INVALID_INPUT", "required_capability must be non-empty or null");
+  }
+  if (opts.file_scope !== undefined && !opts.file_scope.every((value) => typeof value === "string")) {
+    throw new BusError("INVALID_INPUT", "file_scope must be an array of strings");
   }
   const requester = requireAgent(opts.requested_by);
   heartbeat(opts.requested_by);
@@ -1037,11 +1110,13 @@ export function createTask(opts: CreateTaskOptions): Task {
   const project = opts.project !== undefined ? opts.project : requester.project;
   const area = opts.area !== undefined ? opts.area : requester.area;
   const requiredCapability = opts.required_capability ?? null;
+  const mode = opts.mode ?? "edit_files";
+  const fileScope = JSON.stringify(opts.file_scope ?? []);
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -1056,6 +1131,13 @@ export function createTask(opts: CreateTaskOptions): Task {
       project,
       area,
       requiredCapability,
+      mode,
+      opts.expected_output ?? null,
+      opts.deadline_at ?? null,
+      opts.checkin_at ?? null,
+      opts.final_answer ?? null,
+      opts.manager_reviewed === true ? 1 : 0,
+      fileScope,
     );
 
   const task = toTask(getTaskRow(info.lastInsertRowid as number));
@@ -1120,6 +1202,13 @@ export interface UpdateTaskOptions {
   blocked_on_task_id?: number | null;
   result?: string | null;
   priority?: number;
+  expected_output?: string | null;
+  deadline_at?: number | null;
+  checkin_at?: number | null;
+  final_answer?: string | null;
+  manager_reviewed?: boolean;
+  file_scope?: string[];
+  mode?: TaskMode;
 }
 
 export function updateTask(opts: UpdateTaskOptions): Task {
@@ -1196,6 +1285,38 @@ export function updateTask(opts: UpdateTaskOptions): Task {
     sets.push("priority = ?");
     params.push(opts.priority);
   }
+  if (opts.mode !== undefined) {
+    validateTaskMode(opts.mode);
+    sets.push("mode = ?");
+    params.push(opts.mode);
+  }
+  if (opts.expected_output !== undefined) {
+    sets.push("expected_output = ?");
+    params.push(opts.expected_output);
+  }
+  if (opts.deadline_at !== undefined) {
+    sets.push("deadline_at = ?");
+    params.push(opts.deadline_at);
+  }
+  if (opts.checkin_at !== undefined) {
+    sets.push("checkin_at = ?");
+    params.push(opts.checkin_at);
+  }
+  if (opts.final_answer !== undefined) {
+    sets.push("final_answer = ?");
+    params.push(opts.final_answer);
+  }
+  if (opts.manager_reviewed !== undefined) {
+    sets.push("manager_reviewed = ?");
+    params.push(opts.manager_reviewed ? 1 : 0);
+  }
+  if (opts.file_scope !== undefined) {
+    if (!opts.file_scope.every((value) => typeof value === "string")) {
+      throw new BusError("INVALID_INPUT", "file_scope must be an array of strings");
+    }
+    sets.push("file_scope = ?");
+    params.push(JSON.stringify(opts.file_scope));
+  }
 
   if (sets.length === 1) {
     return toTask(row);
@@ -1254,6 +1375,8 @@ export interface ListTasksOptions {
   project?: string;
   area?: string;
   required_capability?: string;
+  mode?: TaskMode;
+  manager_reviewed?: boolean;
 }
 
 export function listTasks(opts: ListTasksOptions = {}): Task[] {
@@ -1284,6 +1407,15 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
   if (opts.required_capability !== undefined) {
     where.push("required_capability = ?");
     params.push(opts.required_capability);
+  }
+  if (opts.mode !== undefined) {
+    validateTaskMode(opts.mode);
+    where.push("mode = ?");
+    params.push(opts.mode);
+  }
+  if (opts.manager_reviewed !== undefined) {
+    where.push("manager_reviewed = ?");
+    params.push(opts.manager_reviewed ? 1 : 0);
   }
   if (opts.claimed_by !== undefined) {
     where.push("claimed_by = ?");
@@ -1370,4 +1502,156 @@ export function tasksUpdatedSince(timestamp: number, limit = 100): Task[] {
     .all(timestamp, Math.min(Math.max(limit, 1), 500)) as TaskRow[];
   const seen = lastSeenMap();
   return rows.map((r) => toTask(r, seen));
+}
+
+// ---------------------------------------------------------------------------
+// Decisions and reports
+// ---------------------------------------------------------------------------
+
+export interface Decision {
+  id: number;
+  by_agent: string;
+  decision: string;
+  rationale: string | null;
+  implemented: boolean;
+  project: string | null;
+  area: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface DecisionRow {
+  id: number;
+  by_agent: string;
+  decision: string;
+  rationale: string | null;
+  implemented: number;
+  project: string | null;
+  area: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+function toDecision(row: DecisionRow): Decision {
+  return {
+    ...row,
+    implemented: row.implemented === 1,
+  };
+}
+
+export interface RecordDecisionOptions {
+  by_agent: string;
+  decision: string;
+  rationale?: string | null;
+  implemented?: boolean;
+  project?: string | null;
+  area?: string | null;
+}
+
+export function recordDecision(opts: RecordDecisionOptions): Decision {
+  validateName(opts.by_agent);
+  validateProject(opts.project);
+  validateArea(opts.area);
+  const agent = requireAgent(opts.by_agent);
+  if (opts.decision.trim().length === 0) {
+    throw new BusError("INVALID_INPUT", "decision must be non-empty");
+  }
+  const ts = now();
+  const project = opts.project !== undefined ? opts.project : agent.project;
+  const area = opts.area !== undefined ? opts.area : agent.area;
+  const info = getDb()
+    .prepare(
+      `INSERT INTO decisions
+         (by_agent, decision, rationale, implemented, project, area, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      opts.by_agent,
+      opts.decision,
+      opts.rationale ?? null,
+      opts.implemented === true ? 1 : 0,
+      project,
+      area,
+      ts,
+      ts,
+    );
+  return toDecision(
+    getDb().prepare("SELECT * FROM decisions WHERE id = ?").get(info.lastInsertRowid as number) as DecisionRow,
+  );
+}
+
+export interface ListDecisionsOptions {
+  project?: string;
+  area?: string;
+  implemented?: boolean;
+  limit?: number;
+}
+
+export function listDecisions(opts: ListDecisionsOptions = {}): Decision[] {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    validateProject(opts.project);
+    where.push("(project = ? OR project IS NULL)");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    validateArea(opts.area);
+    where.push("(area = ? OR area IS NULL)");
+    params.push(opts.area);
+  }
+  if (opts.implemented !== undefined) {
+    where.push("implemented = ?");
+    params.push(opts.implemented ? 1 : 0);
+  }
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM decisions${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY id DESC
+         LIMIT ?`,
+    )
+    .all(...params, limit) as DecisionRow[];
+  return rows.reverse().map(toDecision);
+}
+
+export interface FinalReport {
+  implemented: string[];
+  not_implemented: string[];
+  known_risks: string[];
+  tests_passed: string[];
+  manual_tests_needed: string[];
+  safe_to_commit: boolean;
+  safe_to_push: boolean;
+  safe_to_deploy: false;
+}
+
+export function finalReport(opts: ListTasksOptions = {}): FinalReport {
+  const tasks = listTasks({ ...opts, include_terminal: true, limit: opts.limit ?? 500 });
+  const implemented = tasks
+    .filter((task) => task.state === "completed")
+    .map((task) => task.title);
+  const notImplemented = tasks
+    .filter((task) => task.state !== "completed" && task.state !== "canceled")
+    .map((task) => task.title);
+  const knownRisks = tasks
+    .filter((task) => task.blocked_reason !== null || task.state === "failed" || task.stale === true)
+    .map((task) => `#${task.id} ${task.title}${task.blocked_reason ? `: ${task.blocked_reason}` : ""}`);
+  const testsPassed = tasks
+    .filter((task) => task.mode === "test_only" && task.state === "completed")
+    .map((task) => task.final_answer ?? task.result ?? task.title);
+  const manualTestsNeeded = tasks
+    .filter((task) => task.state !== "completed" || task.manager_reviewed === false)
+    .map((task) => task.title);
+  const safe = notImplemented.length === 0 && knownRisks.length === 0 && manualTestsNeeded.length === 0;
+  return {
+    implemented,
+    not_implemented: notImplemented,
+    known_risks: knownRisks,
+    tests_passed: testsPassed,
+    manual_tests_needed: manualTestsNeeded,
+    safe_to_commit: safe,
+    safe_to_push: safe,
+    safe_to_deploy: false,
+  };
 }

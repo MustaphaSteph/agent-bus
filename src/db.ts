@@ -133,6 +133,9 @@ function migrate(db: Database.Database): void {
   if (!agentCols.has("routing_weight")) {
     db.exec(`ALTER TABLE agents ADD COLUMN routing_weight INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!agentCols.has("status")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN status TEXT NOT NULL DEFAULT 'idle'`);
+  }
 
   const taskCols = tableColumns(db, "tasks");
   if (!taskCols.has("project")) {
@@ -144,6 +147,41 @@ function migrate(db: Database.Database): void {
   if (!taskCols.has("required_capability")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN required_capability TEXT`);
   }
+  if (!taskCols.has("mode")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN mode TEXT NOT NULL DEFAULT 'edit_files'`);
+  }
+  if (!taskCols.has("expected_output")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN expected_output TEXT`);
+  }
+  if (!taskCols.has("deadline_at")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN deadline_at INTEGER`);
+  }
+  if (!taskCols.has("checkin_at")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN checkin_at INTEGER`);
+  }
+  if (!taskCols.has("final_answer")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN final_answer TEXT`);
+  }
+  if (!taskCols.has("manager_reviewed")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN manager_reviewed INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!taskCols.has("file_scope")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN file_scope TEXT NOT NULL DEFAULT '[]'`);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS decisions (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      by_agent        TEXT NOT NULL REFERENCES agents(name),
+      decision        TEXT NOT NULL,
+      rationale       TEXT,
+      implemented     INTEGER NOT NULL DEFAULT 0,
+      project         TEXT,
+      area            TEXT,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL
+    );
+  `);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_thread
@@ -162,11 +200,19 @@ function migrate(db: Database.Database): void {
       ON agents(area);
     CREATE INDEX IF NOT EXISTS idx_agents_role
       ON agents(role);
+    CREATE INDEX IF NOT EXISTS idx_agents_status
+      ON agents(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_project
       ON tasks(project);
     CREATE INDEX IF NOT EXISTS idx_tasks_area
       ON tasks(area);
     CREATE INDEX IF NOT EXISTS idx_tasks_required_capability
       ON tasks(required_capability);
+    CREATE INDEX IF NOT EXISTS idx_tasks_mode
+      ON tasks(mode);
+    CREATE INDEX IF NOT EXISTS idx_tasks_manager_reviewed
+      ON tasks(manager_reviewed);
+    CREATE INDEX IF NOT EXISTS idx_decisions_scope
+      ON decisions(project, area);
   `);
 }

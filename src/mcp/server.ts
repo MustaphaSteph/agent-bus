@@ -15,12 +15,15 @@ import {
   claimBestTask,
   createTask,
   directory,
+  finalReport,
   getTask,
   inbox,
   listTasks,
+  listDecisions,
   recentMessages,
   register,
   releaseTask,
+  recordDecision,
   reply,
   send,
   sendChannel,
@@ -30,6 +33,9 @@ import {
   unsubscribe,
   updateTask,
   whois,
+  sleepAgent,
+  wakeAgent,
+  setAgentStatus,
 } from "../bus.js";
 import { BusError } from "../util/errors.js";
 import { deriveScope } from "../util/project.js";
@@ -49,6 +55,8 @@ const TASK_STATES = [
   "canceled",
 ] as const;
 const TaskStateEnum = z.enum(TASK_STATES);
+const AgentStatusEnum = z.enum(["idle", "working", "blocked", "waiting_review", "sleeping"]);
+const TaskModeEnum = z.enum(["investigate_only", "propose_patch", "edit_files", "test_only"]);
 
 // project filter accepts "*" (global) or a project slug or null/omit (default scope)
 const ProjectField = z.string().min(1).max(64).nullable().optional();
@@ -64,6 +72,7 @@ const RegisterInput = z.object({
   area: AreaField,
   role: z.string().min(1).max(64).nullable().optional(),
   routing_weight: z.number().int().optional(),
+  status: AgentStatusEnum.optional(),
 });
 
 const SendInput = z.object({
@@ -149,6 +158,13 @@ const CreateTaskInput = z.object({
   project: ProjectField,
   area: AreaField,
   required_capability: z.string().min(1).nullable().optional(),
+  mode: TaskModeEnum.optional(),
+  expected_output: z.string().nullable().optional(),
+  deadline_at: z.number().int().positive().nullable().optional(),
+  checkin_at: z.number().int().positive().nullable().optional(),
+  final_answer: z.string().nullable().optional(),
+  manager_reviewed: z.boolean().optional(),
+  file_scope: z.array(z.string()).optional(),
 });
 
 const ClaimTaskInput = z.object({
@@ -175,6 +191,18 @@ const UpdateTaskInput = z.object({
   blocked_on_task_id: z.number().int().positive().nullable().optional(),
   result: z.string().nullable().optional(),
   priority: z.number().int().optional(),
+  mode: TaskModeEnum.optional(),
+  expected_output: z.string().nullable().optional(),
+  deadline_at: z.number().int().positive().nullable().optional(),
+  checkin_at: z.number().int().positive().nullable().optional(),
+  final_answer: z.string().nullable().optional(),
+  manager_reviewed: z.boolean().optional(),
+  file_scope: z.array(z.string()).optional(),
+});
+
+const SetAgentStatusInput = z.object({
+  agent: z.string().min(1),
+  status: AgentStatusEnum,
 });
 
 const ReleaseTaskInput = z.object({
@@ -192,6 +220,8 @@ const ListTasksInput = z.object({
   project: ProjectFilterField,
   area: AreaFilterField,
   required_capability: z.string().min(1).optional(),
+  mode: TaskModeEnum.optional(),
+  manager_reviewed: z.boolean().optional(),
 });
 
 const GetTaskInput = z.object({
@@ -202,6 +232,22 @@ const RecentInput = z.object({
   limit: z.number().int().positive().max(500).optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+});
+
+const RecordDecisionInput = z.object({
+  by_agent: z.string().min(1),
+  decision: z.string().min(1),
+  rationale: z.string().nullable().optional(),
+  implemented: z.boolean().optional(),
+  project: ProjectField,
+  area: AreaField,
+});
+
+const ListDecisionsInput = z.object({
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  implemented: z.boolean().optional(),
+  limit: z.number().int().positive().max(500).optional(),
 });
 
 const TOOLS = [
@@ -503,6 +549,36 @@ const TOOLS = [
     },
   },
   {
+    name: "set_agent_status",
+    description: "Set an agent work state: idle, working, blocked, waiting_review, or sleeping.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string" },
+        status: { type: "string", enum: ["idle", "working", "blocked", "waiting_review", "sleeping"] },
+      },
+      required: ["agent", "status"],
+    },
+  },
+  {
+    name: "sleep_agent",
+    description: "Mark an agent as sleeping.",
+    inputSchema: {
+      type: "object",
+      properties: { agent: { type: "string" } },
+      required: ["agent"],
+    },
+  },
+  {
+    name: "wake_agent",
+    description: "Wake a sleeping agent by setting status to idle.",
+    inputSchema: {
+      type: "object",
+      properties: { agent: { type: "string" } },
+      required: ["agent"],
+    },
+  },
+  {
     name: "assign_task",
     description: "Assign an open task directly to an agent, moving it to claimed.",
     inputSchema: {
@@ -612,6 +688,46 @@ const TOOLS = [
         task_id: { type: "number" },
       },
       required: ["task_id"],
+    },
+  },
+  {
+    name: "record_decision",
+    description: "Persist a project decision with rationale and implemented flag.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        by_agent: { type: "string" },
+        decision: { type: "string" },
+        rationale: { type: ["string", "null"] },
+        implemented: { type: "boolean" },
+        project: { type: ["string", "null"] },
+        area: { type: ["string", "null"] },
+      },
+      required: ["by_agent", "decision"],
+    },
+  },
+  {
+    name: "list_decisions",
+    description: "List persisted decisions for the current project/area.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        area: { type: "string" },
+        implemented: { type: "boolean" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "final_report",
+    description: "Generate a merge-readiness report from tasks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        area: { type: "string" },
+      },
     },
   },
 ] as const;
@@ -731,6 +847,14 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "claim_task":
       return claimTask(ClaimTaskInput.parse(raw));
+    case "set_agent_status": {
+      const input = SetAgentStatusInput.parse(raw);
+      return setAgentStatus(input.agent, input.status);
+    }
+    case "sleep_agent":
+      return sleepAgent(z.object({ agent: z.string().min(1) }).parse(raw).agent);
+    case "wake_agent":
+      return wakeAgent(z.object({ agent: z.string().min(1) }).parse(raw).agent);
     case "assign_task":
       return assignTask(AssignTaskInput.parse(raw));
     case "claim_best_task": {
@@ -755,6 +879,29 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "get_task":
       return getTask(GetTaskInput.parse(raw).task_id);
+    case "record_decision": {
+      const input = RecordDecisionInput.parse(raw);
+      return recordDecision({
+        ...input,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+      });
+    }
+    case "list_decisions": {
+      const input = ListDecisionsInput.parse(raw);
+      return listDecisions({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
+    case "final_report": {
+      const input = WhoisInput.parse(raw);
+      return finalReport({
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
     default:
       throw new BusError("INVALID_INPUT", `unknown tool '${tool}'`);
   }

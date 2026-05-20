@@ -11,6 +11,8 @@ export interface TasksOptions extends ScopeOptions {
   watch?: boolean;
   intervalMs?: number;
   requiredCapability?: string;
+  mode?: string;
+  managerReviewed?: boolean;
 }
 
 export async function tasks(opts: TasksOptions): Promise<void> {
@@ -32,13 +34,15 @@ export async function tasks(opts: TasksOptions): Promise<void> {
 function readTasks(
   state: TaskState | undefined,
   includeTerminal: boolean,
-  scope: ScopeOptions & { requiredCapability?: string },
+  scope: ScopeOptions & { requiredCapability?: string; mode?: string; managerReviewed?: boolean },
 ): Task[] {
-  const { requiredCapability, ...busScope } = scope;
+  const { requiredCapability, mode, managerReviewed, ...busScope } = scope;
   return listTasks({
     state,
     include_terminal: includeTerminal,
     required_capability: requiredCapability,
+    mode: mode as never,
+    manager_reviewed: managerReviewed,
     ...busScope,
   });
 }
@@ -85,6 +89,9 @@ function taskFingerprint(task: Task): string {
     project: task.project,
     area: task.area,
     required_capability: task.required_capability,
+    mode: task.mode,
+    manager_reviewed: task.manager_reviewed,
+    file_scope: task.file_scope,
     updated_at: task.updated_at,
     stale: task.stale === true,
   });
@@ -98,9 +105,12 @@ export function formatTask(task: Task): string {
   const project = task.project ? `, project=${task.project}` : ", project=no-project";
   const area = task.area ? `, area=${task.area}` : "";
   const cap = task.required_capability ? `, capability=${task.required_capability}` : "";
+  const mode = `, mode=${task.mode}`;
+  const reviewed = task.manager_reviewed ? ", reviewed" : "";
+  const files = task.file_scope.length > 0 ? `, files=${task.file_scope.join("|")}` : "";
   const line =
     `#${task.id} p${task.priority} ${state} ${truncate(task.title, 80)} ` +
-    `${kleur.gray("-")} by ${task.requested_by}, held=${held}, thread=${thread}${kleur.gray(project + area + cap)}`;
+    `${kleur.gray("-")} by ${task.requested_by}, held=${held}, thread=${thread}${kleur.gray(project + area + cap + mode + reviewed + files)}`;
   return stale ? kleur.red(`${line} stale`) : line;
 }
 

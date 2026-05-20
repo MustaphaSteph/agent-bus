@@ -63,6 +63,7 @@ checks before `ALTER TABLE`).
 | `area` | TEXT nullable | path-derived lane; null means no area |
 | `role` | TEXT nullable | pm / worker / verifier / reviewer / listener / custom |
 | `routing_weight` | INTEGER | higher preferred by `ask_best` |
+| `status` | TEXT | idle / working / blocked / waiting_review / sleeping |
 
 Indexes on `project`, `area`, and `role`.
 
@@ -120,9 +121,29 @@ Indexes:
 | `project` | TEXT nullable | requester project unless supplied explicitly |
 | `area` | TEXT nullable | requester area unless supplied explicitly |
 | `required_capability` | TEXT nullable | claimant must have this capability |
+| `mode` | TEXT | investigate_only / propose_patch / edit_files / test_only |
+| `expected_output` | TEXT nullable | manager checklist expectation |
+| `deadline_at` | INTEGER nullable | ms epoch |
+| `checkin_at` | INTEGER nullable | ms epoch |
+| `final_answer` | TEXT nullable | final agent output |
+| `manager_reviewed` | INTEGER | 0 or 1 |
+| `file_scope` | TEXT | JSON array of owned path patterns |
 
 Indexes include `state`, `claimed_by`, `requested_by`, `thread_id`,
 `updated_at`, and `project`.
+
+### `decisions`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK AUTO | insertion order |
+| `by_agent` | TEXT | FK -> `agents.name` |
+| `decision` | TEXT | what was decided |
+| `rationale` | TEXT nullable | why |
+| `implemented` | INTEGER | 0 or 1 |
+| `project` | TEXT nullable | scope |
+| `area` | TEXT nullable | scope |
+| `created_at`, `updated_at` | INTEGER | ms epoch |
 
 ### `subscriptions`
 

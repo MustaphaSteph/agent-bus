@@ -13,6 +13,7 @@ const {
   claimBestTask,
   createTask,
   directory,
+  finalReport,
   getTask,
   ask,
   askBest,
@@ -22,17 +23,21 @@ const {
   PROJECT_WILDCARD,
   recentMessages,
   register,
+  recordDecision,
   releaseTask,
   reply,
   send,
   sendChannel,
+  sleepAgent,
   setPaused,
   subscribe,
   subscribers,
   threadMessages,
   unsubscribe,
   updateTask,
+  wakeAgent,
   whois,
+  listDecisions,
 } = await import("../src/bus.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
@@ -77,6 +82,11 @@ await test("register without replace on active name fails", () => {
 await test("register with replace succeeds", () => {
   const a = register({ name: "alice", capabilities: ["frontend", "ui"], replace: true });
   assert.deepEqual(a.capabilities, ["frontend", "ui"]);
+});
+
+await test("agent sleep and wake update work status", () => {
+  assert.equal(sleepAgent("alice").status, "sleeping");
+  assert.equal(wakeAgent("alice").status, "idle");
 });
 
 await test("send + inbox round-trip", async () => {
@@ -352,7 +362,7 @@ await test("register roles influence directory and ask_best routing", async () =
 
   const listing = directory().find((a) => a.name === "role-verifier");
   assert.equal(listing?.role, "verifier");
-  assert.equal(listing?.status, "online");
+  assert.equal(listing?.presence, "online");
 
   const replier = setTimeout(async () => {
     const pending = await inbox({ agent: "role-verifier" });
@@ -593,11 +603,19 @@ await test("tasks: create + get round-trip", () => {
     description: "run tests and report findings",
     priority: 3,
     cwd: "/repo",
+    mode: "investigate_only",
+    expected_output: "structured report",
+    deadline_at: 123456,
+    checkin_at: 123000,
+    file_scope: ["src/**", "test/**"],
   });
   assert.equal(t.state, "open");
   assert.equal(t.requested_by, "alice");
   assert.equal(t.priority, 3);
   assert.equal(t.cwd, "/repo");
+  assert.equal(t.mode, "investigate_only");
+  assert.equal(t.expected_output, "structured report");
+  assert.deepEqual(t.file_scope, ["src/**", "test/**"]);
   assert.ok(t.thread_id.startsWith("t_"));
 
   const fetched = getTask(t.id);
@@ -624,6 +642,48 @@ await test("tasks: capability requirements, assign, and claim_best", () => {
   const claimed = claimBestTask({ agent: "task-rust" });
   assert.equal(claimed?.id, t.id);
   assert.equal(claimed?.claimed_by, "task-rust");
+});
+
+await test("tasks: manager checklist fields update and final report uses review state", () => {
+  const t = createTask({
+    requested_by: "alice",
+    title: "reviewable task",
+    mode: "test_only",
+    expected_output: "test report",
+  });
+  claimTask({ agent: "bob", task_id: t.id });
+  updateTask({
+    agent: "bob",
+    task_id: t.id,
+    state: "working",
+    final_answer: "tests passed",
+  });
+  updateTask({
+    agent: "bob",
+    task_id: t.id,
+    state: "completed",
+    manager_reviewed: true,
+    result: "done",
+  });
+
+  const report = finalReport({ project: PROJECT_WILDCARD, area: PROJECT_WILDCARD });
+  assert.ok(report.implemented.includes("reviewable task"));
+  assert.ok(report.tests_passed.includes("tests passed"));
+  assert.equal(report.safe_to_deploy, false);
+});
+
+await test("decisions: record and list by scope", () => {
+  register({ name: "decision-pm", project: "dp", area: "backend", replace: true });
+  const decision = recordDecision({
+    by_agent: "decision-pm",
+    decision: "Use task modes for agent permissions",
+    rationale: "prevents accidental edits",
+    implemented: true,
+  });
+  assert.equal(decision.project, "dp");
+  assert.equal(decision.area, "backend");
+  const listed = listDecisions({ project: "dp", area: "backend" });
+  assert.ok(listed.some((row) => row.id === decision.id && row.implemented));
 });
 
 await test("tasks: atomic claim rejects second claimant", () => {

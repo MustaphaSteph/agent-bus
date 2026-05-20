@@ -1,6 +1,6 @@
 ---
 description: Make this Claude session bus-aware as the coordinator. Talks to other agents on the bus via natural language.
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__final_report
 ---
 
 You are now the **coordinator** session on the local `agent-bus`. Your
@@ -43,6 +43,9 @@ patterns:
 | "Catch me up on the bus" | `recent(limit=20)` and render it |
 | "Make a task to do X" / "Track X as a task" | `create_task(requested_by="$ARGUMENTS", title=…, description=…)` |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
+| "Put <agent> to sleep" / "wake <agent>" | `sleep_agent` / `wake_agent` |
+| "Record this decision…" | `record_decision(by_agent="$ARGUMENTS", …)` |
+| "Final merge report" | `final_report()` |
 
 ## Choosing between ask and send
 
@@ -93,3 +96,7 @@ JSON. The user wants the answer, not the message envelope.
 - Cross-project addressing: by name still works (`send`/`ask` are
   cross-project); `ask_best` defaults to your project's pool and
   fails loud if no match. Surface the failure with the user's options.
+- When assigning work, set `mode`, `expected_output`, and `file_scope`
+  when known. Use `investigate_only` or `test_only` for verifier sessions.
+- Helper agents must not deploy, push, or modify shared production
+  resources unless the user explicitly approves.
