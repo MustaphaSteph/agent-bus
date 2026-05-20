@@ -145,6 +145,23 @@ Indexes include `state`, `claimed_by`, `requested_by`, `thread_id`,
 | `area` | TEXT nullable | scope |
 | `created_at`, `updated_at` | INTEGER | ms epoch |
 
+### `memories`
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | INTEGER PK AUTO | insertion order |
+| `by_agent` | TEXT | FK -> `agents.name` |
+| `agent` | TEXT nullable | optional subject/target agent |
+| `kind` | TEXT | summary / handoff / risk / todo / fact / blocker / custom |
+| `content` | TEXT | memory body |
+| `project` | TEXT nullable | scope |
+| `area` | TEXT nullable | scope |
+| `task_id` | INTEGER nullable | FK -> `tasks.id` ON DELETE SET NULL |
+| `thread_id` | TEXT nullable | related conversation thread |
+| `pinned` | INTEGER | 0 or 1; pinned memories surface in session briefs |
+| `supersedes_id` | INTEGER nullable | FK -> older `memories.id` ON DELETE SET NULL |
+| `created_at`, `updated_at` | INTEGER | ms epoch |
+
 ### `subscriptions`
 
 | Column | Type | Notes |

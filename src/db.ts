@@ -181,7 +181,31 @@ function migrate(db: Database.Database): void {
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS memories (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      by_agent        TEXT NOT NULL REFERENCES agents(name),
+      agent           TEXT,
+      kind            TEXT NOT NULL,
+      content         TEXT NOT NULL,
+      project         TEXT,
+      area            TEXT,
+      task_id         INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+      thread_id       TEXT,
+      pinned          INTEGER NOT NULL DEFAULT 0,
+      supersedes_id   INTEGER REFERENCES memories(id) ON DELETE SET NULL,
+      created_at      INTEGER NOT NULL,
+      updated_at      INTEGER NOT NULL
+    );
   `);
+
+  const memoryCols = tableColumns(db, "memories");
+  if (!memoryCols.has("pinned")) {
+    db.exec(`ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!memoryCols.has("supersedes_id")) {
+    db.exec(`ALTER TABLE memories ADD COLUMN supersedes_id INTEGER REFERENCES memories(id) ON DELETE SET NULL`);
+  }
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_messages_thread
@@ -214,5 +238,18 @@ function migrate(db: Database.Database): void {
       ON tasks(manager_reviewed);
     CREATE INDEX IF NOT EXISTS idx_decisions_scope
       ON decisions(project, area);
+    CREATE INDEX IF NOT EXISTS idx_memories_scope
+      ON memories(project, area);
+    CREATE INDEX IF NOT EXISTS idx_memories_agent
+      ON memories(agent);
+    CREATE INDEX IF NOT EXISTS idx_memories_kind
+      ON memories(kind);
+    CREATE INDEX IF NOT EXISTS idx_memories_task
+      ON memories(task_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_thread
+      ON memories(thread_id);
+    CREATE INDEX IF NOT EXISTS idx_memories_pinned
+      ON memories(pinned)
+      WHERE pinned = 1;
   `);
 }

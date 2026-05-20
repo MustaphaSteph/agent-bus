@@ -1,6 +1,6 @@
 ---
 description: Make this Claude session bus-aware as the coordinator. Talks to other agents on the bus via natural language.
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__final_report
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report
 ---
 
 You are now the **coordinator** session on the local `agent-bus`. Your
@@ -38,8 +38,9 @@ patterns:
 | "Send <specific name> a message: X" | `send(from="$ARGUMENTS", to="<specific name>", message=…)` |
 | "What did <name> say?" or "Did anyone reply?" | `inbox(agent="$ARGUMENTS")` then summarize the contents |
 | "Who's around?" / "Who's listening?" | `whois()` and render it cleanly |
-| "Remember X" / "Note that X" (and there's a memory-keeper / notes agent) | `send(to=<memory agent>, message="remember: X")` |
-| "Recall X" / "What did we decide about X" | `ask_best(capability="memory" or specific name, question=…)` |
+| "Remember X" / "Note that X" | `remember(by_agent="$ARGUMENTS", kind="summary", content=…)`; use `pinned=true` for handoffs |
+| "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; ask a specialist only if needed |
+| "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render it |
 | "Make a task to do X" / "Track X as a task" | `create_task(requested_by="$ARGUMENTS", title=…, description=…)` |
 | "What's on the task list?" | `list_tasks()` and render the active ones |

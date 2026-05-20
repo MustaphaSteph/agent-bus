@@ -132,12 +132,19 @@ agent-bus status claude-developer-1 waiting_review
 agent-bus decision --by codex-project-manager --decision "Use task modes" --rationale "prevents accidental edits"
 agent-bus decision --list
 
+agent-bus remember --by codex-project-manager --kind handoff --pinned "frontend owns editor polish; backend owns export worker"
+agent-bus memories --kind handoff --pinned
+agent-bus pin-memory 12
+agent-bus brief --agent codex-project-manager
+
 agent-bus final-report
 ```
 
 `sleep`/`wake` are semantic work states, separate from `pause`/`resume`
-delivery. `final-report` summarizes implemented work, gaps, risks, tests,
-manual checks, and commit/push/deploy safety.
+delivery. `remember` stores durable structured notes; `brief` generates
+startup/handoff context from agents, tasks, decisions, memories, and
+recent messages. `final-report` summarizes implemented work, gaps, risks,
+tests, manual checks, and commit/push/deploy safety.
 
 ### `agent-bus inject`
 

@@ -19,11 +19,14 @@ const {
   askBest,
   inbox,
   listTasks,
+  listMemories,
   messagesSince,
+  pinMemory,
   PROJECT_WILDCARD,
   recentMessages,
   register,
   recordDecision,
+  remember,
   releaseTask,
   reply,
   send,
@@ -38,6 +41,7 @@ const {
   wakeAgent,
   whois,
   listDecisions,
+  sessionBrief,
 } = await import("../src/bus.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
@@ -684,6 +688,76 @@ await test("decisions: record and list by scope", () => {
   assert.equal(decision.area, "backend");
   const listed = listDecisions({ project: "dp", area: "backend" });
   assert.ok(listed.some((row) => row.id === decision.id && row.implemented));
+});
+
+await test("memories: remember and list by scope and metadata", () => {
+  register({ name: "memory-pm", project: "mp", area: "backend", replace: true });
+  register({ name: "memory-worker", project: "mp", area: "backend", replace: true });
+  const task = createTask({ requested_by: "memory-pm", title: "memory linked task" });
+  const oldMemory = remember({
+    by_agent: "memory-pm",
+    kind: "handoff",
+    content: "Old backend handoff.",
+  });
+  const memory = remember({
+    by_agent: "memory-pm",
+    agent: "memory-worker",
+    kind: "handoff",
+    content: "Worker owns backend memory tests.",
+    task_id: task.id,
+    thread_id: "thread-memory",
+    pinned: true,
+    supersedes_id: oldMemory.id,
+  });
+  assert.equal(memory.project, "mp");
+  assert.equal(memory.area, "backend");
+  assert.equal(memory.task_id, task.id);
+  assert.equal(memory.pinned, true);
+  assert.equal(memory.supersedes_id, oldMemory.id);
+
+  const listed = listMemories({
+    project: "mp",
+    area: "backend",
+    agent: "memory-worker",
+    kind: "handoff",
+    task_id: task.id,
+    thread_id: "thread-memory",
+    pinned: true,
+  });
+  assert.deepEqual(listed.map((row) => row.id), [memory.id]);
+
+  const unpinned = pinMemory(memory.id, false);
+  assert.equal(unpinned.pinned, false);
+});
+
+await test("session brief: summarizes current scope", () => {
+  register({ name: "brief-pm", project: "bp", area: "docs", replace: true });
+  register({ name: "brief-worker", project: "bp", area: "docs", replace: true });
+  const task = createTask({
+    requested_by: "brief-pm",
+    title: "write handoff docs",
+    project: "bp",
+    area: "docs",
+  });
+  recordDecision({
+    by_agent: "brief-pm",
+    decision: "Use structured memories for handoffs",
+  });
+  const memory = remember({
+    by_agent: "brief-pm",
+    kind: "summary",
+    content: "Session brief includes active agents and open tasks.",
+    pinned: true,
+  });
+  send({ from: "brief-pm", to: "brief-worker", content: "Please read the brief." });
+
+  const brief = sessionBrief({ project: "bp", area: "docs" });
+  assert.ok(brief.active_agents.some((agent) => agent.name === "brief-pm"));
+  assert.ok(brief.open_tasks.some((row) => row.id === task.id));
+  assert.ok(brief.recent_decisions.some((row) => row.decision.includes("structured memories")));
+  assert.ok(brief.pinned_memories.some((row) => row.id === memory.id));
+  assert.ok(brief.recent_messages.some((row) => row.content.includes("Please read")));
+  assert.ok(brief.suggested_next_actions.length > 0);
 });
 
 await test("tasks: atomic claim rejects second claimant", () => {

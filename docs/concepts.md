@@ -144,6 +144,22 @@ A durable note recording what was decided, why, who suggested it, and
 whether it was implemented. Use this for project memory that should
 survive across sessions.
 
+## Memory and Brief
+
+`remember` stores structured session memory in the `memories` table. A
+memory has an author, kind, content, project/area scope, optional subject
+agent, task id, thread id, pinned flag, and optional `supersedes_id`.
+Common kinds are `summary`, `handoff`, `risk`, `todo`, `fact`, and
+`blocker`, but custom kinds are allowed. Use the decisions table for
+formal decisions; use memories for handoffs, lessons, gotchas, and loose
+context.
+
+`session_brief` is the startup/handoff view for a project or area. It
+combines active agents, open/blocked/stale tasks, recent decisions,
+pinned memories, recent unpinned memories, recent messages, and suggested
+next actions. Use it when a fresh Claude or Codex session needs context
+without reading raw bus history line by line.
+
 Tasks do not auto-requeue when an agent goes stale. `list_tasks` surfaces
 `stale: true` for active tasks whose holder has not heartbeated within
 `AGENT_BUS_TASK_STALE_MS` (default 5 minutes). A human or orchestrator can

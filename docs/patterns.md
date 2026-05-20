@@ -38,7 +38,8 @@ From there you just talk:
 | "Ask helper-a what they think." | `ask(to="helper-a", question=…)`. |
 | "Did anyone reply?" | `inbox()` then summarizes what came back. |
 | "Who's around?" | `whois()` rendered as a clean list. |
-| "Remember that we picked Polar over Stripe." | `send(to=<memory keeper>, message="remember: …")`. |
+| "Remember that we picked Polar over Stripe." | `remember(kind="decision", content="…")`. |
+| "Give me a handoff brief." | `session_brief()` with active agents, tasks, memories, and recent messages. |
 
 The slash command is bundled in the repo at
 [`docs/commands/main.md`](commands/main.md). One-time install for new

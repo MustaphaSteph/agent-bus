@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 28 MCP tools. All return JSON.
+doesn't cover in detail. There are 34 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -208,6 +208,51 @@ record_decision({
 }) -> Decision
 
 list_decisions({ project?: string | "*", area?: string | "*", limit?: number }) -> Decision[]
+
+remember({
+  by_agent: string,
+  kind: "summary" | "handoff" | "risk" | "todo" | "fact" | "blocker" | "lesson" | "gotcha" | string,
+  content: string,
+  agent?: string | null,
+  project?: string | null,
+  area?: string | null,
+  task_id?: number | null,
+  thread_id?: string | null,
+  pinned?: boolean,
+  supersedes_id?: number | null,
+}) -> Memory
+
+list_memories({
+  project?: string | "*",
+  area?: string | "*",
+  agent?: string,
+  kind?: string,
+  task_id?: number,
+  thread_id?: string,
+  pinned?: boolean,
+  since?: number,
+  limit?: number,
+}) -> Memory[]
+
+pin_memory({ memory_id: number }) -> Memory
+unpin_memory({ memory_id: number }) -> Memory
+
+session_brief({
+  project?: string | "*",
+  area?: string | "*",
+  agent?: string,
+  limit?: number,
+}) -> {
+  active_agents: AgentDirectoryEntry[],
+  open_tasks: Task[],
+  blocked_tasks: Task[],
+  stale_tasks: Task[],
+  recent_decisions: Decision[],
+  pinned_memories: Memory[],
+  recent_memories: Memory[],
+  recent_messages: Message[],
+  suggested_next_actions: string[],
+}
 
 final_report({ project?: string | "*", area?: string | "*" }) -> {
   implemented: string[],

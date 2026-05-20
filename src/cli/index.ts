@@ -7,12 +7,16 @@ import {
   finalReport,
   inbox,
   listDecisions,
+  listMemories,
+  pinMemory,
   recentMessages,
   register,
   recordDecision,
+  remember,
   send,
   setAgentStatus,
   setPaused,
+  sessionBrief,
   sleepAgent,
   wakeAgent,
   whois,
@@ -303,6 +307,122 @@ program
       area: scope.area ?? null,
     });
     console.log(`${kleur.green("recorded")} decision #${row.id}`);
+  });
+
+program
+  .command("remember <content>")
+  .description("Record a durable project memory")
+  .requiredOption("--by <agent>", "agent recording the memory")
+  .option("--kind <kind>", "memory kind: summary, handoff, risk, todo, fact, blocker, lesson, gotcha, or custom", "summary")
+  .option("--agent <name>", "optional subject/target agent")
+  .option("--task <id>", "optional related task id")
+  .option("--thread <id>", "optional related thread id")
+  .option("--pinned", "pin the memory so brief surfaces it")
+  .option("--supersedes <id>", "older memory id this one replaces")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((content: string, opts: { by: string; kind: string; agent?: string; task?: string; thread?: string; pinned?: boolean; supersedes?: string; project?: string; area?: string }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area);
+    const row = remember({
+      by_agent: opts.by,
+      kind: opts.kind,
+      content,
+      agent: opts.agent ?? null,
+      task_id: opts.task ? Number(opts.task) : null,
+      thread_id: opts.thread ?? null,
+      pinned: opts.pinned,
+      supersedes_id: opts.supersedes ? Number(opts.supersedes) : null,
+      project: scope.project ?? null,
+      area: scope.area ?? null,
+    });
+    console.log(`${kleur.green("remembered")} memory #${row.id}`);
+  });
+
+program
+  .command("memories")
+  .description("List durable project memories")
+  .option("--agent <name>", "filter by author or subject agent")
+  .option("--kind <kind>", "filter by memory kind")
+  .option("--task <id>", "filter by related task id")
+  .option("--thread <id>", "filter by related thread id")
+  .option("--pinned", "only show pinned memories")
+  .option("--unpinned", "only show unpinned memories")
+  .option("--since <ms>", "only show memories created at or after this ms epoch")
+  .option("-n, --last <count>", "how many to show", "50")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { agent?: string; kind?: string; task?: string; thread?: string; pinned?: boolean; unpinned?: boolean; since?: string; last: string; project?: string; area?: string }) => {
+    const pinned = opts.pinned ? true : opts.unpinned ? false : undefined;
+    const rows = listMemories({
+      ...resolveScopeOptions(opts.project, opts.area),
+      agent: opts.agent,
+      kind: opts.kind,
+      task_id: opts.task ? Number(opts.task) : undefined,
+      thread_id: opts.thread,
+      pinned,
+      since: opts.since ? Number(opts.since) : undefined,
+      limit: Number(opts.last),
+    });
+    if (rows.length === 0) {
+      console.log(kleur.gray("(no memories yet)"));
+      return;
+    }
+    for (const row of rows) {
+      const subject = row.agent ? ` agent=${row.agent}` : "";
+      const task = row.task_id ? ` task=#${row.task_id}` : "";
+      const thread = row.thread_id ? ` thread=${row.thread_id}` : "";
+      const pinnedMark = row.pinned ? " pinned" : "";
+      console.log(`#${row.id} [${row.kind}] ${row.content}${kleur.gray(pinnedMark + subject + task + thread)}`);
+    }
+  });
+
+program
+  .command("pin-memory <id>")
+  .description("Pin a memory so brief surfaces it")
+  .action((id: string) => {
+    const row = pinMemory(Number(id), true);
+    console.log(`${kleur.green("pinned")} memory #${row.id}`);
+  });
+
+program
+  .command("unpin-memory <id>")
+  .description("Unpin a memory")
+  .action((id: string) => {
+    const row = pinMemory(Number(id), false);
+    console.log(`${kleur.green("unpinned")} memory #${row.id}`);
+  });
+
+program
+  .command("brief")
+  .description("Generate a startup/handoff brief from agents, tasks, decisions, memories, and messages")
+  .option("--agent <name>", "filter memories for an agent")
+  .option("-n, --last <count>", "maximum items per section", "10")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { agent?: string; last: string; project?: string; area?: string }) => {
+    const brief = sessionBrief({
+      ...resolveScopeOptions(opts.project, opts.area),
+      agent: opts.agent,
+      limit: Number(opts.last),
+    });
+    console.log(kleur.bold("Active agents:"));
+    console.log(formatList(brief.active_agents.map((agent) => `${agent.name} ${agent.status}/${agent.presence}`)));
+    console.log(kleur.bold("Open tasks:"));
+    console.log(formatList(brief.open_tasks.map((task) => `#${task.id} ${task.title}`)));
+    console.log(kleur.bold("Blocked tasks:"));
+    console.log(formatList(brief.blocked_tasks.map((task) => `#${task.id} ${task.title}${task.blocked_reason ? `: ${task.blocked_reason}` : ""}`)));
+    console.log(kleur.bold("Stale tasks:"));
+    console.log(formatList(brief.stale_tasks.map((task) => `#${task.id} ${task.title}`)));
+    console.log(kleur.bold("Recent decisions:"));
+    console.log(formatList(brief.recent_decisions.map((decision) => `#${decision.id} ${decision.decision}`)));
+    console.log(kleur.bold("Pinned memories:"));
+    console.log(formatList(brief.pinned_memories.map((memory) => `#${memory.id} [${memory.kind}] ${memory.content}`)));
+    console.log(kleur.bold("Recent memories:"));
+    console.log(formatList(brief.recent_memories.map((memory) => `#${memory.id} [${memory.kind}] ${memory.content}`)));
+    console.log(kleur.bold("Recent messages:"));
+    console.log(formatList(brief.recent_messages.map((message) => `#${message.id} ${message.from_agent} -> ${message.to_agent}: ${message.content}`)));
+    console.log(kleur.bold("Suggested next actions:"));
+    console.log(formatList(brief.suggested_next_actions));
   });
 
 program

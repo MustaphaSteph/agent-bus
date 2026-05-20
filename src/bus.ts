@@ -22,6 +22,7 @@ export type MessagePriority = "low" | "normal" | "high" | "urgent";
 export type AgentRole = "pm" | "worker" | "verifier" | "reviewer" | "listener" | string;
 export type AgentStatus = "idle" | "working" | "blocked" | "waiting_review" | "sleeping";
 export type TaskMode = "investigate_only" | "propose_patch" | "edit_files" | "test_only";
+export type MemoryKind = "summary" | "handoff" | "risk" | "todo" | "fact" | "blocker" | "lesson" | "gotcha" | string;
 
 export const PROJECT_WILDCARD = "*";
 export const AREA_WILDCARD = PROJECT_WILDCARD;
@@ -178,6 +179,15 @@ function validateTaskMode(mode: TaskMode | undefined): void {
   if (mode === undefined) return;
   if (!["investigate_only", "propose_patch", "edit_files", "test_only"].includes(mode)) {
     throw new BusError("INVALID_INPUT", "mode must be investigate_only, propose_patch, edit_files, or test_only");
+  }
+}
+
+function validateMemoryKind(kind: string): void {
+  if (typeof kind !== "string" || kind.length === 0 || kind.length > 64) {
+    throw new BusError("INVALID_INPUT", "kind must be 1-64 chars");
+  }
+  if (!/^[a-zA-Z0-9_.-]+$/.test(kind)) {
+    throw new BusError("INVALID_INPUT", "kind may only contain letters, digits, _ . -");
   }
 }
 
@@ -1613,6 +1623,236 @@ export function listDecisions(opts: ListDecisionsOptions = {}): Decision[] {
     )
     .all(...params, limit) as DecisionRow[];
   return rows.reverse().map(toDecision);
+}
+
+export interface Memory {
+  id: number;
+  by_agent: string;
+  agent: string | null;
+  kind: MemoryKind;
+  content: string;
+  project: string | null;
+  area: string | null;
+  task_id: number | null;
+  thread_id: string | null;
+  pinned: boolean;
+  supersedes_id: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface MemoryRow {
+  id: number;
+  by_agent: string;
+  agent: string | null;
+  kind: MemoryKind;
+  content: string;
+  project: string | null;
+  area: string | null;
+  task_id: number | null;
+  thread_id: string | null;
+  pinned: number;
+  supersedes_id: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+function toMemory(row: MemoryRow): Memory {
+  return {
+    ...row,
+    pinned: row.pinned === 1,
+  };
+}
+
+export interface RememberOptions {
+  by_agent: string;
+  kind: MemoryKind;
+  content: string;
+  agent?: string | null;
+  project?: string | null;
+  area?: string | null;
+  task_id?: number | null;
+  thread_id?: string | null;
+  pinned?: boolean;
+  supersedes_id?: number | null;
+}
+
+export function remember(opts: RememberOptions): Memory {
+  validateName(opts.by_agent);
+  validateMemoryKind(opts.kind);
+  validateProject(opts.project);
+  validateArea(opts.area);
+  const byAgent = requireAgent(opts.by_agent);
+  if (opts.agent !== undefined && opts.agent !== null) validateName(opts.agent);
+  if (opts.content.trim().length === 0) {
+    throw new BusError("INVALID_INPUT", "content must be non-empty");
+  }
+  if (opts.task_id !== undefined && opts.task_id !== null) {
+    getTaskRow(opts.task_id);
+  }
+  if (opts.supersedes_id !== undefined && opts.supersedes_id !== null) {
+    const exists = getDb()
+      .prepare("SELECT 1 FROM memories WHERE id = ?")
+      .get(opts.supersedes_id);
+    if (!exists) throw new BusError("INVALID_INPUT", `supersedes_id ${opts.supersedes_id} does not exist`);
+  }
+  const ts = now();
+  const project = opts.project !== undefined ? opts.project : byAgent.project;
+  const area = opts.area !== undefined ? opts.area : byAgent.area;
+  const info = getDb()
+    .prepare(
+      `INSERT INTO memories
+         (by_agent, agent, kind, content, project, area, task_id, thread_id, pinned, supersedes_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      opts.by_agent,
+      opts.agent ?? null,
+      opts.kind,
+      opts.content,
+      project,
+      area,
+      opts.task_id ?? null,
+      opts.thread_id ?? null,
+      opts.pinned === true ? 1 : 0,
+      opts.supersedes_id ?? null,
+      ts,
+      ts,
+    );
+  return toMemory(
+    getDb().prepare("SELECT * FROM memories WHERE id = ?").get(info.lastInsertRowid as number) as MemoryRow,
+  );
+}
+
+export interface ListMemoriesOptions {
+  project?: string;
+  area?: string;
+  agent?: string;
+  kind?: MemoryKind;
+  task_id?: number;
+  thread_id?: string;
+  pinned?: boolean;
+  since?: number;
+  limit?: number;
+}
+
+export function listMemories(opts: ListMemoriesOptions = {}): Memory[] {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    validateProject(opts.project);
+    where.push("(project = ? OR project IS NULL)");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    validateArea(opts.area);
+    where.push("(area = ? OR area IS NULL)");
+    params.push(opts.area);
+  }
+  if (opts.agent !== undefined) {
+    validateName(opts.agent);
+    where.push("(agent = ? OR by_agent = ?)");
+    params.push(opts.agent, opts.agent);
+  }
+  if (opts.kind !== undefined) {
+    validateMemoryKind(opts.kind);
+    where.push("kind = ?");
+    params.push(opts.kind);
+  }
+  if (opts.task_id !== undefined) {
+    where.push("task_id = ?");
+    params.push(opts.task_id);
+  }
+  if (opts.thread_id !== undefined) {
+    where.push("thread_id = ?");
+    params.push(opts.thread_id);
+  }
+  if (opts.pinned !== undefined) {
+    where.push("pinned = ?");
+    params.push(opts.pinned ? 1 : 0);
+  }
+  if (opts.since !== undefined) {
+    where.push("created_at >= ?");
+    params.push(opts.since);
+  }
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM memories${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY id DESC
+         LIMIT ?`,
+    )
+    .all(...params, limit) as MemoryRow[];
+  return rows.reverse().map(toMemory);
+}
+
+export function pinMemory(id: number, pinned: boolean): Memory {
+  const ts = now();
+  const info = getDb()
+    .prepare("UPDATE memories SET pinned = ?, updated_at = ? WHERE id = ?")
+    .run(pinned ? 1 : 0, ts, id);
+  if (info.changes === 0) {
+    throw new BusError("INVALID_INPUT", `memory ${id} does not exist`);
+  }
+  return toMemory(getDb().prepare("SELECT * FROM memories WHERE id = ?").get(id) as MemoryRow);
+}
+
+export interface SessionBriefOptions {
+  project?: string;
+  area?: string;
+  agent?: string;
+  limit?: number;
+}
+
+export interface SessionBrief {
+  project: string | null;
+  area: string | null;
+  agent: string | null;
+  active_agents: AgentDirectoryEntry[];
+  open_tasks: Task[];
+  blocked_tasks: Task[];
+  stale_tasks: Task[];
+  recent_decisions: Decision[];
+  pinned_memories: Memory[];
+  recent_memories: Memory[];
+  recent_messages: Message[];
+  suggested_next_actions: string[];
+}
+
+export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
+  if (opts.agent !== undefined) validateName(opts.agent);
+  const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
+  const scope = { project: opts.project, area: opts.area };
+  const activeAgents = directory(scope).filter((agent) => agent.presence !== "stale");
+  const tasks = listTasks({ ...scope, include_terminal: false, limit: 500 });
+  const openTasks = tasks.filter((task) => task.state === "open").slice(0, limit);
+  const blockedTasks = tasks.filter((task) => task.state === "blocked").slice(0, limit);
+  const staleTasks = tasks.filter((task) => task.stale === true).slice(0, limit);
+  const recentDecisions = listDecisions({ ...scope, limit });
+  const pinnedMemories = listMemories({ ...scope, agent: opts.agent, pinned: true, limit: 10 });
+  const recentMemories = listMemories({ ...scope, agent: opts.agent, pinned: false, limit });
+  const recent = recentMessages({ ...scope, limit });
+  const suggested: string[] = [];
+  if (blockedTasks.length > 0) suggested.push("Review blocked tasks and record the unblocker or release/reassign ownership.");
+  if (staleTasks.length > 0) suggested.push("Check stale task holders before continuing or reassigning their work.");
+  if (openTasks.length > 0) suggested.push("Assign or claim the highest-priority open task with an explicit mode and file scope.");
+  if (pinnedMemories.length === 0 && recentMemories.length === 0) suggested.push("Record a handoff, risk, or todo memory before ending the session.");
+  if (activeAgents.length === 0) suggested.push("Register or wake the agents needed for this project/area.");
+
+  return {
+    project: opts.project ?? null,
+    area: opts.area ?? null,
+    agent: opts.agent ?? null,
+    active_agents: activeAgents.slice(0, limit),
+    open_tasks: openTasks,
+    blocked_tasks: blockedTasks,
+    stale_tasks: staleTasks,
+    recent_decisions: recentDecisions,
+    pinned_memories: pinnedMemories,
+    recent_memories: recentMemories,
+    recent_messages: recent,
+    suggested_next_actions: suggested,
+  };
 }
 
 export interface FinalReport {

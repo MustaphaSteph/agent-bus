@@ -473,6 +473,61 @@ list_decisions({
 }) -> Decision[]
 ```
 
+## remember / list_memories / session_brief
+
+Persist structured session memory and generate startup/handoff context.
+
+```ts
+remember({
+  by_agent: string,
+  kind: "summary" | "handoff" | "risk" | "todo" | "fact" | "blocker" | "lesson" | "gotcha" | string,
+  content: string,
+  agent?: string | null,
+  project?: string | null,
+  area?: string | null,
+  task_id?: number | null,
+  thread_id?: string | null,
+  pinned?: boolean,
+  supersedes_id?: number | null,
+}) -> Memory
+
+list_memories({
+  project?: string,
+  area?: string,
+  agent?: string,
+  kind?: string,
+  task_id?: number,
+  thread_id?: string,
+  pinned?: boolean,
+  since?: number,
+  limit?: number,
+}) -> Memory[]
+
+pin_memory({ memory_id: number }) -> Memory
+unpin_memory({ memory_id: number }) -> Memory
+
+session_brief({
+  project?: string,
+  area?: string,
+  agent?: string,
+  limit?: number,
+}) -> {
+  active_agents: AgentDirectoryEntry[],
+  open_tasks: Task[],
+  blocked_tasks: Task[],
+  stale_tasks: Task[],
+  recent_decisions: Decision[],
+  pinned_memories: Memory[],
+  recent_memories: Memory[],
+  recent_messages: Message[],
+  suggested_next_actions: string[],
+}
+```
+
+`remember` defaults project/area to the recording agent when not supplied.
+Pinned memories are surfaced near the top of `session_brief`; use pinned
+`handoff` memories for "next agent please read" context.
+
 ## final_report
 
 Generate merge-readiness output from tasks.

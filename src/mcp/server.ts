@@ -20,13 +20,17 @@ import {
   inbox,
   listTasks,
   listDecisions,
+  listMemories,
   recentMessages,
+  pinMemory,
   register,
   releaseTask,
   recordDecision,
+  remember,
   reply,
   send,
   sendChannel,
+  sessionBrief,
   subscribe,
   subscribers,
   threadMessages,
@@ -249,6 +253,42 @@ const ListDecisionsInput = z.object({
   area: AreaFilterField,
   implemented: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
+});
+
+const RememberInput = z.object({
+  by_agent: z.string().min(1),
+  kind: z.string().min(1).max(64),
+  content: z.string().min(1),
+  agent: z.string().min(1).nullable().optional(),
+  project: ProjectField,
+  area: AreaField,
+  task_id: z.number().int().positive().nullable().optional(),
+  thread_id: z.string().min(1).nullable().optional(),
+  pinned: z.boolean().optional(),
+  supersedes_id: z.number().int().positive().nullable().optional(),
+});
+
+const ListMemoriesInput = z.object({
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  agent: z.string().min(1).optional(),
+  kind: z.string().min(1).max(64).optional(),
+  task_id: z.number().int().positive().optional(),
+  thread_id: z.string().min(1).optional(),
+  pinned: z.boolean().optional(),
+  since: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+const PinMemoryInput = z.object({
+  memory_id: z.number().int().positive(),
+});
+
+const SessionBriefInput = z.object({
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  agent: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(50).optional(),
 });
 
 const TOOLS = [
@@ -721,6 +761,81 @@ const TOOLS = [
     },
   },
   {
+    name: "remember",
+    description:
+      "Persist a structured memory for future sessions: summary, handoff, risk, todo, fact, blocker, lesson, gotcha, or a custom kind.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        by_agent: { type: "string", description: "Agent recording the memory" },
+        kind: { type: "string", description: "Memory kind, e.g. summary, handoff, risk, todo, fact, blocker, lesson, gotcha" },
+        content: { type: "string", description: "Memory body" },
+        agent: { type: ["string", "null"], description: "Optional subject/target agent" },
+        project: { type: ["string", "null"], description: "Optional project scope; defaults to this MCP session's scope" },
+        area: { type: ["string", "null"], description: "Optional area scope; defaults to this MCP session's scope" },
+        task_id: { type: ["number", "null"], description: "Optional related task id" },
+        thread_id: { type: ["string", "null"], description: "Optional related thread id" },
+        pinned: { type: "boolean", description: "Pin this memory so session_brief surfaces it above recent memories" },
+        supersedes_id: { type: ["number", "null"], description: "Optional older memory id this one replaces" },
+      },
+      required: ["by_agent", "kind", "content"],
+    },
+  },
+  {
+    name: "list_memories",
+    description: "List structured memories for the current project/area, optionally filtered by agent, kind, task, or thread.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        agent: { type: "string", description: "Optional subject or author agent filter" },
+        kind: { type: "string", description: "Optional memory kind filter" },
+        task_id: { type: "number", description: "Optional related task filter" },
+        thread_id: { type: "string", description: "Optional related thread filter" },
+        pinned: { type: "boolean", description: "Optional pinned/unpinned filter" },
+        since: { type: "number", description: "Optional created_at lower bound (ms epoch)" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "pin_memory",
+    description: "Pin a memory so session_brief surfaces it in the pinned handoff section.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        memory_id: { type: "number" },
+      },
+      required: ["memory_id"],
+    },
+  },
+  {
+    name: "unpin_memory",
+    description: "Unpin a memory so it returns to normal recent-memory ordering.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        memory_id: { type: "number" },
+      },
+      required: ["memory_id"],
+    },
+  },
+  {
+    name: "session_brief",
+    description:
+      "Generate a startup/handoff brief from live agents, open/blocked/stale tasks, recent decisions, memories, and messages.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        agent: { type: "string", description: "Optional agent-specific memory filter" },
+        limit: { type: "number", description: "Maximum items per section, up to 50" },
+      },
+    },
+  },
+  {
     name: "final_report",
     description: "Generate a merge-readiness report from tasks.",
     inputSchema: {
@@ -891,6 +1006,38 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     case "list_decisions": {
       const input = ListDecisionsInput.parse(raw);
       return listDecisions({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
+    case "remember": {
+      const input = RememberInput.parse(raw);
+      return remember({
+        ...input,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+      });
+    }
+    case "list_memories": {
+      const input = ListMemoriesInput.parse(raw);
+      return listMemories({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
+    case "pin_memory": {
+      const input = PinMemoryInput.parse(raw);
+      return pinMemory(input.memory_id, true);
+    }
+    case "unpin_memory": {
+      const input = PinMemoryInput.parse(raw);
+      return pinMemory(input.memory_id, false);
+    }
+    case "session_brief": {
+      const input = SessionBriefInput.parse(raw);
+      return sessionBrief({
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),

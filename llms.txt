@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 28 MCP tools, all prefixed with the server name `agent-bus` in
+You have 34 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -20,6 +20,7 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 8. Create, claim, update, release, list, and inspect tasks.
 9. Scope reads and routing to the current project, or opt into global.
 10. Discover other agents.
+11. Store structured memories and generate session briefs for handoffs.
 
 ## Core rules
 
@@ -346,6 +347,15 @@ Claims the best open task in scope that matches the agent's capabilities.
 ### record_decision / list_decisions
 
 Store and read durable project decisions.
+
+### remember / list_memories / session_brief
+
+Store durable structured memories and generate startup or handoff briefs.
+Use `remember` for summaries, handoffs, risks, todos, facts, blockers, or
+custom kinds. Pin handoff memories when the next agent should see them
+first. Use `session_brief` when a new session needs current agents,
+open/blocked/stale tasks, recent decisions, pinned memories, recent
+memories, recent messages, and suggested next actions.
 
 ### final_report
 

@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.5.0
+  - agent-bus-mcp >= 0.6.0
 ---
 
 # agent-bus
@@ -11,7 +11,7 @@ Turn your Claude / Codex / Cursor / Gemini sessions on the same machine
 into a local agent team. Each session registers a name, then you can
 send messages, ask blocking questions, delegate tasks, broadcast to
 channels, route work by capability/role, track agent status, record
-decisions, and produce merge-readiness reports — all through one
+decisions and memories, generate session briefs, and produce merge-readiness reports — all through one
 SQLite file at `~/.agent-bus/bus.db`.
 
 This skill is the **coordinator playbook**: when the user speaks
@@ -64,8 +64,9 @@ The user speaks normally. You pick the tool. Common patterns:
 | "What did <name> say?" / "Did anyone reply?" | `inbox(agent=<your name>)`, then summarize |
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
 | "Show the team board" / "what is everyone doing?" | `directory()` rendered with status, role, area, and active task |
-| "Remember X" / "Note that X" (with a memory agent on the bus) | `send(to=<memory agent>, message="remember: X")` |
-| "Recall X" / "What did we decide about X" | `list_decisions()` first; use `ask_best(capability="memory", …)` only if needed |
+| "Remember X" / "Note that X" | `remember(by_agent=<your name>, kind="summary", content=…)`; use `pinned=true` for handoffs |
+| "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; use `ask_best(capability="memory", …)` only if needed |
+| "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render |
 | "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)` |
 | "Assign this to <agent>" | `create_task(...)` then `assign_task(task_id=…, to_agent=…)`; send a short heads-up on the task thread if useful |
@@ -136,6 +137,10 @@ ios, `frontend` to frontend. A project manager at the repo root can use
   disjoint, such as `backend/**`, `ios/**`, `web/**`, or `docs/**`.
 - Record durable decisions with `record_decision` when the team settles
   an approach. Use `list_decisions` before reopening an old debate.
+- Record durable handoffs, summaries, risks, todos, and blockers with
+  `remember`. Pin handoffs that the next agent should see first. Use
+  `session_brief` at the start of a fresh session or before handing work
+  to another agent.
 - Use `final_report` before commit/push/deploy decisions.
 
 ## Hard rules
@@ -161,10 +166,10 @@ ios, `frontend` to frontend. A project manager at the repo root can use
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 28 MCP tools with input/output shapes
+- `references/tools.md` — the 34 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `assign_task`,
-  `record_decision`, `final_report`).
+  `record_decision`, `remember`, `session_brief`, `final_report`).
 - `references/patterns.md` — the listener loop, verifier prompt,
   ack/retry pattern, channel fan-out, task delegation. Load when the
   user asks "set up a listener", "make this reliable", "broadcast

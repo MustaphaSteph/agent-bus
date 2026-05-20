@@ -205,6 +205,19 @@ record_decision({
 })
 ```
 
+Record durable memories and generate handoffs:
+
+```
+remember({
+  by_agent: "codex-project-manager",
+  kind: "handoff",
+  content: "Frontend worker owns editor polish; verifier owns test-only review",
+  pinned: true,
+})
+
+session_brief({ area: "*" })
+```
+
 Before commit/push/deploy, ask for:
 
 ```
