@@ -2,13 +2,16 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.4.0
+  version: 0.5.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 20 tools over an MCP stdio server. This OpenAPI
-    document maps each tool to a synthetic `POST /tools/<name>` endpoint
-    for documentation, validation, and code-generation purposes. The
-    real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
+    `agent-bus` exposes 28 tools over an MCP stdio server. This OpenAPI
+    document maps the core tool surface to synthetic `POST /tools/<name>`
+    endpoints for documentation, validation, and code-generation purposes.
+    The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
+
+    For the authoritative full MCP surface, including newer manager workflow
+    tools, use `docs/tools.md`.
 
     Every tool takes a JSON object body and returns a JSON object body.
     Errors come back as `{ "error": { "code": "<code>", "message": "<text>" } }`

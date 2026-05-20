@@ -18,6 +18,7 @@ import {
   whois,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
+import { packageVersion } from "../util/package-info.js";
 import {
   configuredAreas,
   deriveScope,
@@ -37,7 +38,7 @@ const program = new Command();
 program
   .name("agent-bus")
   .description("Local message bus for Claude Code, Codex and other MCP agents.")
-  .version("0.4.0");
+  .version(packageVersion());
 
 program
   .command("watch")

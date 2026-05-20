@@ -59,6 +59,7 @@ a file and a process.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive an `area` like `ios` or `backend` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
+- **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), assign task modes, record decisions, and generate final merge-readiness reports.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
 
 ## How it works
@@ -206,7 +207,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 5. Verify
 
 ```bash
-agent-bus --version                # 0.4.0
+agent-bus --version                # 0.5.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -307,7 +308,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **23 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, and first-class tasks with assignment/claim-best helpers.
+- **28 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, first-class tasks, agent status controls, decisions, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, and tasks survive restarts via SQLite WAL.
 - **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, or CLI `--project all --area all`.
@@ -326,7 +327,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 | [`docs/patterns.md`](docs/patterns.md) | Listener mode, async chat, capability routing, broadcast, ack/retry, threading |
 | [`docs/architecture.md`](docs/architecture.md) | Schema, internals, tuning, what it can and can't do |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common errors and fixes |
-| [`docs/openapi.yaml`](docs/openapi.yaml) | OpenAPI 3.1 spec — lint-clean, also rendered to `docs/api-static.html` |
+| [`docs/openapi.yaml`](docs/openapi.yaml) | Core synthetic OpenAPI 3.1 mapping; [`docs/tools.md`](docs/tools.md) is authoritative for the full MCP surface |
 | [`llms.txt`](llms.txt) | Single-file context to drop into an AI agent so it can use the bus |
 | [`AGENTS.md`](AGENTS.md) | Codebase layout and rules for contributors editing `src/` |
 

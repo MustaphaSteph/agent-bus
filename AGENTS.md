@@ -8,9 +8,10 @@ For end-users of the bus, see [`README.md`](README.md), [`docs/`](docs/), or
 
 `agent-bus` is a tiny local message bus for Claude Code, Codex, and other
 MCP-capable agents on the same machine. It uses one SQLite database
-(`~/.agent-bus/bus.db` by default), exposes an MCP stdio server with 20
+(`~/.agent-bus/bus.db` by default), exposes an MCP stdio server with 28
 tools, and ships a CLI for watching, injecting, registering, pausing,
-resuming, hook installation, and listener-prompt generation.
+resuming, sleeping/waking agents, hook installation, and listener-prompt
+generation.
 
 The core product promise is local, persistent, tool-agnostic
 agent-to-agent messaging without a daemon or cloud service.

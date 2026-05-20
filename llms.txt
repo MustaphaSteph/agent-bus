@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 23 MCP tools, all prefixed with the server name `agent-bus` in
+You have 28 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).

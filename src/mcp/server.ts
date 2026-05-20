@@ -38,6 +38,7 @@ import {
   setAgentStatus,
 } from "../bus.js";
 import { BusError } from "../util/errors.js";
+import { packageVersion } from "../util/package-info.js";
 import { deriveScope } from "../util/project.js";
 
 // MCP servers inherit cwd from the spawning session, so this is the
@@ -733,7 +734,7 @@ const TOOLS = [
 ] as const;
 
 const server = new Server(
-  { name: "agent-bus", version: "0.4.0" },
+  { name: "agent-bus", version: packageVersion() },
   { capabilities: { tools: {} } },
 );
 
