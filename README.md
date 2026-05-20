@@ -45,6 +45,7 @@ session registers a name. Now they can:
 - ask questions and block for answers,
 - delegate first-class tasks with strict state machine and at-least-once delivery,
 - route work by capability without knowing the receiver's name,
+- record durable decisions, handoffs, risks, todos, and session briefs,
 - and keep entire conversation threads addressable across restarts.
 
 All of it works across Claude Code, Codex CLI, Codex Desktop, Cursor —
@@ -58,6 +59,7 @@ a file and a process.
 - **Role-aware teams.** Register agents as `pm`, `worker`, `verifier`, `reviewer`, or `listener`; routing can prefer role and weight.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
+- **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive an `area` like `ios` or `backend` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), assign task modes, record decisions, and generate final merge-readiness reports.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
@@ -255,6 +257,16 @@ agent-bus watch
 project and, when configured, the current subfolder area. Use
 `--project all --area all` when you want the whole local bus.
 
+Record durable context when a session is about to hand off work:
+
+```bash
+agent-bus remember --by me --kind handoff --pinned \
+  "helper-a verified auth; next session should inspect billing retries"
+
+agent-bus brief --agent me
+agent-bus memories --kind handoff --pinned
+```
+
 Optional area config at the repo root:
 
 ```json
@@ -310,7 +322,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 - **34 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, first-class tasks, agent status controls, decisions, structured memories, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
-- **Persistent** — agents, messages, channels, threads, and tasks survive restarts via SQLite WAL.
+- **Persistent** — agents, messages, channels, threads, tasks, decisions, and memories survive restarts via SQLite WAL.
 - **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, or CLI `--project all --area all`.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
@@ -321,7 +333,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 |---|---|
 | [`docs/install.md`](docs/install.md) | Install for Claude Code, Codex CLI, Codex Desktop |
 | [`docs/agent-prompts.md`](docs/agent-prompts.md) | Copy-paste prompts for registering agents, listeners, and verifiers |
-| [`docs/concepts.md`](docs/concepts.md) | Mental model: agents, messages, threads, channels, claims, tasks |
+| [`docs/concepts.md`](docs/concepts.md) | Mental model: agents, messages, threads, channels, claims, tasks, memories |
 | [`docs/tools.md`](docs/tools.md) | All MCP tools — signatures, errors, examples |
 | [`docs/cli.md`](docs/cli.md) | `agent-bus` CLI reference |
 | [`docs/patterns.md`](docs/patterns.md) | Listener mode, async chat, capability routing, broadcast, ack/retry, threading |
@@ -329,7 +341,6 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common errors and fixes |
 | [`docs/openapi.yaml`](docs/openapi.yaml) | Core synthetic OpenAPI 3.1 mapping; [`docs/tools.md`](docs/tools.md) is authoritative for the full MCP surface |
 | [`llms.txt`](llms.txt) | Single-file context to drop into an AI agent so it can use the bus |
-| [`AGENTS.md`](AGENTS.md) | Codebase layout and rules for contributors editing `src/` |
 
 ## License
 
