@@ -323,6 +323,10 @@ create_task({
   final_answer?: string | null,
   manager_reviewed?: boolean,
   file_scope?: string[],
+  ack_required?: boolean,
+  review_required?: boolean,
+  changed_files?: string[],
+  allow_conflicts?: boolean,
 }) -> Task
 ```
 
@@ -337,6 +341,7 @@ Atomically claim an open task.
 claim_task({
   agent: string,
   task_id: number,
+  allow_conflicts?: boolean,
 }) -> Task
 ```
 
@@ -348,8 +353,12 @@ claimers get `TASK_NOT_CLAIMABLE`.
 Assign an open task directly to an agent.
 
 ```ts
-assign_task({ task_id: number, to_agent: string }) -> Task
+assign_task({ task_id: number, to_agent: string, allow_conflicts?: boolean }) -> Task
 ```
+
+`assign_task` sends the assignee an inbox notification. `claim_task`
+sends the requester a receipt. Both reject overlapping active
+`file_scope` by default for edit/propose tasks.
 
 ## claim_best_task
 
@@ -385,6 +394,13 @@ update_task({
   final_answer?: string | null,
   manager_reviewed?: boolean,
   file_scope?: string[],
+  ack_required?: boolean,
+  review_required?: boolean,
+  review_state?: "none" | "pending" | "approved" | "changes_requested",
+  reviewed_by?: string | null,
+  review_notes?: string | null,
+  changed_files?: string[],
+  allow_conflicts?: boolean,
 }) -> Task
 ```
 
@@ -399,7 +415,8 @@ Allowed transitions:
 | `completed`, `failed`, `canceled` | none |
 
 Only the requester or holder can update. **Errors**:
-`TASK_INVALID_TRANSITION`, `TASK_FORBIDDEN`, `TASK_NOT_FOUND`.
+`TASK_INVALID_TRANSITION`, `TASK_FORBIDDEN`, `TASK_NOT_FOUND`,
+`TASK_SCOPE_CONFLICT`, `TASK_REVIEW_REQUIRED`.
 
 ## release_task
 
@@ -414,6 +431,68 @@ release_task({
 
 The requester or current holder can release. Terminal tasks cannot be
 released.
+
+## acknowledge_task / submit_review / handoff_task
+
+Task receipts, review gates, and clean handoffs for multi-agent work.
+
+```ts
+acknowledge_task({
+  agent: string,
+  task_id: number,
+  response: "claimed" | "declined" | "blocked",
+  note?: string | null,
+}) -> Task
+
+submit_review({
+  reviewer: string,
+  task_id: number,
+  approved: boolean,
+  notes?: string | null,
+}) -> Task
+
+handoff_task({
+  from_agent: string,
+  task_id: number,
+  to_agent?: string | null,
+  reason: string,
+  memory?: string | null,
+}) -> { task: Task, memory: Memory | null, message: Message | null }
+```
+
+`submit_review(approved:true)` satisfies review-required tasks.
+`handoff_task` records a pinned `handoff` memory and either reassigns or
+releases the task.
+
+## check_scope_conflicts / project_board
+
+Manager safety views.
+
+```ts
+check_scope_conflicts({
+  file_scope: string[],
+  project?: string | null,
+  area?: string | null,
+  exclude_task_id?: number,
+}) -> ScopeConflict[]
+
+project_board({
+  project?: string,
+  area?: string,
+  limit?: number,
+}) -> {
+  agents: AgentDirectoryEntry[],
+  open_tasks: Task[],
+  active_tasks: Task[],
+  blocked_tasks: Task[],
+  waiting_review: Task[],
+  stale_tasks: Task[],
+  scope_conflicts: { task_id: number, title: string, conflicts: ScopeConflict[] }[],
+  pinned_risks: Memory[],
+  pinned_handoffs: Memory[],
+  suggested_next_actions: string[],
+}
+```
 
 ## list_tasks
 

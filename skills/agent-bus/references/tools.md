@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 34 MCP tools. All return JSON.
+doesn't cover in detail. There are 39 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -137,13 +137,17 @@ create_task({
   deadline_at?: string,
   checkin_at?: string,
   file_scope?: string[],
+  ack_required?: boolean,
+  review_required?: boolean,
+  changed_files?: string[],
+  allow_conflicts?: boolean,
 }) -> Task
 ```
 
 ### claim_task / assign_task / claim_best_task
 ```ts
-claim_task({ agent: string, task_id: number }) -> Task
-assign_task({ task_id: number, to_agent: string }) -> Task
+claim_task({ agent: string, task_id: number, allow_conflicts?: boolean }) -> Task
+assign_task({ task_id: number, to_agent: string, allow_conflicts?: boolean }) -> Task
 claim_best_task({
   agent: string,
   project?: string | "*",
@@ -172,6 +176,13 @@ update_task({
   final_answer?: string | null,
   manager_reviewed?: boolean,
   file_scope?: string[],
+  ack_required?: boolean,
+  review_required?: boolean,
+  review_state?: "none" | "pending" | "approved" | "changes_requested",
+  reviewed_by?: string | null,
+  review_notes?: string | null,
+  changed_files?: string[],
+  allow_conflicts?: boolean,
 }) -> Task
 
 release_task({ agent: string, task_id: number }) -> Task
@@ -194,6 +205,64 @@ get_task({ task_id: number }) -> Task
 ```
 Terminal states cannot transition. Only requester or current holder can
 update/release. Stale active tasks are surfaced, not auto-requeued.
+
+### acknowledge_task / submit_review / handoff_task
+```ts
+acknowledge_task({
+  agent: string,
+  task_id: number,
+  response: "claimed" | "declined" | "blocked",
+  note?: string,
+}) -> Task
+
+submit_review({
+  reviewer: string,
+  task_id: number,
+  approved: boolean,
+  notes?: string,
+}) -> Task
+
+handoff_task({
+  from_agent: string,
+  task_id: number,
+  to_agent?: string,
+  reason: string,
+  memory?: string,
+}) -> { task: Task, memory: Memory, message: Message | null }
+```
+Use acknowledgements to remove uncertainty after assignment. Use
+`submit_review` for verifier approval; review-required tasks cannot be
+completed until approved. Use `handoff_task` when a session stops
+mid-task; it records a pinned handoff memory and can reassign the work.
+
+### check_scope_conflicts / project_board
+```ts
+check_scope_conflicts({
+  file_scope: string[],
+  project?: string | "*",
+  area?: string | "*",
+  exclude_task_id?: number,
+}) -> ScopeConflict[]
+
+project_board({
+  project?: string | "*",
+  area?: string | "*",
+}) -> {
+  agents: AgentDirectoryEntry[],
+  open_tasks: Task[],
+  active_tasks: Task[],
+  blocked_tasks: Task[],
+  waiting_review: Task[],
+  stale_tasks: Task[],
+  scope_conflicts: ScopeConflict[],
+  pinned_risks: Memory[],
+  pinned_handoffs: Memory[],
+  suggested_next_actions: string[],
+}
+```
+Use `project_board` for manager status. It combines agent status, task
+state, review queue, stale work, scope conflicts, pinned risks/handoffs,
+and suggested next actions.
 
 ## Decisions and Final Report
 

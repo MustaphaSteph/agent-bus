@@ -3,12 +3,16 @@ import { Command } from "commander";
 import kleur from "kleur";
 import {
   ack,
+  acknowledgeTask,
+  checkScopeConflicts,
   directory,
   finalReport,
+  handoffTask,
   inbox,
   listDecisions,
   listMemories,
   pinMemory,
+  projectBoard,
   recentMessages,
   register,
   recordDecision,
@@ -18,6 +22,7 @@ import {
   setPaused,
   sessionBrief,
   sleepAgent,
+  submitReview,
   wakeAgent,
   whois,
 } from "../bus.js";
@@ -278,6 +283,82 @@ program
   });
 
 program
+  .command("ack-task <task-id>")
+  .description("Acknowledge an assigned task as claimed, declined, or blocked")
+  .requiredOption("--agent <name>", "agent acknowledging the task")
+  .requiredOption("--response <value>", "claimed, declined, or blocked")
+  .option("--note <text>", "optional acknowledgement note")
+  .action((taskId: string, opts: { agent: string; response: string; note?: string }) => {
+    const task = acknowledgeTask({
+      agent: opts.agent,
+      task_id: Number(taskId),
+      response: opts.response as never,
+      note: opts.note,
+    });
+    console.log(`${kleur.green("acknowledged")} task #${task.id} ${task.acknowledged_by ?? ""}`);
+  });
+
+program
+  .command("review-task <task-id>")
+  .description("Submit verifier review for a task")
+  .requiredOption("--reviewer <name>", "reviewing agent")
+  .option("--approve", "mark review approved")
+  .option("--changes-requested", "mark review as changes requested")
+  .option("--notes <text>", "review notes")
+  .action((taskId: string, opts: { reviewer: string; approve?: boolean; changesRequested?: boolean; notes?: string }) => {
+    if (opts.approve !== true && opts.changesRequested !== true) {
+      throw new Error("pass --approve or --changes-requested");
+    }
+    const task = submitReview({
+      reviewer: opts.reviewer,
+      task_id: Number(taskId),
+      approved: opts.approve === true,
+      notes: opts.notes,
+    });
+    console.log(`${kleur.green("reviewed")} task #${task.id} ${task.review_state}`);
+  });
+
+program
+  .command("handoff <task-id>")
+  .description("Create a pinned handoff memory and optionally assign/release a task")
+  .requiredOption("--from <agent>", "agent handing off")
+  .requiredOption("--reason <text>", "handoff reason")
+  .option("--to <agent>", "optional target agent")
+  .option("--memory <text>", "memory content; defaults to the reason")
+  .action((taskId: string, opts: { from: string; reason: string; to?: string; memory?: string }) => {
+    const result = handoffTask({
+      from_agent: opts.from,
+      task_id: Number(taskId),
+      to_agent: opts.to ?? null,
+      reason: opts.reason,
+      memory: opts.memory,
+    });
+    console.log(`${kleur.green("handoff")} task #${result.task.id}${result.memory ? ` memory #${result.memory.id}` : ""}`);
+  });
+
+program
+  .command("scope-conflicts")
+  .description("Check whether a proposed file scope overlaps active tasks")
+  .requiredOption("--files <list>", "comma-separated file scope patterns")
+  .option("--exclude-task <id>", "task id to ignore")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { files: string; excludeTask?: string; project?: string; area?: string }) => {
+    const conflicts = checkScopeConflicts({
+      ...resolveScopeOptions(opts.project, opts.area),
+      file_scope: opts.files.split(",").map((value) => value.trim()).filter(Boolean),
+      exclude_task_id: opts.excludeTask ? Number(opts.excludeTask) : undefined,
+    });
+    if (conflicts.length === 0) {
+      console.log(kleur.green("no scope conflicts"));
+      return;
+    }
+    for (const conflict of conflicts) {
+      console.log(`#${conflict.task_id} [${conflict.state}] ${conflict.title}${kleur.gray(` held=${conflict.claimed_by ?? "-"} overlap=${conflict.overlapping_scope}`)}`);
+    }
+  });
+
+program
   .command("decision")
   .description("Record or list project decisions")
   .option("--by <agent>", "agent recording the decision")
@@ -423,6 +504,37 @@ program
     console.log(formatList(brief.recent_messages.map((message) => `#${message.id} ${message.from_agent} -> ${message.to_agent}: ${message.content}`)));
     console.log(kleur.bold("Suggested next actions:"));
     console.log(formatList(brief.suggested_next_actions));
+  });
+
+program
+  .command("board")
+  .description("Show the project manager board")
+  .option("-n, --last <count>", "maximum items per section", "20")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { last: string; project?: string; area?: string }) => {
+    const board = projectBoard({
+      ...resolveScopeOptions(opts.project, opts.area),
+      limit: Number(opts.last),
+    });
+    console.log(kleur.bold("Agents:"));
+    console.log(formatList(board.agents.map((agent) => `${agent.name} ${agent.status}/${agent.presence}`)));
+    console.log(kleur.bold("Open tasks:"));
+    console.log(formatList(board.open_tasks.map((task) => `#${task.id} ${task.title}`)));
+    console.log(kleur.bold("Active tasks:"));
+    console.log(formatList(board.active_tasks.map((task) => `#${task.id} ${task.title} held=${task.claimed_by ?? "-"}`)));
+    console.log(kleur.bold("Blocked tasks:"));
+    console.log(formatList(board.blocked_tasks.map((task) => `#${task.id} ${task.title}${task.blocked_reason ? `: ${task.blocked_reason}` : ""}`)));
+    console.log(kleur.bold("Waiting review:"));
+    console.log(formatList(board.waiting_review.map((task) => `#${task.id} ${task.title}`)));
+    console.log(kleur.bold("Scope conflicts:"));
+    console.log(formatList(board.scope_conflicts.map((row) => `#${row.task_id} ${row.title} overlaps #${row.conflicts[0]?.task_id}`)));
+    console.log(kleur.bold("Pinned risks:"));
+    console.log(formatList(board.pinned_risks.map((memory) => `#${memory.id} ${memory.content}`)));
+    console.log(kleur.bold("Pinned handoffs:"));
+    console.log(formatList(board.pinned_handoffs.map((memory) => `#${memory.id} ${memory.content}`)));
+    console.log(kleur.bold("Suggested next actions:"));
+    console.log(formatList(board.suggested_next_actions));
   });
 
 program

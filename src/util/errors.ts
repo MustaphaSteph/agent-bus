@@ -8,7 +8,9 @@ export type BusErrorCode =
   | "TASK_NOT_FOUND"
   | "TASK_INVALID_TRANSITION"
   | "TASK_NOT_CLAIMABLE"
-  | "TASK_FORBIDDEN";
+  | "TASK_FORBIDDEN"
+  | "TASK_SCOPE_CONFLICT"
+  | "TASK_REVIEW_REQUIRED";
 
 export class BusError extends Error {
   readonly code: BusErrorCode;

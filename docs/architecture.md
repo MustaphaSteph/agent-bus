@@ -128,6 +128,14 @@ Indexes:
 | `final_answer` | TEXT nullable | final agent output |
 | `manager_reviewed` | INTEGER | 0 or 1 |
 | `file_scope` | TEXT | JSON array of owned path patterns |
+| `ack_required` | INTEGER | 0 or 1 |
+| `acknowledged_at` | INTEGER nullable | ms epoch |
+| `acknowledged_by` | TEXT nullable | agent that acknowledged assignment |
+| `review_required` | INTEGER | 0 or 1 |
+| `review_state` | TEXT | none / pending / approved / changes_requested |
+| `reviewed_by` | TEXT nullable | verifier/reviewer agent |
+| `review_notes` | TEXT nullable | review result notes |
+| `changed_files` | TEXT | JSON array of changed paths |
 
 Indexes include `state`, `claimed_by`, `requested_by`, `thread_id`,
 `updated_at`, and `project`.

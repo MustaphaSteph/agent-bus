@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.6.0
+  version: 0.7.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 34 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 39 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.

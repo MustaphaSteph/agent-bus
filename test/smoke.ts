@@ -8,9 +8,11 @@ process.env.AGENT_BUS_DIR = tmp;
 
 const {
   ack,
+  acknowledgeTask,
   assignTask,
   claimTask,
   claimBestTask,
+  checkScopeConflicts,
   createTask,
   directory,
   finalReport,
@@ -22,6 +24,7 @@ const {
   listMemories,
   messagesSince,
   pinMemory,
+  projectBoard,
   PROJECT_WILDCARD,
   recentMessages,
   register,
@@ -42,6 +45,8 @@ const {
   whois,
   listDecisions,
   sessionBrief,
+  submitReview,
+  handoffTask,
 } = await import("../src/bus.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
@@ -674,6 +679,136 @@ await test("tasks: manager checklist fields update and final report uses review 
   assert.ok(report.implemented.includes("reviewable task"));
   assert.ok(report.tests_passed.includes("tests passed"));
   assert.equal(report.safe_to_deploy, false);
+});
+
+await test("tasks: scope conflicts block overlapping active edits unless allowed", () => {
+  register({ name: "scope-pm", project: "scope", area: "frontend", replace: true });
+  register({ name: "scope-a", project: "scope", area: "frontend", replace: true });
+  register({ name: "scope-b", project: "scope", area: "frontend", replace: true });
+  const first = createTask({
+    requested_by: "scope-pm",
+    title: "edit auth form",
+    file_scope: ["src/components/auth/**"],
+  });
+  claimTask({ agent: "scope-a", task_id: first.id });
+
+  const conflicts = checkScopeConflicts({
+    project: "scope",
+    area: "frontend",
+    file_scope: ["src/components/auth/LoginForm.tsx"],
+  });
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0]?.task_id, first.id);
+
+  const second = createTask({
+    requested_by: "scope-pm",
+    title: "edit auth input",
+    file_scope: ["src/components/auth/LoginForm.tsx"],
+    allow_conflicts: true,
+  });
+  assert.throws(
+    () => claimTask({ agent: "scope-b", task_id: second.id }),
+    (e: unknown) => e instanceof BusError && e.code === "TASK_SCOPE_CONFLICT",
+  );
+  const claimed = claimTask({ agent: "scope-b", task_id: second.id, allow_conflicts: true });
+  assert.equal(claimed.claimed_by, "scope-b");
+});
+
+await test("tasks: assignment notification and acknowledgement receipt", async () => {
+  register({ name: "ack-pm", project: "ackp", replace: true });
+  register({ name: "ack-worker", project: "ackp", replace: true });
+  const task = createTask({
+    requested_by: "ack-pm",
+    title: "ack task",
+    ack_required: true,
+  });
+  assignTask({ task_id: task.id, to_agent: "ack-worker" });
+  const assignedMessages = await inbox({ agent: "ack-worker" });
+  assert.ok(assignedMessages.some((msg) => msg.content.includes("assigned task")));
+
+  const acked = acknowledgeTask({
+    agent: "ack-worker",
+    task_id: task.id,
+    response: "claimed",
+    note: "starting now",
+  });
+  assert.equal(acked.acknowledged_by, "ack-worker");
+  assert.ok(acked.acknowledged_at !== null);
+  const receipts = await inbox({ agent: "ack-pm" });
+  assert.ok(receipts.some((msg) => msg.content.includes("acknowledged task")));
+});
+
+await test("tasks: review gate requires approval before completion", () => {
+  register({ name: "review-pm", project: "reviewp", replace: true });
+  register({ name: "review-worker", project: "reviewp", replace: true });
+  register({ name: "reviewer", project: "reviewp", role: "verifier", replace: true });
+  const task = createTask({
+    requested_by: "review-pm",
+    title: "review-gated task",
+    review_required: true,
+    file_scope: ["src/review/**"],
+  });
+  claimTask({ agent: "review-worker", task_id: task.id });
+  updateTask({
+    agent: "review-worker",
+    task_id: task.id,
+    state: "working",
+    changed_files: ["src/review/a.ts"],
+  });
+  assert.throws(
+    () => updateTask({ agent: "review-worker", task_id: task.id, state: "completed" }),
+    (e: unknown) => e instanceof BusError && e.code === "TASK_REVIEW_REQUIRED",
+  );
+  const reviewed = submitReview({
+    reviewer: "reviewer",
+    task_id: task.id,
+    approved: true,
+    notes: "looks good",
+  });
+  assert.equal(reviewed.review_state, "approved");
+  const done = updateTask({ agent: "review-worker", task_id: task.id, state: "completed" });
+  assert.equal(done.state, "completed");
+});
+
+await test("tasks: handoff records pinned memory and reassigns", () => {
+  register({ name: "handoff-pm", project: "handoffp", replace: true });
+  register({ name: "handoff-a", project: "handoffp", replace: true });
+  register({ name: "handoff-b", project: "handoffp", replace: true });
+  const task = createTask({ requested_by: "handoff-pm", title: "handoff task" });
+  claimTask({ agent: "handoff-a", task_id: task.id });
+  const result = handoffTask({
+    from_agent: "handoff-a",
+    to_agent: "handoff-b",
+    task_id: task.id,
+    reason: "switching sessions",
+  });
+  assert.equal(result.task.claimed_by, "handoff-b");
+  assert.ok(result.memory?.pinned);
+  assert.equal(result.memory?.kind, "handoff");
+});
+
+await test("project board: summarizes review and pinned risks", () => {
+  register({ name: "board-pm", project: "boardp", area: "frontend", replace: true });
+  register({ name: "board-worker", project: "boardp", area: "frontend", replace: true });
+  const task = createTask({
+    requested_by: "board-pm",
+    title: "board review task",
+    review_required: true,
+    file_scope: ["src/board/**"],
+  });
+  claimTask({ agent: "board-worker", task_id: task.id });
+  remember({
+    by_agent: "board-pm",
+    kind: "risk",
+    content: "Board task has pending review.",
+    project: "boardp",
+    area: "frontend",
+    pinned: true,
+  });
+  const board = projectBoard({ project: "boardp", area: "frontend" });
+  assert.ok(board.active_tasks.some((row) => row.id === task.id));
+  assert.ok(board.waiting_review.some((row) => row.id === task.id));
+  assert.ok(board.pinned_risks.some((row) => row.content.includes("pending review")));
 });
 
 await test("decisions: record and list by scope", () => {

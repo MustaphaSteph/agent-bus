@@ -168,6 +168,30 @@ function migrate(db: Database.Database): void {
   if (!taskCols.has("file_scope")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN file_scope TEXT NOT NULL DEFAULT '[]'`);
   }
+  if (!taskCols.has("ack_required")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN ack_required INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!taskCols.has("acknowledged_at")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN acknowledged_at INTEGER`);
+  }
+  if (!taskCols.has("acknowledged_by")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN acknowledged_by TEXT`);
+  }
+  if (!taskCols.has("review_required")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN review_required INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!taskCols.has("review_state")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN review_state TEXT NOT NULL DEFAULT 'none'`);
+  }
+  if (!taskCols.has("reviewed_by")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN reviewed_by TEXT`);
+  }
+  if (!taskCols.has("review_notes")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN review_notes TEXT`);
+  }
+  if (!taskCols.has("changed_files")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN changed_files TEXT NOT NULL DEFAULT '[]'`);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS decisions (
@@ -236,6 +260,10 @@ function migrate(db: Database.Database): void {
       ON tasks(mode);
     CREATE INDEX IF NOT EXISTS idx_tasks_manager_reviewed
       ON tasks(manager_reviewed);
+    CREATE INDEX IF NOT EXISTS idx_tasks_review_state
+      ON tasks(review_state);
+    CREATE INDEX IF NOT EXISTS idx_tasks_ack_required
+      ON tasks(ack_required);
     CREATE INDEX IF NOT EXISTS idx_decisions_scope
       ON decisions(project, area);
     CREATE INDEX IF NOT EXISTS idx_memories_scope

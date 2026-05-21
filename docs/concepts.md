@@ -138,6 +138,18 @@ Task modes communicate edit permission: `investigate_only`,
 `propose_patch`, `edit_files`, or `test_only`. The bus stores the mode and
 file scope; agents are expected to respect them.
 
+Task safety metadata makes agent work easier to manage:
+
+- `ack_required`, `acknowledged_at`, and `acknowledged_by` let a manager
+  know that an assigned agent actually saw and accepted the work.
+- `review_required`, `review_state`, `reviewed_by`, and `review_notes`
+  create a review gate. A review-required task cannot move to
+  `completed` until `submit_review(approved:true)` has run.
+- `changed_files` records what an agent says it changed; the bus rejects
+  files outside `file_scope` unless explicitly allowed.
+- `check_scope_conflicts` and `project_board` surface overlapping active
+  edit scopes so two workers do not unknowingly edit the same files.
+
 ## Decision
 
 A durable note recording what was decided, why, who suggested it, and

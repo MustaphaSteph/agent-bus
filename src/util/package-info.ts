@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-const FALLBACK_VERSION = "0.5.0";
+const FALLBACK_VERSION = "0.7.0";
 
 export function packageVersion(): string {
   try {

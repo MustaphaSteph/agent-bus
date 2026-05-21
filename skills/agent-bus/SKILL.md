@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.6.0
+  - agent-bus-mcp >= 0.7.0
 ---
 
 # agent-bus
@@ -63,14 +63,18 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
 | "What did <name> say?" / "Did anyone reply?" | `inbox(agent=<your name>)`, then summarize |
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
-| "Show the team board" / "what is everyone doing?" | `directory()` rendered with status, role, area, and active task |
+| "Show the team board" / "what is everyone doing?" | `project_board()` rendered with status, active work, review queue, conflicts, pinned risks, handoffs, and next actions |
 | "Remember X" / "Note that X" | `remember(by_agent=<your name>, kind="summary", content=…)`; use `pinned=true` for handoffs |
 | "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; use `ask_best(capability="memory", …)` only if needed |
 | "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render |
-| "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)` |
-| "Assign this to <agent>" | `create_task(...)` then `assign_task(task_id=…, to_agent=…)`; send a short heads-up on the task thread if useful |
+| "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigned and `review_required` for implementation work |
+| "Assign this to <agent>" | `create_task(...)` then `assign_task(task_id=…, to_agent=…)`; expect `acknowledge_task(response="claimed")` from the worker |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
+| "Did <agent> accept the task?" | `get_task(task_id=…)` and inspect `acknowledged_at` / `acknowledged_by`; ask for `acknowledge_task` if missing |
+| "Review / approve this task" | `submit_review(reviewer=<your name>, task_id=…, approved=…)`; required reviews gate completion |
+| "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
+| "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
 | "Put <agent> to sleep" / "wake <agent>" | `sleep_agent(agent=…)` / `wake_agent(agent=…)` |
 | "Set <agent> blocked / waiting for review" | `set_agent_status(agent=…, status=…)` |
 | "Record this decision…" | `record_decision(by_agent=<your name>, decision=…, rationale=…)` |
@@ -124,8 +128,9 @@ ios, `frontend` to frontend. A project manager at the repo root can use
 
 ## Manager workflow defaults
 
-- Use `directory()` as the task board: show `idle`, `working`,
-  `blocked`, `waiting_review`, and `sleeping`.
+- Use `project_board()` as the task board: show `idle`, `working`,
+  `blocked`, `waiting_review`, `sleeping`, active tasks, review queue,
+  scope conflicts, pinned risks, handoffs, and suggested next actions.
 - When creating tasks, set `mode` conservatively:
   `investigate_only` for analysis, `propose_patch` for patch sketches,
   `edit_files` only when edits are intended, and `test_only` for
@@ -135,6 +140,15 @@ ios, `frontend` to frontend. A project manager at the repo root can use
   Test plan / Confidence`.
 - Set `file_scope` when multiple agents may edit. Keep ownership
   disjoint, such as `backend/**`, `ios/**`, `web/**`, or `docs/**`.
+- Set `ack_required=true` when assigning work. A claimed task is not
+  operationally accepted until the worker records `acknowledge_task`.
+- Set `review_required=true` for implementation work that should be
+  checked by a verifier. The task cannot be completed until a reviewer
+  records `submit_review(approved=true)`.
+- Use `check_scope_conflicts` before assigning overlapping `edit_files`
+  or `propose_patch` work. Split ownership when conflicts are real.
+- Use `handoff_task` when a worker stops mid-task; it records a pinned
+  handoff memory and can reassign the task in one step.
 - Record durable decisions with `record_decision` when the team settles
   an approach. Use `list_decisions` before reopening an old debate.
 - Record durable handoffs, summaries, risks, todos, and blockers with
@@ -175,7 +189,7 @@ implementation edits.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 34 MCP tools with input/output shapes
+- `references/tools.md` — the 39 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `assign_task`,
   `record_decision`, `remember`, `session_brief`, `final_report`).

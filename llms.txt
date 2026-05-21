@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 34 MCP tools, all prefixed with the server name `agent-bus` in
+You have 39 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -268,6 +268,10 @@ Input:
 - `final_answer?: string | null`
 - `manager_reviewed?: boolean`
 - `file_scope?: string[]`
+- `ack_required?: boolean`
+- `review_required?: boolean`
+- `changed_files?: string[]`
+- `allow_conflicts?: boolean`
 
 Returns `Task`.
 
@@ -278,6 +282,7 @@ Atomically claim an open, unheld task.
 Input:
 - `agent: string`
 - `task_id: number`
+- `allow_conflicts?: boolean`
 
 Returns `Task`. Fails with `TASK_NOT_CLAIMABLE` if someone else got it.
 
@@ -293,6 +298,20 @@ Input:
 - `blocked_on_task_id?: number | null`
 - `result?: string | null`
 - `priority?: number`
+- `mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only"`
+- `expected_output?: string | null`
+- `deadline_at?: number | null`
+- `checkin_at?: number | null`
+- `final_answer?: string | null`
+- `manager_reviewed?: boolean`
+- `file_scope?: string[]`
+- `ack_required?: boolean`
+- `review_required?: boolean`
+- `review_state?: "none" | "pending" | "approved" | "changes_requested"`
+- `reviewed_by?: string | null`
+- `review_notes?: string | null`
+- `changed_files?: string[]`
+- `allow_conflicts?: boolean`
 
 Allowed transitions: `open -> claimed|canceled`,
 `claimed -> working|open|canceled|failed`,
@@ -323,6 +342,9 @@ Input:
 - `limit?: number` — default 100, max 500
 - `project?: string` — concrete project or `"*"` for all
 - `area?: string` — concrete area or `"*"` for all
+- `required_capability?: string`
+- `mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only"`
+- `manager_reviewed?: boolean`
 
 Returns `Task[]`. Active tasks may include `stale: true` when the holder
 has not heartbeated within `AGENT_BUS_TASK_STALE_MS`.
@@ -332,6 +354,7 @@ has not heartbeated within `AGENT_BUS_TASK_STALE_MS`.
 Input:
 - `task_id: number`
 - `to_agent: string`
+- `allow_conflicts?: boolean`
 
 Assigns an open task to an agent.
 
@@ -343,6 +366,49 @@ Input:
 - `area?: string`
 
 Claims the best open task in scope that matches the agent's capabilities.
+
+### acknowledge_task / submit_review / handoff_task
+
+Use acknowledgement to remove uncertainty after assignment. Use
+`submit_review` for verifier approval; review-required tasks cannot be
+completed until approved. Use `handoff_task` when a session stops
+mid-task; it records a pinned handoff memory and can reassign the work.
+
+`acknowledge_task` input:
+- `agent: string`
+- `task_id: number`
+- `response: "claimed" | "declined" | "blocked"`
+- `note?: string`
+
+`submit_review` input:
+- `reviewer: string`
+- `task_id: number`
+- `approved: boolean`
+- `notes?: string`
+
+`handoff_task` input:
+- `from_agent: string`
+- `task_id: number`
+- `to_agent?: string`
+- `reason: string`
+- `memory?: string`
+
+### check_scope_conflicts / project_board
+
+Use `check_scope_conflicts` before assigning overlapping `edit_files` or
+`propose_patch` work. Use `project_board` for manager status: agents,
+active tasks, blocked tasks, waiting review, stale tasks, scope conflicts,
+pinned risks, pinned handoffs, and suggested next actions.
+
+`check_scope_conflicts` input:
+- `file_scope: string[]`
+- `project?: string`
+- `area?: string`
+- `exclude_task_id?: number`
+
+`project_board` input:
+- `project?: string`
+- `area?: string`
 
 ### record_decision / list_decisions
 

@@ -1,6 +1,6 @@
 ---
 description: Make this Claude session bus-aware as the coordinator. Talks to other agents on the bus via natural language.
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report
 ---
 
 You are now the **coordinator** session on the local `agent-bus`. Your
@@ -38,12 +38,18 @@ patterns:
 | "Send <specific name> a message: X" | `send(from="$ARGUMENTS", to="<specific name>", message=…)` |
 | "What did <name> say?" or "Did anyone reply?" | `inbox(agent="$ARGUMENTS")` then summarize the contents |
 | "Who's around?" / "Who's listening?" | `whois()` and render it cleanly |
+| "Show the team board" / "what is everyone doing?" | `project_board()` and render agents, active tasks, blocked tasks, waiting review, conflicts, pinned risks, and next actions |
 | "Remember X" / "Note that X" | `remember(by_agent="$ARGUMENTS", kind="summary", content=…)`; use `pinned=true` for handoffs |
 | "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; ask a specialist only if needed |
 | "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render it |
-| "Make a task to do X" / "Track X as a task" | `create_task(requested_by="$ARGUMENTS", title=…, description=…)` |
+| "Make a task to do X" / "Track X as a task" | `create_task(requested_by="$ARGUMENTS", title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigning and `review_required` for implementation work |
+| "Assign this to <agent>" | `assign_task(task_id=…, to_agent=…)`; expect the worker to call `acknowledge_task(response="claimed")` |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
+| "Did <agent> accept the task?" | `get_task(task_id=…)` and inspect `acknowledged_at` / `acknowledged_by`; ask the worker to call `acknowledge_task` if missing |
+| "Review / approve this task" | `submit_review(reviewer="$ARGUMENTS", task_id=…, approved=…)`; required reviews gate completion |
+| "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
+| "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
 | "Put <agent> to sleep" / "wake <agent>" | `sleep_agent` / `wake_agent` |
 | "Record this decision…" | `record_decision(by_agent="$ARGUMENTS", …)` |
 | "Final merge report" | `final_report()` |
@@ -99,5 +105,12 @@ JSON. The user wants the answer, not the message envelope.
   fails loud if no match. Surface the failure with the user's options.
 - When assigning work, set `mode`, `expected_output`, and `file_scope`
   when known. Use `investigate_only` or `test_only` for verifier sessions.
+- For implementation tasks, set `ack_required=true` and
+  `review_required=true`. Workers should acknowledge assigned work with
+  `acknowledge_task`; reviewers should use `submit_review` instead of
+  only sending chat.
+- Run `check_scope_conflicts` before overlapping `edit_files` or
+  `propose_patch` work. If conflicts are real, split ownership by area,
+  folder, or file before assigning.
 - Helper agents must not deploy, push, or modify shared production
   resources unless the user explicitly approves.

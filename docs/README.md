@@ -30,7 +30,7 @@ constraints. Read that before changing anything in `src/`.
 
 ## TL;DR — what this is
 
-- **MCP server** exposing 34 tools an agent can call (`register`, `send`,
+- **MCP server** exposing 39 tools an agent can call (`register`, `send`,
   `inbox`, `ask`, `reply`, `ack`, `ask_best`, `subscribe`,
   `unsubscribe`, `send_channel`, `subscribers`, `thread`, `whois`,
   `directory`, `recent`, plus task, status, decision, memory, brief, and final-report tools).

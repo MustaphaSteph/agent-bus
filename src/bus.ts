@@ -23,6 +23,8 @@ export type AgentRole = "pm" | "worker" | "verifier" | "reviewer" | "listener" |
 export type AgentStatus = "idle" | "working" | "blocked" | "waiting_review" | "sleeping";
 export type TaskMode = "investigate_only" | "propose_patch" | "edit_files" | "test_only";
 export type MemoryKind = "summary" | "handoff" | "risk" | "todo" | "fact" | "blocker" | "lesson" | "gotcha" | string;
+export type TaskReviewState = "none" | "pending" | "approved" | "changes_requested";
+export type TaskAckResponse = "claimed" | "declined" | "blocked";
 
 export const PROJECT_WILDCARD = "*";
 export const AREA_WILDCARD = PROJECT_WILDCARD;
@@ -179,6 +181,13 @@ function validateTaskMode(mode: TaskMode | undefined): void {
   if (mode === undefined) return;
   if (!["investigate_only", "propose_patch", "edit_files", "test_only"].includes(mode)) {
     throw new BusError("INVALID_INPUT", "mode must be investigate_only, propose_patch, edit_files, or test_only");
+  }
+}
+
+function validateReviewState(state: TaskReviewState | undefined): void {
+  if (state === undefined) return;
+  if (!["none", "pending", "approved", "changes_requested"].includes(state)) {
+    throw new BusError("INVALID_INPUT", "review_state must be none, pending, approved, or changes_requested");
   }
 }
 
@@ -945,6 +954,15 @@ export interface Task {
   final_answer: string | null;
   manager_reviewed: boolean;
   file_scope: string[];
+  ack_required: boolean;
+  acknowledged_at: number | null;
+  acknowledged_by: string | null;
+  review_required: boolean;
+  review_state: TaskReviewState;
+  reviewed_by: string | null;
+  review_notes: string | null;
+  changed_files: string[];
+  scope_conflicts?: ScopeConflict[];
   stale?: boolean;
 }
 
@@ -975,6 +993,14 @@ interface TaskRow {
   final_answer: string | null;
   manager_reviewed: number;
   file_scope: string;
+  ack_required: number;
+  acknowledged_at: number | null;
+  acknowledged_by: string | null;
+  review_required: number;
+  review_state: TaskReviewState;
+  reviewed_by: string | null;
+  review_notes: string | null;
+  changed_files: string;
 }
 
 function readTaskStaleThresholdMs(): number {
@@ -1030,6 +1056,14 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     final_answer: row.final_answer,
     manager_reviewed: row.manager_reviewed === 1,
     file_scope: JSON.parse(row.file_scope) as string[],
+    ack_required: row.ack_required === 1,
+    acknowledged_at: row.acknowledged_at,
+    acknowledged_by: row.acknowledged_by,
+    review_required: row.review_required === 1,
+    review_state: row.review_state,
+    reviewed_by: row.reviewed_by,
+    review_notes: row.review_notes,
+    changed_files: JSON.parse(row.changed_files) as string[],
   };
   if (
     lastSeenByAgent &&
@@ -1059,6 +1093,112 @@ function getTaskRow(id: number): TaskRow {
   return row;
 }
 
+export interface ScopeConflict {
+  task_id: number;
+  title: string;
+  claimed_by: string | null;
+  state: TaskState;
+  overlapping_scope: string;
+}
+
+function scopeBase(pattern: string): string {
+  const trimmed = pattern.trim().replace(/^\.\/+/, "");
+  const wildcard = trimmed.search(/[*?[{]/);
+  const raw = wildcard >= 0 ? trimmed.slice(0, wildcard) : trimmed;
+  const slash = raw.lastIndexOf("/");
+  if (wildcard >= 0) return raw.slice(0, slash + 1);
+  return raw.endsWith("/") ? raw : raw;
+}
+
+function scopesOverlap(a: string, b: string): boolean {
+  const left = scopeBase(a);
+  const right = scopeBase(b);
+  if (!left || !right) return false;
+  return left === right || left.startsWith(right) || right.startsWith(left);
+}
+
+function fileMatchesScope(file: string, pattern: string): boolean {
+  const normalizedFile = file.trim().replace(/^\.\/+/, "");
+  const base = scopeBase(pattern);
+  if (!base) return false;
+  if (pattern.includes("*")) return normalizedFile.startsWith(base);
+  return normalizedFile === base || normalizedFile.startsWith(base.endsWith("/") ? base : `${base}/`);
+}
+
+function filesOutsideScope(files: string[], scope: string[]): string[] {
+  if (scope.length === 0 || files.length === 0) return [];
+  return files.filter((file) => !scope.some((pattern) => fileMatchesScope(file, pattern)));
+}
+
+export interface CheckScopeConflictsOptions {
+  file_scope: string[];
+  project?: string | null;
+  area?: string | null;
+  exclude_task_id?: number;
+}
+
+export function checkScopeConflicts(opts: CheckScopeConflictsOptions): ScopeConflict[] {
+  validateProject(opts.project);
+  validateArea(opts.area);
+  if (!opts.file_scope.every((value) => typeof value === "string")) {
+    throw new BusError("INVALID_INPUT", "file_scope must be an array of strings");
+  }
+  const scope = opts.file_scope.filter((value) => value.trim().length > 0);
+  if (scope.length === 0) return [];
+
+  const where = ["state IN ('claimed','working','blocked')", "file_scope != '[]'"];
+  const params: unknown[] = [];
+  if (opts.project !== undefined && opts.project !== null && opts.project !== PROJECT_WILDCARD) {
+    where.push("project = ?");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== null && opts.area !== AREA_WILDCARD) {
+    where.push("area = ?");
+    params.push(opts.area);
+  }
+  if (opts.exclude_task_id !== undefined) {
+    where.push("id != ?");
+    params.push(opts.exclude_task_id);
+  }
+  const rows = getDb()
+    .prepare(`SELECT * FROM tasks WHERE ${where.join(" AND ")} ORDER BY updated_at DESC`)
+    .all(...params) as TaskRow[];
+  const conflicts: ScopeConflict[] = [];
+  for (const row of rows) {
+    const otherScope = JSON.parse(row.file_scope) as string[];
+    for (const requested of scope) {
+      const overlap = otherScope.find((existing) => scopesOverlap(requested, existing));
+      if (overlap) {
+        conflicts.push({
+          task_id: row.id,
+          title: row.title,
+          claimed_by: row.claimed_by,
+          state: row.state,
+          overlapping_scope: overlap,
+        });
+        break;
+      }
+    }
+  }
+  return conflicts;
+}
+
+function assertNoScopeConflicts(fileScope: string[], project: string | null, area: string | null, excludeTaskId?: number): void {
+  const conflicts = checkScopeConflicts({
+    file_scope: fileScope,
+    project,
+    area,
+    exclude_task_id: excludeTaskId,
+  });
+  if (conflicts.length > 0) {
+    const first = conflicts[0]!;
+    throw new BusError(
+      "TASK_SCOPE_CONFLICT",
+      `file_scope overlaps active task #${first.task_id} (${first.overlapping_scope})`,
+    );
+  }
+}
+
 export interface CreateTaskOptions {
   requested_by: string;
   title: string;
@@ -1077,6 +1217,10 @@ export interface CreateTaskOptions {
   final_answer?: string | null;
   manager_reviewed?: boolean;
   file_scope?: string[];
+  ack_required?: boolean;
+  review_required?: boolean;
+  changed_files?: string[];
+  allow_conflicts?: boolean;
 }
 
 export function createTask(opts: CreateTaskOptions): Task {
@@ -1098,6 +1242,9 @@ export function createTask(opts: CreateTaskOptions): Task {
   }
   if (opts.file_scope !== undefined && !opts.file_scope.every((value) => typeof value === "string")) {
     throw new BusError("INVALID_INPUT", "file_scope must be an array of strings");
+  }
+  if (opts.changed_files !== undefined && !opts.changed_files.every((value) => typeof value === "string")) {
+    throw new BusError("INVALID_INPUT", "changed_files must be an array of strings");
   }
   const requester = requireAgent(opts.requested_by);
   heartbeat(opts.requested_by);
@@ -1121,12 +1268,18 @@ export function createTask(opts: CreateTaskOptions): Task {
   const area = opts.area !== undefined ? opts.area : requester.area;
   const requiredCapability = opts.required_capability ?? null;
   const mode = opts.mode ?? "edit_files";
-  const fileScope = JSON.stringify(opts.file_scope ?? []);
+  const rawFileScope = opts.file_scope ?? [];
+  if (opts.allow_conflicts !== true && (mode === "edit_files" || mode === "propose_patch")) {
+    assertNoScopeConflicts(rawFileScope, project, area);
+  }
+  const fileScope = JSON.stringify(rawFileScope);
+  const changedFiles = JSON.stringify(opts.changed_files ?? []);
+  const reviewRequired = opts.review_required === true;
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, ack_required, review_required, review_state, changed_files)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -1148,6 +1301,10 @@ export function createTask(opts: CreateTaskOptions): Task {
       opts.final_answer ?? null,
       opts.manager_reviewed === true ? 1 : 0,
       fileScope,
+      opts.ack_required === true ? 1 : 0,
+      reviewRequired ? 1 : 0,
+      reviewRequired ? "pending" : "none",
+      changedFiles,
     );
 
   const task = toTask(getTaskRow(info.lastInsertRowid as number));
@@ -1158,6 +1315,7 @@ export function createTask(opts: CreateTaskOptions): Task {
 export interface ClaimTaskOptions {
   agent: string;
   task_id: number;
+  allow_conflicts?: boolean;
 }
 
 export function claimTask(opts: ClaimTaskOptions): Task {
@@ -1178,6 +1336,10 @@ export function claimTask(opts: ClaimTaskOptions): Task {
   }
   if (row.area !== null && agent.area !== null && row.area !== agent.area) {
     throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} belongs to area '${row.area}'`);
+  }
+  const rowScope = JSON.parse(row.file_scope) as string[];
+  if (opts.allow_conflicts !== true && (row.mode === "edit_files" || row.mode === "propose_patch")) {
+    assertNoScopeConflicts(rowScope, row.project, row.area, opts.task_id);
   }
   const ts = now();
   const info = db
@@ -1200,6 +1362,14 @@ export function claimTask(opts: ClaimTaskOptions): Task {
   }
 
   const task = toTask(getTaskRow(opts.task_id));
+  if (task.requested_by !== opts.agent) {
+    send({
+      from: opts.agent,
+      to: task.requested_by,
+      content: `claimed task #${task.id}: ${task.title}`,
+      thread_id: task.thread_id,
+    });
+  }
   runLocalHook("task.claimed", task);
   return task;
 }
@@ -1219,6 +1389,13 @@ export interface UpdateTaskOptions {
   manager_reviewed?: boolean;
   file_scope?: string[];
   mode?: TaskMode;
+  ack_required?: boolean;
+  review_required?: boolean;
+  review_state?: TaskReviewState;
+  reviewed_by?: string | null;
+  review_notes?: string | null;
+  changed_files?: string[];
+  allow_conflicts?: boolean;
 }
 
 export function updateTask(opts: UpdateTaskOptions): Task {
@@ -1261,6 +1438,9 @@ export function updateTask(opts: UpdateTaskOptions): Task {
       sets.push("claimed_by = NULL", "claimed_at = NULL");
     }
     if (TERMINAL_TASK_STATES.includes(opts.state)) {
+      if (opts.state === "completed" && row.review_required === 1 && row.review_state !== "approved") {
+        throw new BusError("TASK_REVIEW_REQUIRED", `task ${opts.task_id} requires approved review before completion`);
+      }
       sets.push("finished_at = ?");
       params.push(ts);
     }
@@ -1324,8 +1504,48 @@ export function updateTask(opts: UpdateTaskOptions): Task {
     if (!opts.file_scope.every((value) => typeof value === "string")) {
       throw new BusError("INVALID_INPUT", "file_scope must be an array of strings");
     }
+    if (opts.allow_conflicts !== true && (opts.mode ?? row.mode) !== "investigate_only" && (opts.mode ?? row.mode) !== "test_only") {
+      assertNoScopeConflicts(opts.file_scope, row.project, row.area, opts.task_id);
+    }
     sets.push("file_scope = ?");
     params.push(JSON.stringify(opts.file_scope));
+  }
+  if (opts.ack_required !== undefined) {
+    sets.push("ack_required = ?");
+    params.push(opts.ack_required ? 1 : 0);
+  }
+  if (opts.review_required !== undefined) {
+    sets.push("review_required = ?");
+    params.push(opts.review_required ? 1 : 0);
+    if (opts.review_required && row.review_state === "none" && opts.review_state === undefined) {
+      sets.push("review_state = ?");
+      params.push("pending");
+    }
+  }
+  if (opts.review_state !== undefined) {
+    validateReviewState(opts.review_state);
+    sets.push("review_state = ?");
+    params.push(opts.review_state);
+  }
+  if (opts.reviewed_by !== undefined) {
+    if (opts.reviewed_by !== null) validateName(opts.reviewed_by);
+    sets.push("reviewed_by = ?");
+    params.push(opts.reviewed_by);
+  }
+  if (opts.review_notes !== undefined) {
+    sets.push("review_notes = ?");
+    params.push(opts.review_notes);
+  }
+  if (opts.changed_files !== undefined) {
+    if (!opts.changed_files.every((value) => typeof value === "string")) {
+      throw new BusError("INVALID_INPUT", "changed_files must be an array of strings");
+    }
+    const outside = filesOutsideScope(opts.changed_files, JSON.parse(row.file_scope) as string[]);
+    if (outside.length > 0 && opts.allow_conflicts !== true) {
+      throw new BusError("TASK_SCOPE_CONFLICT", `changed_files outside file_scope: ${outside.join(", ")}`);
+    }
+    sets.push("changed_files = ?");
+    params.push(JSON.stringify(opts.changed_files));
   }
 
   if (sets.length === 1) {
@@ -1452,6 +1672,7 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
 export interface AssignTaskOptions {
   task_id: number;
   to_agent: string;
+  allow_conflicts?: boolean;
 }
 
 export function assignTask(opts: AssignTaskOptions): Task {
@@ -1464,6 +1685,10 @@ export function assignTask(opts: AssignTaskOptions): Task {
   if (row.required_capability !== null && !agent.capabilities.includes(row.required_capability)) {
     throw new BusError("TASK_FORBIDDEN", `agent '${opts.to_agent}' lacks capability '${row.required_capability}'`);
   }
+  const rowScope = JSON.parse(row.file_scope) as string[];
+  if (opts.allow_conflicts !== true && (row.mode === "edit_files" || row.mode === "propose_patch")) {
+    assertNoScopeConflicts(rowScope, row.project, row.area, opts.task_id);
+  }
   const ts = now();
   getDb()
     .prepare(
@@ -1474,6 +1699,12 @@ export function assignTask(opts: AssignTaskOptions): Task {
     .run(opts.to_agent, ts, ts, opts.task_id);
   heartbeat(opts.to_agent);
   const task = toTask(getTaskRow(opts.task_id));
+  send({
+    from: task.requested_by,
+    to: opts.to_agent,
+    content: `assigned task #${task.id}: ${task.title}. Please acknowledge with acknowledge_task.`,
+    thread_id: task.thread_id,
+  });
   runLocalHook("task.claimed", task);
   return task;
 }
@@ -1499,6 +1730,141 @@ export function claimBestTask(opts: ClaimBestTaskOptions): Task | null {
   const task = tasks[0];
   if (!task) return null;
   return claimTask({ agent: opts.agent, task_id: task.id });
+}
+
+export interface AcknowledgeTaskOptions {
+  agent: string;
+  task_id: number;
+  response: TaskAckResponse;
+  note?: string | null;
+}
+
+export function acknowledgeTask(opts: AcknowledgeTaskOptions): Task {
+  validateName(opts.agent);
+  requireAgent(opts.agent);
+  if (!["claimed", "declined", "blocked"].includes(opts.response)) {
+    throw new BusError("INVALID_INPUT", "response must be claimed, declined, or blocked");
+  }
+  heartbeat(opts.agent);
+  const row = getTaskRow(opts.task_id);
+  if (row.claimed_by !== opts.agent && row.requested_by !== opts.agent) {
+    throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} is held by '${row.claimed_by}'`);
+  }
+  const ts = now();
+  if (opts.response === "declined") {
+    getDb()
+      .prepare(
+        `UPDATE tasks
+           SET state = 'open', claimed_by = NULL, claimed_at = NULL, acknowledged_at = ?, acknowledged_by = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(ts, opts.agent, ts, opts.task_id);
+  } else if (opts.response === "blocked") {
+    getDb()
+      .prepare(
+        `UPDATE tasks
+           SET state = 'blocked', blocked_reason = ?, acknowledged_at = ?, acknowledged_by = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(opts.note ?? "acknowledged blocked", ts, opts.agent, ts, opts.task_id);
+  } else {
+    getDb()
+      .prepare("UPDATE tasks SET acknowledged_at = ?, acknowledged_by = ?, updated_at = ? WHERE id = ?")
+      .run(ts, opts.agent, ts, opts.task_id);
+  }
+  const task = toTask(getTaskRow(opts.task_id));
+  if (task.requested_by !== opts.agent) {
+    send({
+      from: opts.agent,
+      to: task.requested_by,
+      content: `acknowledged task #${task.id}: ${opts.response}${opts.note ? ` - ${opts.note}` : ""}`,
+      thread_id: task.thread_id,
+    });
+  }
+  return task;
+}
+
+export interface SubmitReviewOptions {
+  reviewer: string;
+  task_id: number;
+  approved: boolean;
+  notes?: string | null;
+}
+
+export function submitReview(opts: SubmitReviewOptions): Task {
+  validateName(opts.reviewer);
+  requireAgent(opts.reviewer);
+  heartbeat(opts.reviewer);
+  const row = getTaskRow(opts.task_id);
+  const ts = now();
+  const reviewState: TaskReviewState = opts.approved ? "approved" : "changes_requested";
+  getDb()
+    .prepare(
+      `UPDATE tasks
+         SET review_required = 1, review_state = ?, reviewed_by = ?, review_notes = ?, manager_reviewed = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(reviewState, opts.reviewer, opts.notes ?? null, opts.approved ? 1 : 0, ts, opts.task_id);
+  const task = toTask(getTaskRow(opts.task_id));
+  const recipient = row.claimed_by ?? row.requested_by;
+  if (recipient !== opts.reviewer) {
+    send({
+      from: opts.reviewer,
+      to: recipient,
+      content: `review ${reviewState} for task #${task.id}${opts.notes ? `: ${opts.notes}` : ""}`,
+      thread_id: task.thread_id,
+    });
+  }
+  return task;
+}
+
+export interface HandoffTaskOptions {
+  from_agent: string;
+  task_id: number;
+  to_agent?: string | null;
+  reason: string;
+  memory?: string | null;
+}
+
+export function handoffTask(opts: HandoffTaskOptions): { task: Task; memory: Memory | null; message: Message | null } {
+  validateName(opts.from_agent);
+  requireAgent(opts.from_agent);
+  if (opts.to_agent !== undefined && opts.to_agent !== null) validateName(opts.to_agent);
+  if (opts.reason.trim().length === 0) throw new BusError("INVALID_INPUT", "reason must be non-empty");
+  const task = getTask(opts.task_id);
+  if (task.claimed_by !== opts.from_agent && task.requested_by !== opts.from_agent) {
+    throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} is held by '${task.claimed_by}'`);
+  }
+  const memory = opts.memory === null
+    ? null
+    : remember({
+        by_agent: opts.from_agent,
+        agent: opts.to_agent ?? task.claimed_by,
+        kind: "handoff",
+        content: opts.memory ?? `Task #${task.id} handoff: ${opts.reason}`,
+        task_id: task.id,
+        thread_id: task.thread_id,
+        pinned: true,
+        project: task.project,
+        area: task.area,
+      });
+  let updated = task;
+  let message: Message | null = null;
+  if (opts.to_agent) {
+    if (task.claimed_by !== null) {
+      releaseTask({ agent: opts.from_agent, task_id: task.id });
+    }
+    updated = assignTask({ task_id: task.id, to_agent: opts.to_agent, allow_conflicts: true });
+    message = send({
+      from: opts.from_agent,
+      to: opts.to_agent,
+      content: `handoff task #${task.id}: ${opts.reason}`,
+      thread_id: task.thread_id,
+    });
+  } else if (task.claimed_by !== null) {
+    updated = releaseTask({ agent: opts.from_agent, task_id: task.id });
+  }
+  return { task: updated, memory, message };
 }
 
 export function getTask(id: number): Task {
@@ -1819,6 +2185,19 @@ export interface SessionBrief {
   suggested_next_actions: string[];
 }
 
+export interface ProjectBoard {
+  agents: AgentDirectoryEntry[];
+  open_tasks: Task[];
+  active_tasks: Task[];
+  blocked_tasks: Task[];
+  waiting_review: Task[];
+  stale_tasks: Task[];
+  scope_conflicts: Array<{ task_id: number; title: string; conflicts: ScopeConflict[] }>;
+  pinned_risks: Memory[];
+  pinned_handoffs: Memory[];
+  suggested_next_actions: string[];
+}
+
 export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   if (opts.agent !== undefined) validateName(opts.agent);
   const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
@@ -1855,6 +2234,54 @@ export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   };
 }
 
+export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const scope = { project: opts.project, area: opts.area };
+  const agents = directory(scope).slice(0, limit);
+  const tasks = listTasks({ ...scope, include_terminal: false, limit: 500 });
+  const openTasks = tasks.filter((task) => task.state === "open").slice(0, limit);
+  const activeTasks = tasks.filter((task) => ["claimed", "working"].includes(task.state)).slice(0, limit);
+  const blockedTasks = tasks.filter((task) => task.state === "blocked").slice(0, limit);
+  const waitingReview = tasks
+    .filter((task) => task.review_required && task.review_state === "pending")
+    .slice(0, limit);
+  const staleTasks = tasks.filter((task) => task.stale === true).slice(0, limit);
+  const scopeConflicts = tasks
+    .filter((task) => task.file_scope.length > 0 && (task.state === "claimed" || task.state === "working" || task.state === "blocked"))
+    .map((task) => ({
+      task_id: task.id,
+      title: task.title,
+      conflicts: checkScopeConflicts({
+        file_scope: task.file_scope,
+        project: task.project,
+        area: task.area,
+        exclude_task_id: task.id,
+      }),
+    }))
+    .filter((row) => row.conflicts.length > 0)
+    .slice(0, limit);
+  const pinnedRisks = listMemories({ ...scope, kind: "risk", pinned: true, limit });
+  const pinnedHandoffs = listMemories({ ...scope, kind: "handoff", pinned: true, limit });
+  const suggested: string[] = [];
+  if (scopeConflicts.length > 0) suggested.push("Resolve overlapping file_scope before allowing more edits.");
+  if (blockedTasks.length > 0) suggested.push("Review blocked tasks and update blockers or release ownership.");
+  if (waitingReview.length > 0) suggested.push("Assign a verifier to pending review tasks.");
+  if (staleTasks.length > 0) suggested.push("Check stale task holders and reassign or release if needed.");
+  if (openTasks.length > 0) suggested.push("Assign or claim open tasks with explicit mode and file_scope.");
+  return {
+    agents,
+    open_tasks: openTasks,
+    active_tasks: activeTasks,
+    blocked_tasks: blockedTasks,
+    waiting_review: waitingReview,
+    stale_tasks: staleTasks,
+    scope_conflicts: scopeConflicts,
+    pinned_risks: pinnedRisks,
+    pinned_handoffs: pinnedHandoffs,
+    suggested_next_actions: suggested,
+  };
+}
+
 export interface FinalReport {
   implemented: string[];
   not_implemented: string[];
@@ -1881,7 +2308,7 @@ export function finalReport(opts: ListTasksOptions = {}): FinalReport {
     .filter((task) => task.mode === "test_only" && task.state === "completed")
     .map((task) => task.final_answer ?? task.result ?? task.title);
   const manualTestsNeeded = tasks
-    .filter((task) => task.state !== "completed" || task.manager_reviewed === false)
+    .filter((task) => task.state !== "completed" || task.manager_reviewed === false || (task.review_required && task.review_state !== "approved"))
     .map((task) => task.title);
   const safe = notImplemented.length === 0 && knownRisks.length === 0 && manualTestsNeeded.length === 0;
   return {

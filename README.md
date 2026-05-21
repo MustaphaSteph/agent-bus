@@ -61,7 +61,7 @@ a file and a process.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive an `area` like `ios` or `backend` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
-- **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), assign task modes, record decisions, and generate final merge-readiness reports.
+- **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), assign task modes, require acknowledgements, gate completion on review, detect file-scope conflicts, hand off work with pinned memory, and generate final merge-readiness reports.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
 
 ## How it works
@@ -209,7 +209,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 5. Verify
 
 ```bash
-agent-bus --version                # 0.6.0
+agent-bus --version                # 0.7.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -267,6 +267,19 @@ agent-bus brief --agent me
 agent-bus memories --kind handoff --pinned
 ```
 
+Use the manager board and scope checks when multiple agents may edit the
+same app:
+
+```bash
+agent-bus board
+agent-bus scope-conflicts --files "frontend/**,shared/ui/**"
+agent-bus ack-task 12 --agent webapp-frontend --response claimed
+agent-bus review-task 12 --reviewer webapp-verifier --approve
+agent-bus handoff 12 --from webapp-frontend --to webapp-backend \
+  --reason "frontend done; backend retry tests remain" \
+  --memory "Frontend reset form is complete; backend owns retry tests next."
+```
+
 Optional area config at the repo root:
 
 ```json
@@ -294,7 +307,9 @@ Register as webapp-manager with role pm, area "*", capabilities
 Your job:
 - inspect the project structure
 - create tasks with clear mode, expected_output, and file_scope
+- set ack_required for assigned work and review_required for implementation tasks
 - assign tasks to area workers
+- check project_board and scope conflicts before overlapping edits
 - use ask_best when no exact agent is named
 - keep one verifier in test_only mode
 - record decisions with record_decision
@@ -371,7 +386,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **34 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, first-class tasks, agent status controls, decisions, structured memories, session briefs, and final reports.
+- **39 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, first-class tasks, agent status controls, decisions, structured memories, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, decisions, and memories survive restarts via SQLite WAL.
 - **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, or CLI `--project all --area all`.

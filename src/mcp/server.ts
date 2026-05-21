@@ -8,9 +8,11 @@ import {
 import { z } from "zod";
 import {
   ack,
+  acknowledgeTask,
   assignTask,
   ask,
   askBest,
+  checkScopeConflicts,
   claimTask,
   claimBestTask,
   createTask,
@@ -23,6 +25,7 @@ import {
   listMemories,
   recentMessages,
   pinMemory,
+  projectBoard,
   register,
   releaseTask,
   recordDecision,
@@ -31,11 +34,13 @@ import {
   send,
   sendChannel,
   sessionBrief,
+  submitReview,
   subscribe,
   subscribers,
   threadMessages,
   unsubscribe,
   updateTask,
+  handoffTask,
   whois,
   sleepAgent,
   wakeAgent,
@@ -170,16 +175,22 @@ const CreateTaskInput = z.object({
   final_answer: z.string().nullable().optional(),
   manager_reviewed: z.boolean().optional(),
   file_scope: z.array(z.string()).optional(),
+  ack_required: z.boolean().optional(),
+  review_required: z.boolean().optional(),
+  changed_files: z.array(z.string()).optional(),
+  allow_conflicts: z.boolean().optional(),
 });
 
 const ClaimTaskInput = z.object({
   agent: z.string().min(1),
   task_id: z.number().int().positive(),
+  allow_conflicts: z.boolean().optional(),
 });
 
 const AssignTaskInput = z.object({
   task_id: z.number().int().positive(),
   to_agent: z.string().min(1),
+  allow_conflicts: z.boolean().optional(),
 });
 
 const ClaimBestTaskInput = z.object({
@@ -203,6 +214,42 @@ const UpdateTaskInput = z.object({
   final_answer: z.string().nullable().optional(),
   manager_reviewed: z.boolean().optional(),
   file_scope: z.array(z.string()).optional(),
+  ack_required: z.boolean().optional(),
+  review_required: z.boolean().optional(),
+  review_state: z.enum(["none", "pending", "approved", "changes_requested"]).optional(),
+  reviewed_by: z.string().min(1).nullable().optional(),
+  review_notes: z.string().nullable().optional(),
+  changed_files: z.array(z.string()).optional(),
+  allow_conflicts: z.boolean().optional(),
+});
+
+const AcknowledgeTaskInput = z.object({
+  agent: z.string().min(1),
+  task_id: z.number().int().positive(),
+  response: z.enum(["claimed", "declined", "blocked"]),
+  note: z.string().nullable().optional(),
+});
+
+const SubmitReviewInput = z.object({
+  reviewer: z.string().min(1),
+  task_id: z.number().int().positive(),
+  approved: z.boolean(),
+  notes: z.string().nullable().optional(),
+});
+
+const HandoffTaskInput = z.object({
+  from_agent: z.string().min(1),
+  task_id: z.number().int().positive(),
+  to_agent: z.string().min(1).nullable().optional(),
+  reason: z.string().min(1),
+  memory: z.string().nullable().optional(),
+});
+
+const CheckScopeConflictsInput = z.object({
+  file_scope: z.array(z.string()),
+  project: ProjectField,
+  area: AreaField,
+  exclude_task_id: z.number().int().positive().optional(),
 });
 
 const SetAgentStatusInput = z.object({
@@ -571,6 +618,17 @@ const TOOLS = [
         project: { type: ["string", "null"], description: "Optional project scope; defaults to requester" },
         area: { type: ["string", "null"], description: "Optional area scope; defaults to requester" },
         required_capability: { type: ["string", "null"], description: "Optional capability required to claim this task" },
+        mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
+        expected_output: { type: ["string", "null"] },
+        deadline_at: { type: ["number", "null"] },
+        checkin_at: { type: ["number", "null"] },
+        final_answer: { type: ["string", "null"] },
+        manager_reviewed: { type: "boolean" },
+        file_scope: { type: "array", items: { type: "string" } },
+        ack_required: { type: "boolean" },
+        review_required: { type: "boolean" },
+        changed_files: { type: "array", items: { type: "string" } },
+        allow_conflicts: { type: "boolean" },
       },
       required: ["requested_by", "title"],
     },
@@ -585,6 +643,7 @@ const TOOLS = [
       properties: {
         agent: { type: "string", description: "Your registered agent name" },
         task_id: { type: "number" },
+        allow_conflicts: { type: "boolean" },
       },
       required: ["agent", "task_id"],
     },
@@ -627,6 +686,7 @@ const TOOLS = [
       properties: {
         task_id: { type: "number" },
         to_agent: { type: "string" },
+        allow_conflicts: { type: "boolean" },
       },
       required: ["task_id", "to_agent"],
     },
@@ -667,6 +727,20 @@ const TOOLS = [
           description: "Final output or summary on completed/failed",
         },
         priority: { type: "number" },
+        mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
+        expected_output: { type: ["string", "null"] },
+        deadline_at: { type: ["number", "null"] },
+        checkin_at: { type: ["number", "null"] },
+        final_answer: { type: ["string", "null"] },
+        manager_reviewed: { type: "boolean" },
+        file_scope: { type: "array", items: { type: "string" } },
+        ack_required: { type: "boolean" },
+        review_required: { type: "boolean" },
+        review_state: { type: "string", enum: ["none", "pending", "approved", "changes_requested"] },
+        reviewed_by: { type: ["string", "null"] },
+        review_notes: { type: ["string", "null"] },
+        changed_files: { type: "array", items: { type: "string" } },
+        allow_conflicts: { type: "boolean" },
       },
       required: ["agent", "task_id"],
     },
@@ -683,6 +757,67 @@ const TOOLS = [
         task_id: { type: "number" },
       },
       required: ["agent", "task_id"],
+    },
+  },
+  {
+    name: "acknowledge_task",
+    description:
+      "Acknowledge an assigned task as claimed, declined, or blocked. Sends a receipt back to the requester.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string" },
+        task_id: { type: "number" },
+        response: { type: "string", enum: ["claimed", "declined", "blocked"] },
+        note: { type: ["string", "null"] },
+      },
+      required: ["agent", "task_id", "response"],
+    },
+  },
+  {
+    name: "submit_review",
+    description:
+      "Submit verifier review for a task. Approved reviews satisfy review gates; rejected reviews mark changes_requested.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        reviewer: { type: "string" },
+        task_id: { type: "number" },
+        approved: { type: "boolean" },
+        notes: { type: ["string", "null"] },
+      },
+      required: ["reviewer", "task_id", "approved"],
+    },
+  },
+  {
+    name: "handoff_task",
+    description:
+      "Create a pinned handoff memory for a task and optionally assign it to another agent, or release it if no target is provided.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from_agent: { type: "string" },
+        task_id: { type: "number" },
+        to_agent: { type: ["string", "null"] },
+        reason: { type: "string" },
+        memory: { type: ["string", "null"] },
+      },
+      required: ["from_agent", "task_id", "reason"],
+    },
+  },
+  {
+    name: "check_scope_conflicts",
+    description:
+      "Check whether a proposed file_scope overlaps active claimed/working/blocked tasks in the same project/area.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file_scope: { type: "array", items: { type: "string" } },
+        project: { type: ["string", "null"] },
+        area: { type: ["string", "null"] },
+        exclude_task_id: { type: "number" },
+      },
+      required: ["file_scope"],
     },
   },
   {
@@ -717,6 +852,22 @@ const TOOLS = [
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
         required_capability: { type: "string" },
+        mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
+        manager_reviewed: { type: "boolean" },
+      },
+    },
+  },
+  {
+    name: "project_board",
+    description:
+      "Manager board: agents, open/active/blocked/waiting-review/stale tasks, scope conflicts, pinned risks/handoffs, and deterministic next actions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        agent: { type: "string", description: "Optional agent-specific memory filter" },
+        limit: { type: "number", description: "Maximum items per section" },
       },
     },
   },
@@ -985,6 +1136,20 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       return updateTask(UpdateTaskInput.parse(raw));
     case "release_task":
       return releaseTask(ReleaseTaskInput.parse(raw));
+    case "acknowledge_task":
+      return acknowledgeTask(AcknowledgeTaskInput.parse(raw));
+    case "submit_review":
+      return submitReview(SubmitReviewInput.parse(raw));
+    case "handoff_task":
+      return handoffTask(HandoffTaskInput.parse(raw));
+    case "check_scope_conflicts": {
+      const input = CheckScopeConflictsInput.parse(raw);
+      return checkScopeConflicts({
+        ...input,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+      });
+    }
     case "list_tasks": {
       const input = ListTasksInput.parse(raw);
       return listTasks({
@@ -1038,6 +1203,14 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     case "session_brief": {
       const input = SessionBriefInput.parse(raw);
       return sessionBrief({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
+    case "project_board": {
+      const input = SessionBriefInput.parse(raw);
+      return projectBoard({
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
