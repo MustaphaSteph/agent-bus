@@ -442,6 +442,33 @@ await test("deriveScope reads .agent-bus.json areas from cwd", () => {
   rmSync(root, { recursive: true, force: true });
 });
 
+await test("deriveScope supports direct area for separated project folders", () => {
+  const frontend = mkdtempSync(join(tmpdir(), "shop frontend"));
+  const backend = mkdtempSync(join(tmpdir(), "shop backend"));
+  mkdirSync(join(frontend, ".git"));
+  mkdirSync(join(backend, ".git"));
+  writeFileSync(
+    join(frontend, ".agent-bus.json"),
+    JSON.stringify({ project: "shop", area: "frontend" }),
+  );
+  writeFileSync(
+    join(backend, ".agent-bus.json"),
+    JSON.stringify({ project: "shop", area: "backend" }),
+  );
+
+  assert.deepEqual(deriveScope(frontend), {
+    project: "shop",
+    area: "frontend",
+  });
+  assert.deepEqual(deriveScope(backend), {
+    project: "shop",
+    area: "backend",
+  });
+
+  rmSync(frontend, { recursive: true, force: true });
+  rmSync(backend, { recursive: true, force: true });
+});
+
 await test("project: register, whois, send, recent, and messagesSince scope", () => {
   register({ name: "p1-alice", project: "p1", capabilities: ["review"] });
   register({ name: "p1-bob", project: "p1" });

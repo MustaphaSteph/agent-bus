@@ -11,6 +11,7 @@ export interface SessionScope {
 
 export interface ScopeConfig {
   project?: unknown;
+  area?: unknown;
   areas?: unknown;
   routing?: unknown;
   hooks?: unknown;
@@ -108,6 +109,10 @@ function deriveAreaFromConfig(
   configured: { root: string | null; config: ScopeConfig | null },
 ): string | null {
   if (configured.root === null || configured.config === null) return null;
+  if (typeof configured.config.area === "string") {
+    const area = sanitize(configured.config.area);
+    if (area.length > 0) return area;
+  }
   if (!isAreaMap(configured.config.areas)) return null;
 
   const rel = normalizePath(relative(configured.root, resolve(cwd)));

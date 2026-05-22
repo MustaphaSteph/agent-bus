@@ -346,6 +346,26 @@ has multiple work lanes:
 }
 ```
 
+For separated folders/repos, give them the same logical project and a
+fixed area in each folder:
+
+```json
+{
+  "project": "my-app",
+  "area": "frontend"
+}
+```
+
+```json
+{
+  "project": "my-app",
+  "area": "backend"
+}
+```
+
+The physical paths can be completely different, such as `/a/p1` and
+`/b/p2`; the shared project name is what links the agents.
+
 MCP sessions do this automatically. Read commands and routing default to
 the current project and area:
 

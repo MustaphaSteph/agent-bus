@@ -71,7 +71,8 @@ thread id. Stale active tasks are highlighted red.
 
 ## Area config
 
-Put `.agent-bus.json` in a repo root when one project has multiple lanes:
+Put `.agent-bus.json` in a repo root when one project has multiple lanes.
+For a monorepo, map areas by path:
 
 ```json
 {
@@ -81,6 +82,25 @@ Put `.agent-bus.json` in a repo root when one project has multiple lanes:
     "backend": ["backend/**", "api/**"],
     "frontend": ["frontend/**", "web/**"]
   }
+}
+```
+
+For separated folders or repos that belong to the same logical project,
+give every folder the same `project` and a fixed `area`:
+
+```json
+{
+  "project": "my-app",
+  "area": "frontend"
+}
+```
+
+Another folder can use the same project with a different area:
+
+```json
+{
+  "project": "my-app",
+  "area": "backend"
 }
 ```
 
@@ -96,8 +116,8 @@ agent-bus team init backend frontend ios
 agent-bus doctor
 ```
 
-`init` writes `.agent-bus.json`; `scope` prints the current derived
-project/area; `areas` lists configured path patterns; `team init` also
+`init` writes a monorepo-style `.agent-bus.json`; `scope` prints the
+current derived project/area; `areas` lists configured path patterns; `team init` also
 prints suggested PM/worker/verifier names; `doctor` checks db path,
 scope, config, area list, and agent counts.
 

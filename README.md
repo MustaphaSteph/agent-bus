@@ -295,6 +295,26 @@ Optional area config at the repo root:
 }
 ```
 
+For separated folders that belong to the same product, use the same
+`project` and a fixed `area` in each folder:
+
+```json
+{
+  "project": "shop",
+  "area": "frontend"
+}
+```
+
+```json
+{
+  "project": "shop",
+  "area": "backend"
+}
+```
+
+Those sessions are in different paths, but agent-bus treats them as one
+logical project with separate lanes.
+
 ### Use Codex as a project manager
 
 In an existing web app, open Codex at the repo root and make it the
