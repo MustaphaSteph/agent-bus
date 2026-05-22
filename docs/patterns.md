@@ -373,7 +373,7 @@ agent-bus watch
 agent-bus whois
 
 agent-bus tasks --project all
-agent-bus watch --project all
+agent-bus watch --global
 agent-bus tasks --area all
 ```
 

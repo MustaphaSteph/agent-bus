@@ -1,5 +1,12 @@
 import kleur from "kleur";
-import { messagesSince, whois } from "../bus.js";
+import {
+  AREA_WILDCARD,
+  type Agent,
+  type Message,
+  PROJECT_WILDCARD,
+  messagesSince,
+  whois,
+} from "../bus.js";
 import { sleep } from "../util/time.js";
 import { formatMessage } from "./format.js";
 import { scopeBanner, type ScopeOptions } from "./project-scope.js";
@@ -7,6 +14,7 @@ import { scopeBanner, type ScopeOptions } from "./project-scope.js";
 export interface WatchOptions extends ScopeOptions {
   intervalMs?: number;
   fromId?: number;
+  strict?: boolean;
 }
 
 export async function watch(opts: WatchOptions = {}): Promise<never> {
@@ -16,10 +24,11 @@ export async function watch(opts: WatchOptions = {}): Promise<never> {
   printHeader(opts);
 
   for (;;) {
-    const fresh = messagesSince(lastId, 200, opts.project, opts.area);
+    const raw = messagesSince(lastId, 200, opts.project, opts.area);
+    for (const m of raw) lastId = m.id;
+    const fresh = filterStrict(raw, opts);
     for (const m of fresh) {
       console.log(formatMessage(m));
-      lastId = m.id;
     }
     await sleep(interval);
   }
@@ -31,7 +40,7 @@ function mostRecentId(scope: ScopeOptions): number {
 }
 
 function printHeader(scope: ScopeOptions): void {
-  const agents = whois(scope);
+  const agents = filterAgentsStrict(whois(scope), scope);
   console.log(kleur.bold("agent-bus watch"));
   const banner = scopeBanner(scope);
   if (banner) console.log(banner);
@@ -54,4 +63,21 @@ function printHeader(scope: ScopeOptions): void {
     }
   }
   console.log(kleur.gray("---"));
+}
+
+function filterStrict(messages: Message[], scope: WatchOptions): Message[] {
+  if (scope.strict !== true) return messages;
+  return messages.filter((message) => {
+    const projectOk = scope.project === undefined || scope.project === PROJECT_WILDCARD || message.project === scope.project;
+    const areaOk = scope.area === undefined || scope.area === AREA_WILDCARD || message.area === scope.area;
+    return projectOk && areaOk;
+  });
+}
+
+function filterAgentsStrict(agents: Agent[], scope: ScopeOptions): Agent[] {
+  return agents.filter((agent) => {
+    const projectOk = scope.project === undefined || scope.project === PROJECT_WILDCARD || agent.project === scope.project;
+    const areaOk = scope.area === undefined || scope.area === AREA_WILDCARD || agent.area === scope.area;
+    return projectOk && areaOk;
+  });
 }

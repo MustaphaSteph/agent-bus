@@ -253,9 +253,11 @@ English. No tool names. No JSON.
 agent-bus watch
 ```
 
-`watch`, `log`, `whois`, and `tasks` default to the current repo-derived
-project and, when configured, the current subfolder area. Use
-`--project all --area all` when you want the whole local bus.
+`watch` defaults to the current repo-derived project and, when
+configured, the current subfolder area; it hides old `{no-project}`
+traffic by default so demos stay focused. Use `agent-bus watch --global`
+when you want the whole local bus. `log`, `whois`, and `tasks` use
+`--project all --area all` for global views.
 
 Record durable context when a session is about to hand off work:
 
@@ -389,7 +391,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 - **39 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, first-class tasks, agent status controls, decisions, structured memories, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, decisions, and memories survive restarts via SQLite WAL.
-- **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, or CLI `--project all --area all`.
+- **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all` on other read commands.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 

@@ -6,19 +6,22 @@ The `agent-bus` binary. Run `agent-bus --help` for an auto-generated list.
 
 ### `agent-bus watch`
 
-Live tail every message on the bus. Colors per agent, time-stamped,
-shows kind (`msg`/`ask`/`reply`) and reply chains.
+Live tail messages for the current project. Colors per agent,
+time-stamped, shows kind (`msg`/`ask`/`reply`) and reply chains.
 
 ```bash
 agent-bus watch
 agent-bus watch --interval 100   # change poll interval in ms (default 250)
-agent-bus watch --project all    # global
+agent-bus watch --global         # every project and area
+agent-bus watch --project all    # every project
 agent-bus watch --area all       # all areas in current project
 ```
 
 By default, `watch` is scoped to the current repo-derived project and
-the current configured area. It prints a scope banner when scoped.
-Ctrl+C to exit.
+the current configured area, and it hides legacy `{no-project}` traffic
+so demos and project work stay clean. Use `--global` when you
+intentionally want the whole local bus. It prints a scope banner when
+scoped. Ctrl+C to exit.
 
 ### `agent-bus log`
 
@@ -294,7 +297,8 @@ agent-bus whois
 agent-bus tasks
 ```
 
-Use `--project all` for all projects, `--area all` for all areas in the
-selected project, or concrete names for specific scopes. CLI relay/admin
-commands (`inject`, `register`) default to null/global project and area
-instead of deriving from cwd.
+Use `agent-bus watch --global` for every project and area. Other read
+commands use `--project all` for all projects, `--area all` for all
+areas in the selected project, or concrete names for specific scopes.
+CLI relay/admin commands (`inject`, `register`) default to null/global
+project and area instead of deriving from cwd.

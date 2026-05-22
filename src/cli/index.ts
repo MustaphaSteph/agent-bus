@@ -51,14 +51,18 @@ program
 
 program
   .command("watch")
-  .description("Live tail every message on the bus")
+  .description("Live tail messages for the current project")
   .option("--interval <ms>", "poll interval in ms", "250")
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
-  .action(async (opts: { interval: string; project?: string; area?: string }) => {
+  .option("--global", "show every project and area")
+  .action(async (opts: { interval: string; project?: string; area?: string; global?: boolean }) => {
+    const scope = opts.global === true ? { project: "all", area: "all" } : { project: opts.project, area: opts.area };
+    const resolved = resolveScopeOptions(scope.project, scope.area);
     await watch({
       intervalMs: Number(opts.interval),
-      ...resolveScopeOptions(opts.project, opts.area),
+      strict: opts.global !== true,
+      ...resolved,
     });
   });
 
