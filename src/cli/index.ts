@@ -11,11 +11,15 @@ import {
   inbox,
   listDecisions,
   listMemories,
+  listTestResults,
+  AREA_WILDCARD,
   pinMemory,
   projectBoard,
+  PROJECT_WILDCARD,
   recentMessages,
   register,
   recordDecision,
+  recordTestResult,
   remember,
   send,
   setAgentStatus,
@@ -25,6 +29,7 @@ import {
   submitReview,
   wakeAgent,
   whois,
+  waitForAgents,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
 import { packageVersion } from "../util/package-info.js";
@@ -363,6 +368,29 @@ program
   });
 
 program
+  .command("wait-for-agents")
+  .description("Wait for an expected agent roster")
+  .requiredOption("--names <list>", "comma-separated agent names")
+  .option("--timeout <seconds>", "seconds to wait", "60")
+  .option("--project <name>", "expected project scope (use all for any)")
+  .option("--area <name>", "expected area scope (use all for any)")
+  .action(async (opts: { names: string; timeout: string; project?: string; area?: string }) => {
+    const result = await waitForAgents({
+      ...resolveScopeOptions(opts.project, opts.area),
+      names: opts.names.split(",").map((value) => value.trim()).filter(Boolean),
+      timeout_s: Number(opts.timeout),
+    });
+    console.log(kleur.bold("Ready:"));
+    console.log(formatList(result.ready.map((agent) => `${agent.name} ${agent.status}/${agent.presence}`)));
+    console.log(kleur.bold("Missing:"));
+    console.log(formatList(result.missing));
+    console.log(kleur.bold("Stale:"));
+    console.log(formatList(result.stale.map((agent) => `${agent.name} seen ${agent.age_s}s ago`)));
+    console.log(kleur.bold("Wrong scope:"));
+    console.log(formatList(result.wrong_scope.map((row) => `${row.name} is ${row.project ?? "-"}${row.area ? `/${row.area}` : ""}`)));
+  });
+
+program
   .command("decision")
   .description("Record or list project decisions")
   .option("--by <agent>", "agent recording the decision")
@@ -462,6 +490,44 @@ program
   });
 
 program
+  .command("test-result")
+  .description("Record or list test/build/lint evidence")
+  .option("--by <agent>", "agent recording the result")
+  .option("--task <id>", "related task id")
+  .option("--command <text>", "command that was run")
+  .option("--status <status>", "passed, failed, or skipped")
+  .option("--summary <text>", "short output summary")
+  .option("--list", "list results")
+  .option("-n, --last <count>", "how many to list", "50")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { by?: string; task?: string; command?: string; status?: string; summary?: string; list?: boolean; last: string; project?: string; area?: string }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area);
+    if (opts.list === true) {
+      const rows = listTestResults({
+        ...scope,
+        task_id: opts.task ? Number(opts.task) : undefined,
+        by_agent: opts.by,
+        status: opts.status as never,
+        limit: Number(opts.last),
+      });
+      console.log(formatList(rows.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}`)));
+      return;
+    }
+    if (!opts.by || !opts.command || !opts.status) throw new Error("--by, --command, and --status are required unless --list is used");
+    const row = recordTestResult({
+      by_agent: opts.by,
+      task_id: opts.task ? Number(opts.task) : null,
+      command: opts.command,
+      status: opts.status as never,
+      output_summary: opts.summary ?? null,
+      project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? null),
+      area: scope.area === AREA_WILDCARD ? null : (scope.area ?? null),
+    });
+    console.log(`${kleur.green("recorded")} test result #${row.id}`);
+  });
+
+program
   .command("pin-memory <id>")
   .description("Pin a memory so brief surfaces it")
   .action((id: string) => {
@@ -531,6 +597,8 @@ program
     console.log(formatList(board.blocked_tasks.map((task) => `#${task.id} ${task.title}${task.blocked_reason ? `: ${task.blocked_reason}` : ""}`)));
     console.log(kleur.bold("Waiting review:"));
     console.log(formatList(board.waiting_review.map((task) => `#${task.id} ${task.title}`)));
+    console.log(kleur.bold("Waiting acknowledgement:"));
+    console.log(formatList(board.waiting_acknowledgement.map((task) => `#${task.id} ${task.title} assigned=${task.pending_assignee ?? task.claimed_by ?? "-"}`)));
     console.log(kleur.bold("Scope conflicts:"));
     console.log(formatList(board.scope_conflicts.map((row) => `#${row.task_id} ${row.title} overlaps #${row.conflicts[0]?.task_id}`)));
     console.log(kleur.bold("Pinned risks:"));
@@ -552,6 +620,7 @@ program
     console.log(`Not implemented:\n${formatList(report.not_implemented)}`);
     console.log(`Known risks:\n${formatList(report.known_risks)}`);
     console.log(`Tests passed:\n${formatList(report.tests_passed)}`);
+    console.log(`Test evidence:\n${formatList(report.test_results.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}`))}`);
     console.log(`Manual tests needed:\n${formatList(report.manual_tests_needed)}`);
     console.log(`Safe to commit: ${report.safe_to_commit ? "yes" : "no"}`);
     console.log(`Safe to push: ${report.safe_to_push ? "yes" : "no"}`);

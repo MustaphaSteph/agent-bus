@@ -49,6 +49,19 @@ Scoped output includes agents in the current project plus null-project
 legacy/global agents. Area-scoped output includes matching-area plus
 null-area legacy agents. Null-project agents render with `{no-project}`.
 
+### `agent-bus wait-for-agents`
+
+Wait for an expected roster before a project manager starts delegating.
+
+```bash
+agent-bus wait-for-agents --names webapp-frontend,webapp-backend,webapp-verifier
+agent-bus wait-for-agents --names ios-worker,api-worker --project my-app --area all --timeout 300
+```
+
+The output separates `Ready`, `Missing`, `Stale`, and `Wrong scope` so a
+manager can tell whether workers are absent, registered in the wrong
+project/area, or simply old/stale.
+
 ### `agent-bus tasks`
 
 Snapshot or watch first-class tasks.
@@ -164,6 +177,8 @@ agent-bus scope-conflicts --files "src/components/auth/**"
 agent-bus ack-task 12 --agent claude-frontend --response claimed
 agent-bus review-task 12 --reviewer claude-verifier --approve --notes "tests passed"
 agent-bus handoff 12 --from claude-frontend --to claude-frontend-2 --reason "session ending"
+agent-bus test-result --by claude-verifier --task 12 --command "npm test" --status passed --summary "60 smoke tests passed"
+agent-bus test-result --list
 
 agent-bus final-report
 ```
@@ -172,9 +187,10 @@ agent-bus final-report
 delivery. `remember` stores durable structured notes; `brief` generates
 startup/handoff context from agents, tasks, decisions, memories, and
 recent messages. `board` is the manager view for agents, tasks, review
-queues, scope conflicts, risks, and handoffs. `final-report` summarizes
-implemented work, gaps, risks, tests, manual checks, and commit/push/deploy
-safety.
+queues, pending acknowledgements, scope conflicts, risks, and handoffs.
+`test-result` records explicit build/lint/test evidence for the final
+report. `final-report` summarizes implemented work, gaps, risks, tests,
+manual checks, and commit/push/deploy safety.
 
 ### `agent-bus inject`
 

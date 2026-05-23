@@ -27,6 +27,7 @@ import {
   pinMemory,
   projectBoard,
   register,
+  recordTestResult,
   releaseTask,
   recordDecision,
   remember,
@@ -41,6 +42,8 @@ import {
   unsubscribe,
   updateTask,
   handoffTask,
+  waitForAgents,
+  listTestResults,
   whois,
   sleepAgent,
   wakeAgent,
@@ -157,6 +160,13 @@ const WhoisInput = z.object({
   area: AreaFilterField,
 });
 
+const WaitForAgentsInput = z.object({
+  names: z.array(z.string().min(1)).min(1),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  timeout_s: z.number().int().nonnegative().max(110).optional(),
+});
+
 const CreateTaskInput = z.object({
   requested_by: z.string().min(1),
   title: z.string().min(1).max(200),
@@ -175,6 +185,8 @@ const CreateTaskInput = z.object({
   final_answer: z.string().nullable().optional(),
   manager_reviewed: z.boolean().optional(),
   file_scope: z.array(z.string()).optional(),
+  edit_scope: z.array(z.string()).optional(),
+  read_scope: z.array(z.string()).optional(),
   ack_required: z.boolean().optional(),
   review_required: z.boolean().optional(),
   changed_files: z.array(z.string()).optional(),
@@ -191,6 +203,7 @@ const AssignTaskInput = z.object({
   task_id: z.number().int().positive(),
   to_agent: z.string().min(1),
   allow_conflicts: z.boolean().optional(),
+  allow_pending_agent: z.boolean().optional(),
 });
 
 const ClaimBestTaskInput = z.object({
@@ -214,6 +227,8 @@ const UpdateTaskInput = z.object({
   final_answer: z.string().nullable().optional(),
   manager_reviewed: z.boolean().optional(),
   file_scope: z.array(z.string()).optional(),
+  edit_scope: z.array(z.string()).optional(),
+  read_scope: z.array(z.string()).optional(),
   ack_required: z.boolean().optional(),
   review_required: z.boolean().optional(),
   review_state: z.enum(["none", "pending", "approved", "changes_requested"]).optional(),
@@ -246,10 +261,30 @@ const HandoffTaskInput = z.object({
 });
 
 const CheckScopeConflictsInput = z.object({
-  file_scope: z.array(z.string()),
+  file_scope: z.array(z.string()).optional(),
+  edit_scope: z.array(z.string()).optional(),
   project: ProjectField,
   area: AreaField,
   exclude_task_id: z.number().int().positive().optional(),
+});
+
+const RecordTestResultInput = z.object({
+  by_agent: z.string().min(1),
+  task_id: z.number().int().positive().nullable().optional(),
+  command: z.string().min(1),
+  status: z.enum(["passed", "failed", "skipped"]),
+  output_summary: z.string().nullable().optional(),
+  project: ProjectField,
+  area: AreaField,
+});
+
+const ListTestResultsInput = z.object({
+  task_id: z.number().int().positive().optional(),
+  by_agent: z.string().min(1).optional(),
+  status: z.enum(["passed", "failed", "skipped"]).optional(),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  limit: z.number().int().positive().max(500).optional(),
 });
 
 const SetAgentStatusInput = z.object({
@@ -588,6 +623,21 @@ const TOOLS = [
     },
   },
   {
+    name: "wait_for_agents",
+    description:
+      "Wait for an expected roster of agents and report ready, missing, stale, and wrong-scope registrations.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        names: { type: "array", items: { type: "string" } },
+        project: { type: "string", description: "Expected project; '*' means any project" },
+        area: { type: "string", description: "Expected area; '*' means any area" },
+        timeout_s: { type: "number", description: "Seconds to wait, max 110" },
+      },
+      required: ["names"],
+    },
+  },
+  {
     name: "recent",
     description: "Read the most recent messages on the bus regardless of recipient. Useful for catching up.",
     inputSchema: {
@@ -625,6 +675,8 @@ const TOOLS = [
         final_answer: { type: ["string", "null"] },
         manager_reviewed: { type: "boolean" },
         file_scope: { type: "array", items: { type: "string" } },
+        edit_scope: { type: "array", items: { type: "string" } },
+        read_scope: { type: "array", items: { type: "string" } },
         ack_required: { type: "boolean" },
         review_required: { type: "boolean" },
         changed_files: { type: "array", items: { type: "string" } },
@@ -687,6 +739,7 @@ const TOOLS = [
         task_id: { type: "number" },
         to_agent: { type: "string" },
         allow_conflicts: { type: "boolean" },
+        allow_pending_agent: { type: "boolean" },
       },
       required: ["task_id", "to_agent"],
     },
@@ -734,6 +787,8 @@ const TOOLS = [
         final_answer: { type: ["string", "null"] },
         manager_reviewed: { type: "boolean" },
         file_scope: { type: "array", items: { type: "string" } },
+        edit_scope: { type: "array", items: { type: "string" } },
+        read_scope: { type: "array", items: { type: "string" } },
         ack_required: { type: "boolean" },
         review_required: { type: "boolean" },
         review_state: { type: "string", enum: ["none", "pending", "approved", "changes_requested"] },
@@ -813,11 +868,45 @@ const TOOLS = [
       type: "object",
       properties: {
         file_scope: { type: "array", items: { type: "string" } },
+        edit_scope: { type: "array", items: { type: "string" } },
         project: { type: ["string", "null"] },
         area: { type: ["string", "null"] },
         exclude_task_id: { type: "number" },
       },
-      required: ["file_scope"],
+      required: [],
+    },
+  },
+  {
+    name: "record_test_result",
+    description:
+      "Record explicit test/build/lint evidence for final_report.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        by_agent: { type: "string" },
+        task_id: { type: ["number", "null"] },
+        command: { type: "string" },
+        status: { type: "string", enum: ["passed", "failed", "skipped"] },
+        output_summary: { type: ["string", "null"] },
+        project: { type: ["string", "null"] },
+        area: { type: ["string", "null"] },
+      },
+      required: ["by_agent", "command", "status"],
+    },
+  },
+  {
+    name: "list_test_results",
+    description: "List recorded test/build/lint evidence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "number" },
+        by_agent: { type: "string" },
+        status: { type: "string", enum: ["passed", "failed", "skipped"] },
+        project: { type: "string" },
+        area: { type: "string" },
+        limit: { type: "number" },
+      },
     },
   },
   {
@@ -1096,6 +1185,14 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
+    case "wait_for_agents": {
+      const input = WaitForAgentsInput.parse(raw);
+      return await waitForAgents({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
     case "recent": {
       const input = RecentInput.parse(raw);
       return recentMessages({
@@ -1148,6 +1245,22 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+      });
+    }
+    case "record_test_result": {
+      const input = RecordTestResultInput.parse(raw);
+      return recordTestResult({
+        ...input,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+      });
+    }
+    case "list_test_results": {
+      const input = ListTestResultsInput.parse(raw);
+      return listTestResults({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
     case "list_tasks": {

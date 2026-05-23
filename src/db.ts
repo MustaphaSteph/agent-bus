@@ -192,6 +192,15 @@ function migrate(db: Database.Database): void {
   if (!taskCols.has("changed_files")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN changed_files TEXT NOT NULL DEFAULT '[]'`);
   }
+  if (!taskCols.has("edit_scope")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN edit_scope TEXT NOT NULL DEFAULT '[]'`);
+  }
+  if (!taskCols.has("read_scope")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN read_scope TEXT NOT NULL DEFAULT '[]'`);
+  }
+  if (!taskCols.has("pending_assignee")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN pending_assignee TEXT`);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS decisions (
@@ -220,6 +229,18 @@ function migrate(db: Database.Database): void {
       supersedes_id   INTEGER REFERENCES memories(id) ON DELETE SET NULL,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS test_results (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      by_agent        TEXT NOT NULL REFERENCES agents(name),
+      task_id         INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+      command         TEXT NOT NULL,
+      status          TEXT NOT NULL CHECK (status IN ('passed','failed','skipped')),
+      output_summary  TEXT,
+      project         TEXT,
+      area            TEXT,
+      created_at      INTEGER NOT NULL
     );
   `);
 
@@ -264,6 +285,8 @@ function migrate(db: Database.Database): void {
       ON tasks(review_state);
     CREATE INDEX IF NOT EXISTS idx_tasks_ack_required
       ON tasks(ack_required);
+    CREATE INDEX IF NOT EXISTS idx_tasks_pending_assignee
+      ON tasks(pending_assignee);
     CREATE INDEX IF NOT EXISTS idx_decisions_scope
       ON decisions(project, area);
     CREATE INDEX IF NOT EXISTS idx_memories_scope
@@ -279,5 +302,9 @@ function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_memories_pinned
       ON memories(pinned)
       WHERE pinned = 1;
+    CREATE INDEX IF NOT EXISTS idx_test_results_scope
+      ON test_results(project, area);
+    CREATE INDEX IF NOT EXISTS idx_test_results_task
+      ON test_results(task_id);
   `);
 }

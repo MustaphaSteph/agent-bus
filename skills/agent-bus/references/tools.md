@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 39 MCP tools. All return JSON.
+doesn't cover in detail. There are 42 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -30,6 +30,12 @@ register({
 ```ts
 whois({ project?: string | "*", area?: string | "*" }) -> Agent[]
 directory({ project?: string | "*", area?: string | "*" }) -> AgentDirectoryEntry[]
+wait_for_agents({
+  names: string[],
+  project?: string | "*",
+  area?: string | "*",
+  timeout_s?: number,
+}) -> { ready: AgentDirectoryEntry[], missing: string[], stale: AgentDirectoryEntry[], wrong_scope: unknown[] }
 ```
 `directory` includes presence, status, age, role, area, and active task.
 Prefer it for manager/team-board views.
@@ -136,6 +142,8 @@ create_task({
   expected_output?: string,
   deadline_at?: string,
   checkin_at?: string,
+  edit_scope?: string[],
+  read_scope?: string[],
   file_scope?: string[],
   ack_required?: boolean,
   review_required?: boolean,
@@ -147,7 +155,7 @@ create_task({
 ### claim_task / assign_task / claim_best_task
 ```ts
 claim_task({ agent: string, task_id: number, allow_conflicts?: boolean }) -> Task
-assign_task({ task_id: number, to_agent: string, allow_conflicts?: boolean }) -> Task
+assign_task({ task_id: number, to_agent: string, allow_conflicts?: boolean, allow_pending_agent?: boolean }) -> Task
 claim_best_task({
   agent: string,
   project?: string | "*",
@@ -156,7 +164,8 @@ claim_best_task({
 }) -> Task | null
 ```
 Use `assign_task` when the manager chooses the worker. Use
-`claim_best_task` when a worker asks for its next best task.
+`claim_best_task` when a worker asks for its next best task. Use
+`allow_pending_agent` to reserve work before a worker registers.
 
 ### update_task / release_task / list_tasks / get_task
 ```ts
@@ -175,6 +184,8 @@ update_task({
   checkin_at?: string | null,
   final_answer?: string | null,
   manager_reviewed?: boolean,
+  edit_scope?: string[],
+  read_scope?: string[],
   file_scope?: string[],
   ack_required?: boolean,
   review_required?: boolean,
@@ -238,7 +249,8 @@ mid-task; it records a pinned handoff memory and can reassign the work.
 ### check_scope_conflicts / project_board
 ```ts
 check_scope_conflicts({
-  file_scope: string[],
+  file_scope?: string[],
+  edit_scope?: string[],
   project?: string | "*",
   area?: string | "*",
   exclude_task_id?: number,
@@ -253,6 +265,7 @@ project_board({
   active_tasks: Task[],
   blocked_tasks: Task[],
   waiting_review: Task[],
+  waiting_acknowledgement: Task[],
   stale_tasks: Task[],
   scope_conflicts: ScopeConflict[],
   pinned_risks: Memory[],
@@ -261,8 +274,10 @@ project_board({
 }
 ```
 Use `project_board` for manager status. It combines agent status, task
-state, review queue, stale work, scope conflicts, pinned risks/handoffs,
-and suggested next actions.
+state, review queue, pending acknowledgements, stale work, scope
+conflicts, pinned risks/handoffs, and suggested next actions. Scope
+conflicts compare edit ownership; broad verifier read scope should not
+block workers.
 
 ## Decisions and Final Report
 
@@ -277,6 +292,25 @@ record_decision({
 }) -> Decision
 
 list_decisions({ project?: string | "*", area?: string | "*", limit?: number }) -> Decision[]
+
+record_test_result({
+  by_agent: string,
+  task_id?: number | null,
+  command: string,
+  status: "passed" | "failed" | "skipped",
+  output_summary?: string | null,
+  project?: string | null,
+  area?: string | null,
+}) -> TestResult
+
+list_test_results({
+  task_id?: number,
+  by_agent?: string,
+  status?: "passed" | "failed" | "skipped",
+  project?: string | "*",
+  area?: string | "*",
+  limit?: number,
+}) -> TestResult[]
 
 remember({
   by_agent: string,
@@ -328,6 +362,7 @@ final_report({ project?: string | "*", area?: string | "*" }) -> {
   not_implemented: string[],
   known_risks: string[],
   tests_passed: string[],
+  test_results: TestResult[],
   manual_tests_needed: string[],
   safe_to_commit: boolean,
   safe_to_push: boolean,

@@ -61,7 +61,7 @@ a file and a process.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive an `area` like `ios` or `backend` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
-- **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), assign task modes, require acknowledgements, gate completion on review, detect file-scope conflicts, hand off work with pinned memory, and generate final merge-readiness reports.
+- **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), wait for expected rosters, assign pending work before workers register, split read scope from edit scope, require acknowledgements, gate completion on review, record test evidence, hand off work with pinned memory, and generate final merge-readiness reports.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
 
 ## How it works
@@ -209,7 +209,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 5. Verify
 
 ```bash
-agent-bus --version                # 0.7.0
+agent-bus --version                # 0.8.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -274,9 +274,11 @@ same app:
 
 ```bash
 agent-bus board
+agent-bus wait-for-agents --names webapp-frontend,webapp-backend,webapp-verifier --area all
 agent-bus scope-conflicts --files "frontend/**,shared/ui/**"
 agent-bus ack-task 12 --agent webapp-frontend --response claimed
 agent-bus review-task 12 --reviewer webapp-verifier --approve
+agent-bus test-result --by webapp-verifier --task 12 --command "npm test" --status passed --summary "suite passed"
 agent-bus handoff 12 --from webapp-frontend --to webapp-backend \
   --reason "frontend done; backend retry tests remain" \
   --memory "Frontend reset form is complete; backend owns retry tests next."
@@ -328,14 +330,17 @@ Register as webapp-manager with role pm, area "*", capabilities
 
 Your job:
 - inspect the project structure
+- wait for the expected roster with wait_for_agents before assuming workers are available
 - create tasks with clear mode, expected_output, and file_scope
+- use edit_scope for files a worker may change, and read_scope for verifier/test-only review
 - set ack_required for assigned work and review_required for implementation tasks
-- assign tasks to area workers
+- assign tasks to area workers; use allow_pending_agent when the worker session has not registered yet
 - check project_board and scope conflicts before overlapping edits
 - use ask_best when no exact agent is named
 - keep one verifier in test_only mode
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
+- record build/lint/test evidence with record_test_result
 - use session_brief at start and final_report before commit/push
 - do not let workers edit outside their file_scope
 - do not push/deploy unless I explicitly approve
@@ -408,7 +413,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **39 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, first-class tasks, agent status controls, decisions, structured memories, session briefs, and final reports.
+- **42 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, pending assignment, split read/edit scope, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, decisions, and memories survive restarts via SQLite WAL.
 - **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all` on other read commands.

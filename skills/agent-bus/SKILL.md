@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.7.0
+  - agent-bus-mcp >= 0.8.0
 ---
 
 # agent-bus
@@ -63,18 +63,20 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
 | "What did <name> say?" / "Did anyone reply?" | `inbox(agent=<your name>)`, then summarize |
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
+| "Wait for these workers" / "Are my agents ready?" | `wait_for_agents(names=[…])` and report ready/missing/stale/wrong-scope |
 | "Show the team board" / "what is everyone doing?" | `project_board()` rendered with status, active work, review queue, conflicts, pinned risks, handoffs, and next actions |
 | "Remember X" / "Note that X" | `remember(by_agent=<your name>, kind="summary", content=…)`; use `pinned=true` for handoffs |
 | "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; use `ask_best(capability="memory", …)` only if needed |
 | "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render |
 | "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigned and `review_required` for implementation work |
-| "Assign this to <agent>" | `create_task(...)` then `assign_task(task_id=…, to_agent=…)`; expect `acknowledge_task(response="claimed")` from the worker |
+| "Assign this to <agent>" | `create_task(...)` then `assign_task(task_id=…, to_agent=…)`; if the worker is not registered yet, use `allow_pending_agent=true`; expect `acknowledge_task(response="claimed")` from the worker |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
 | "Did <agent> accept the task?" | `get_task(task_id=…)` and inspect `acknowledged_at` / `acknowledged_by`; ask for `acknowledge_task` if missing |
 | "Review / approve this task" | `submit_review(reviewer=<your name>, task_id=…, approved=…)`; required reviews gate completion |
 | "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
+| "Record that tests passed/failed" | `record_test_result(by_agent=<your name>, command=…, status=…)` |
 | "Put <agent> to sleep" / "wake <agent>" | `sleep_agent(agent=…)` / `wake_agent(agent=…)` |
 | "Set <agent> blocked / waiting for review" | `set_agent_status(agent=…, status=…)` |
 | "Record this decision…" | `record_decision(by_agent=<your name>, decision=…, rationale=…)` |
@@ -140,8 +142,14 @@ ios, `frontend` to frontend. A project manager at the repo root can use
   Test plan / Confidence`.
 - Set `file_scope` when multiple agents may edit. Keep ownership
   disjoint, such as `backend/**`, `ios/**`, `web/**`, or `docs/**`.
+- Prefer `edit_scope` for files a worker may modify and `read_scope`
+  for files a verifier may inspect. A broad verifier `read_scope` should
+  not block a worker's edit ownership.
 - Set `ack_required=true` when assigning work. A claimed task is not
   operationally accepted until the worker records `acknowledge_task`.
+- Use `wait_for_agents` before assuming planned workers are online. Use
+  `assign_task(..., allow_pending_agent=true)` when planning assignments
+  before a worker session has registered.
 - Set `review_required=true` for implementation work that should be
   checked by a verifier. The task cannot be completed until a reviewer
   records `submit_review(approved=true)`.
@@ -155,6 +163,9 @@ ios, `frontend` to frontend. A project manager at the repo root can use
   `remember`. Pin handoffs that the next agent should see first. Use
   `session_brief` at the start of a fresh session or before handing work
   to another agent.
+- Record explicit build, lint, unit test, browser smoke, and manual
+  verification evidence with `record_test_result`; final reports surface
+  these rows.
 - Use `final_report` before commit/push/deploy decisions.
 
 For an existing web app, a strong default team is:
@@ -189,10 +200,11 @@ implementation edits.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 39 MCP tools with input/output shapes
+- `references/tools.md` — the 42 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `assign_task`,
-  `record_decision`, `remember`, `session_brief`, `final_report`).
+  `record_decision`, `record_test_result`, `remember`, `session_brief`,
+  `final_report`).
 - `references/patterns.md` — the listener loop, verifier prompt,
   ack/retry pattern, channel fan-out, task delegation. Load when the
   user asks "set up a listener", "make this reliable", "broadcast

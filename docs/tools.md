@@ -276,6 +276,35 @@ List agents with derived status and active task metadata.
 directory({ project?: string, area?: string }) → AgentDirectoryEntry[]
 ```
 
+## wait_for_agents
+
+Wait for an expected team roster before the manager starts assigning
+work.
+
+```ts
+wait_for_agents({
+  names: string[],
+  project?: string,            // concrete project or "*" for any
+  area?: string,               // concrete area or "*" for any
+  timeout_s?: number,          // default 60, max 110
+}) → {
+  ready: AgentDirectoryEntry[],
+  missing: string[],
+  stale: AgentDirectoryEntry[],
+  wrong_scope: Array<{
+    name: string,
+    project: string | null,
+    area: string | null,
+    expected_project: string | null,
+    expected_area: string | null,
+  }>,
+}
+```
+
+Use this when a PM knows the intended agents, such as
+`frontend-worker`, `backend-worker`, and `verifier`, but some sessions
+may not have registered yet.
+
 ## set_agent_status / sleep_agent / wake_agent
 
 Update an agent's work state.
@@ -322,7 +351,9 @@ create_task({
   checkin_at?: number | null,   // ms epoch
   final_answer?: string | null,
   manager_reviewed?: boolean,
-  file_scope?: string[],
+  file_scope?: string[],       // legacy/general scope
+  edit_scope?: string[],       // files this task may modify
+  read_scope?: string[],       // files this task may inspect
   ack_required?: boolean,
   review_required?: boolean,
   changed_files?: string[],
@@ -353,12 +384,19 @@ claimers get `TASK_NOT_CLAIMABLE`.
 Assign an open task directly to an agent.
 
 ```ts
-assign_task({ task_id: number, to_agent: string, allow_conflicts?: boolean }) -> Task
+assign_task({
+  task_id: number,
+  to_agent: string,
+  allow_conflicts?: boolean,
+  allow_pending_agent?: boolean,
+}) -> Task
 ```
 
-`assign_task` sends the assignee an inbox notification. `claim_task`
-sends the requester a receipt. Both reject overlapping active
-`file_scope` by default for edit/propose tasks.
+`assign_task` sends the assignee an inbox notification. If the agent is
+not registered yet, pass `allow_pending_agent: true`; the task stays
+open with `pending_assignee` and the assignee is notified when it
+registers. Claiming, assignment, and conflict checks use `edit_scope`
+by default for edit/propose tasks.
 
 ## claim_best_task
 
@@ -394,6 +432,8 @@ update_task({
   final_answer?: string | null,
   manager_reviewed?: boolean,
   file_scope?: string[],
+  edit_scope?: string[],
+  read_scope?: string[],
   ack_required?: boolean,
   review_required?: boolean,
   review_state?: "none" | "pending" | "approved" | "changes_requested",
@@ -470,7 +510,8 @@ Manager safety views.
 
 ```ts
 check_scope_conflicts({
-  file_scope: string[],
+  file_scope?: string[],
+  edit_scope?: string[],
   project?: string | null,
   area?: string | null,
   exclude_task_id?: number,
@@ -486,6 +527,7 @@ project_board({
   active_tasks: Task[],
   blocked_tasks: Task[],
   waiting_review: Task[],
+  waiting_acknowledgement: Task[],
   stale_tasks: Task[],
   scope_conflicts: { task_id: number, title: string, conflicts: ScopeConflict[] }[],
   pinned_risks: Memory[],
@@ -493,6 +535,10 @@ project_board({
   suggested_next_actions: string[],
 }
 ```
+
+`check_scope_conflicts` compares active edit/propose tasks by
+`edit_scope`. Verifier or test-only tasks can set a broad `read_scope`
+without creating edit-conflict noise.
 
 ## list_tasks
 
@@ -607,6 +653,33 @@ session_brief({
 Pinned memories are surfaced near the top of `session_brief`; use pinned
 `handoff` memories for "next agent please read" context.
 
+## record_test_result / list_test_results
+
+Record explicit evidence from build, lint, unit test, browser smoke, or
+manual checks. `final_report` includes these rows so the merge report is
+grounded in commands that actually ran.
+
+```ts
+record_test_result({
+  by_agent: string,
+  task_id?: number | null,
+  command: string,
+  status: "passed" | "failed" | "skipped",
+  output_summary?: string | null,
+  project?: string | null,
+  area?: string | null,
+}) -> TestResult
+
+list_test_results({
+  task_id?: number,
+  by_agent?: string,
+  status?: "passed" | "failed" | "skipped",
+  project?: string,
+  area?: string,
+  limit?: number,
+}) -> TestResult[]
+```
+
 ## final_report
 
 Generate merge-readiness output from tasks.
@@ -617,6 +690,7 @@ final_report({ project?: string, area?: string }) -> {
   not_implemented: string[],
   known_risks: string[],
   tests_passed: string[],
+  test_results: TestResult[],
   manual_tests_needed: string[],
   safe_to_commit: boolean,
   safe_to_push: boolean,

@@ -21,6 +21,7 @@ const {
   askBest,
   inbox,
   listTasks,
+  listTestResults,
   listMemories,
   messagesSince,
   pinMemory,
@@ -29,6 +30,7 @@ const {
   recentMessages,
   register,
   recordDecision,
+  recordTestResult,
   remember,
   releaseTask,
   reply,
@@ -43,6 +45,7 @@ const {
   updateTask,
   wakeAgent,
   whois,
+  waitForAgents,
   listDecisions,
   sessionBrief,
   submitReview,
@@ -836,6 +839,99 @@ await test("project board: summarizes review and pinned risks", () => {
   assert.ok(board.active_tasks.some((row) => row.id === task.id));
   assert.ok(board.waiting_review.some((row) => row.id === task.id));
   assert.ok(board.pinned_risks.some((row) => row.content.includes("pending review")));
+});
+
+await test("wait_for_agents reports ready, stale, missing, and wrong scope", async () => {
+  register({ name: "roster-ready", project: "roster", area: "frontend", replace: true });
+  register({ name: "roster-wrong", project: "other", area: "frontend", replace: true });
+  register({ name: "roster-stale", project: "roster", area: "frontend", replace: true });
+  getDb().prepare("UPDATE agents SET last_seen = ? WHERE name = ?").run(Date.now() - 10 * 60_000, "roster-stale");
+
+  const result = await waitForAgents({
+    names: ["roster-ready", "roster-wrong", "roster-stale", "roster-missing"],
+    project: "roster",
+    area: "frontend",
+    timeout_s: 0,
+  });
+  const globalResult = await waitForAgents({
+    names: ["roster-ready"],
+    project: "*",
+    area: "*",
+    timeout_s: 0,
+  });
+  assert.ok(result.ready.some((agent) => agent.name === "roster-ready"));
+  assert.ok(globalResult.ready.some((agent) => agent.name === "roster-ready"));
+  assert.ok(result.stale.some((agent) => agent.name === "roster-stale"));
+  assert.ok(result.missing.includes("roster-missing"));
+  assert.ok(result.wrong_scope.some((agent) => agent.name === "roster-wrong"));
+});
+
+await test("tasks: pending assignment is claimed after agent registers", async () => {
+  register({ name: "pending-pm", project: "pendingp", area: "*", role: "pm", replace: true });
+  const task = createTask({
+    requested_by: "pending-pm",
+    title: "future worker task",
+    ack_required: true,
+    file_scope: ["src/future/**"],
+  });
+  const assigned = assignTask({
+    task_id: task.id,
+    to_agent: "future-worker",
+    allow_pending_agent: true,
+  });
+  assert.equal(assigned.pending_assignee, "future-worker");
+  assert.equal(assigned.state, "open");
+
+  register({ name: "future-worker", project: "pendingp", area: "frontend", replace: true });
+  const notices = await inbox({ agent: "future-worker" });
+  assert.ok(notices.some((msg) => msg.content.includes("pending assignment task")));
+  const claimed = claimBestTask({ agent: "future-worker", project: "pendingp", area: "*" });
+  assert.equal(claimed?.id, task.id);
+  assert.equal(claimed?.claimed_by, "future-worker");
+  assert.equal(claimed?.pending_assignee, null);
+});
+
+await test("tasks: read scope does not create edit conflicts for verifier", () => {
+  register({ name: "scope-v-pm", project: "scopev", area: "frontend", replace: true });
+  register({ name: "scope-v-worker", project: "scopev", area: "frontend", replace: true });
+  register({ name: "scope-v-verifier", project: "scopev", area: "*", role: "verifier", replace: true });
+  const editTask = createTask({
+    requested_by: "scope-v-pm",
+    title: "edit scoped work",
+    mode: "edit_files",
+    file_scope: ["src/components/**"],
+    edit_scope: ["src/components/**"],
+  });
+  claimTask({ agent: "scope-v-worker", task_id: editTask.id });
+  const verifierTask = createTask({
+    requested_by: "scope-v-pm",
+    title: "verify broad read",
+    mode: "test_only",
+    file_scope: ["src/**"],
+    read_scope: ["src/**"],
+    edit_scope: [],
+  });
+  claimTask({ agent: "scope-v-verifier", task_id: verifierTask.id });
+  const board = projectBoard({ project: "scopev", area: "*" });
+  assert.equal(board.scope_conflicts.length, 0);
+  assert.ok(checkScopeConflicts({ edit_scope: ["src/components/**"], project: "*", area: "*" }).some((row) => row.task_id === editTask.id));
+});
+
+await test("test results are recorded in final report", () => {
+  register({ name: "test-evidence-pm", project: "evidence", replace: true });
+  const task = createTask({ requested_by: "test-evidence-pm", title: "evidence task", mode: "test_only" });
+  const result = recordTestResult({
+    by_agent: "test-evidence-pm",
+    task_id: task.id,
+    command: "npm run build",
+    status: "passed",
+    output_summary: "build passed",
+  });
+  assert.equal(result.project, "evidence");
+  assert.ok(listTestResults({ project: "evidence" }).some((row) => row.id === result.id));
+  const report = finalReport({ project: "evidence" });
+  assert.ok(report.test_results.some((row) => row.command === "npm run build"));
+  assert.ok(report.tests_passed.some((line) => line.includes("npm run build")));
 });
 
 await test("decisions: record and list by scope", () => {

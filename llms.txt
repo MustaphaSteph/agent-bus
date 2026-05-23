@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 39 MCP tools, all prefixed with the server name `agent-bus` in
+You have 42 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -21,6 +21,8 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 9. Scope reads and routing to the current project, or opt into global.
 10. Discover other agents.
 11. Store structured memories and generate session briefs for handoffs.
+12. Wait for expected rosters, reserve tasks for not-yet-registered
+    workers, split edit scope from read scope, and record test evidence.
 
 ## Core rules
 
@@ -230,6 +232,19 @@ Returns `Agent[]` sorted by `last_seen` DESC.
 
 Like `whois`, but includes `status`, `age_s`, and `active_task_id`.
 
+### wait_for_agents
+
+Wait for an expected roster.
+
+Input:
+- `names: string[]`
+- `project?: string` — concrete project or `"*"` for any
+- `area?: string` — concrete area or `"*"` for any
+- `timeout_s?: number` — default 60, max 110
+
+Returns `{ ready, missing, stale, wrong_scope }`. Use this before a PM
+assumes worker sessions exist.
+
 ### set_agent_status / sleep_agent / wake_agent
 
 Set the work-board state for an agent. Sleeping is a status, not delivery
@@ -268,6 +283,8 @@ Input:
 - `final_answer?: string | null`
 - `manager_reviewed?: boolean`
 - `file_scope?: string[]`
+- `edit_scope?: string[]` — files this task may modify
+- `read_scope?: string[]` — files this task may inspect
 - `ack_required?: boolean`
 - `review_required?: boolean`
 - `changed_files?: string[]`
@@ -305,6 +322,8 @@ Input:
 - `final_answer?: string | null`
 - `manager_reviewed?: boolean`
 - `file_scope?: string[]`
+- `edit_scope?: string[]`
+- `read_scope?: string[]`
 - `ack_required?: boolean`
 - `review_required?: boolean`
 - `review_state?: "none" | "pending" | "approved" | "changes_requested"`
@@ -355,8 +374,10 @@ Input:
 - `task_id: number`
 - `to_agent: string`
 - `allow_conflicts?: boolean`
+- `allow_pending_agent?: boolean`
 
-Assigns an open task to an agent.
+Assigns an open task to an agent. With `allow_pending_agent`, the task
+can be reserved for a worker that has not registered yet.
 
 ### claim_best_task
 
@@ -401,7 +422,8 @@ active tasks, blocked tasks, waiting review, stale tasks, scope conflicts,
 pinned risks, pinned handoffs, and suggested next actions.
 
 `check_scope_conflicts` input:
-- `file_scope: string[]`
+- `file_scope?: string[]`
+- `edit_scope?: string[]`
 - `project?: string`
 - `area?: string`
 - `exclude_task_id?: number`
@@ -409,6 +431,9 @@ pinned risks, pinned handoffs, and suggested next actions.
 `project_board` input:
 - `project?: string`
 - `area?: string`
+
+Conflict checks compare active edit/propose tasks by `edit_scope`; broad
+verifier `read_scope` does not create edit-conflict noise.
 
 ### record_decision / list_decisions
 
@@ -422,6 +447,27 @@ custom kinds. Pin handoff memories when the next agent should see them
 first. Use `session_brief` when a new session needs current agents,
 open/blocked/stale tasks, recent decisions, pinned memories, recent
 memories, recent messages, and suggested next actions.
+
+### record_test_result / list_test_results
+
+Record and list explicit build/lint/test evidence for `final_report`.
+
+`record_test_result` input:
+- `by_agent: string`
+- `task_id?: number | null`
+- `command: string`
+- `status: "passed" | "failed" | "skipped"`
+- `output_summary?: string | null`
+- `project?: string | null`
+- `area?: string | null`
+
+`list_test_results` input:
+- `task_id?: number`
+- `by_agent?: string`
+- `status?: "passed" | "failed" | "skipped"`
+- `project?: string`
+- `area?: string`
+- `limit?: number`
 
 ### final_report
 
@@ -511,6 +557,9 @@ Returns `Task`.
   final_answer: string | null
   manager_reviewed: boolean
   file_scope: string[]
+  edit_scope: string[]
+  read_scope: string[]
+  pending_assignee: string | null
   stale?: boolean
 }
 ```
