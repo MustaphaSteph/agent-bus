@@ -145,16 +145,16 @@ program
   .command("init")
   .description("Create a .agent-bus.json scope config")
   .option("--project <name>", "project name (default derived from cwd)")
-  .option("--areas <list>", "comma-separated area names", "backend,frontend,ios")
+  .option("--areas <list>", "optional comma-separated area names")
   .option("--force", "overwrite existing config")
-  .action((opts: { project?: string; areas: string; force?: boolean }) => {
+  .action((opts: { project?: string; areas?: string; force?: boolean }) => {
     const existing = scopeConfigPath();
     if (existing && opts.force !== true) {
       throw new Error(`${existing} already exists; pass --force to overwrite`);
     }
-    const project = opts.project ?? deriveScope().project ?? "agent-bus-project";
+    const project = opts.project ?? deriveScope().project ?? "project";
     const areas = Object.fromEntries(
-      opts.areas
+      (opts.areas ?? "")
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean)
@@ -175,10 +175,10 @@ const teamCommand = program
 
 teamCommand
   .command("init <areas...>")
-  .description("Create .agent-bus.json and print recommended agent names")
+  .description("Create .agent-bus.json with neutral area scopes")
   .option("--project <name>", "project name (default derived from cwd)")
   .action((areas: string[], opts: { project?: string }) => {
-    const project = opts.project ?? deriveScope().project ?? "agent-bus-project";
+    const project = opts.project ?? deriveScope().project ?? "project";
     const path = writeScopeConfig({
       project,
       areas: Object.fromEntries(areas.map((area) => [area, [`${area}/**`]])),
@@ -186,12 +186,9 @@ teamCommand
       hooks: {},
     });
     console.log(`${kleur.green("created")} ${path}`);
-    console.log("recommended agents:");
-    console.log(`  ${project}-pm`);
-    for (const area of areas) {
-      console.log(`  ${project}-${area}-worker`);
-      console.log(`  ${project}-${area}-verifier`);
-    }
+    console.log(`project=${project}`);
+    console.log(`areas=${areas.join(", ") || "-"}`);
+    console.log("Agent names, roles, and task strategy are controlled by your sessions.");
   });
 
 teamCommand
@@ -205,7 +202,7 @@ teamCommand
     if (existing && opts.force !== true) {
       throw new Error(`${existing} already exists; pass --force to overwrite`);
     }
-    const project = opts.project ?? deriveScope().project ?? "agent-bus-project";
+    const project = opts.project ?? deriveScope().project ?? "project";
     const area = opts.area.trim() || "app";
     const path = writeScopeConfig({
       project,

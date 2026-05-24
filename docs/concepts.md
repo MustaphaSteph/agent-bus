@@ -28,9 +28,9 @@ multiple agents match. `status` is the work-board state: `idle`,
 A soft scope derived from cwd. MCP sessions default `project` by walking
 up to `.git` and using the repo folder name; CLI read commands do the
 same. If a repo contains `.agent-bus.json`, sessions can also derive an
-`area` from path patterns such as `ios/**` or `backend/**`. Agent names
-remain globally unique, so project-specific names such as
-`agent-bus-verifier` are still recommended.
+`area` from path patterns such as `area-a/**` or `docs/**`. Agent names
+remain globally unique, so names should include enough project or role
+context for your team.
 
 Project/area scoping reduces noise without isolating the bus:
 
@@ -100,8 +100,8 @@ subscribes. Stored in the `subscriptions` table as `(channel, agent)`
 pairs.
 
 ```
-subscribe({ agent: "carol", channel: "frontend-team" })
-send_channel({ from: "alice", channel: "frontend-team", content: "..." })
+subscribe({ agent: "worker-a", channel: "team-updates" })
+send_channel({ from: "coordinator", channel: "team-updates", content: "..." })
 ```
 
 `send_channel` fans out: it inserts one `messages` row per subscriber

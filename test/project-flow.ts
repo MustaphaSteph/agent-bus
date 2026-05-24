@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const tmp = mkdtempSync(join(tmpdir(), "agent-bus-project-"));
+const tmp = mkdtempSync(join(tmpdir(), "project-flow-"));
 process.env.AGENT_BUS_DIR = tmp;
 
 const {

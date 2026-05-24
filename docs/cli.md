@@ -31,7 +31,7 @@ Snapshot of the most recent messages.
 agent-bus log                  # last 50
 agent-bus log -n 200           # last 200
 agent-bus log --project all    # global
-agent-bus log --area backend    # specific configured area
+agent-bus log --area area-a     # specific configured area
 ```
 
 ### `agent-bus whois`
@@ -54,8 +54,8 @@ null-area legacy agents. Null-project agents render with `{no-project}`.
 Wait for an expected roster before a project manager starts delegating.
 
 ```bash
-agent-bus wait-for-agents --names webapp-frontend,webapp-backend,webapp-verifier
-agent-bus wait-for-agents --names ios-worker,api-worker --project my-app --area all --timeout 300
+agent-bus wait-for-agents --names agent-a,agent-b,reviewer
+agent-bus wait-for-agents --names worker-a,worker-b --project my-app --area all --timeout 300
 ```
 
 The output separates `Ready`, `Missing`, `Stale`, and `Wrong scope` so a
@@ -73,8 +73,8 @@ agent-bus tasks --all              # include completed/failed/canceled
 agent-bus tasks --watch            # print new or changed tasks
 agent-bus tasks --watch --interval 500
 agent-bus tasks --project all      # global
-agent-bus tasks --area ios         # only the ios task lane
-agent-bus tasks --required-capability swift
+agent-bus tasks --area area-a      # only one configured task lane
+agent-bus tasks --required-capability tests
 agent-bus tasks --mode investigate_only
 agent-bus tasks --manager-reviewed
 ```
@@ -91,9 +91,9 @@ For a monorepo, map areas by path:
 {
   "project": "my-app",
   "areas": {
-    "ios": ["ios/**"],
-    "backend": ["backend/**", "api/**"],
-    "frontend": ["frontend/**", "web/**"]
+    "area-a": ["area-a/**"],
+    "area-b": ["area-b/**"],
+    "docs": ["docs/**"]
   }
 }
 ```
@@ -104,7 +104,7 @@ give every folder the same `project` and a fixed `area`:
 ```json
 {
   "project": "my-app",
-  "area": "frontend"
+  "area": "area-a"
 }
 ```
 
@@ -113,7 +113,7 @@ Another folder can use the same project with a different area:
 ```json
 {
   "project": "my-app",
-  "area": "backend"
+  "area": "area-b"
 }
 ```
 
@@ -122,20 +122,19 @@ MCP sessions and CLI read commands derive the area from cwd. Use
 project.
 
 ```bash
-agent-bus init --project my-app --areas backend,frontend,ios
+agent-bus init --project my-app --areas area-a,area-b,docs
 agent-bus scope
 agent-bus areas
-agent-bus team init backend frontend ios
+agent-bus team init area-a area-b docs
 agent-bus team init-folder --project app-one --area app
 agent-bus doctor
 ```
 
 `init` writes a monorepo-style `.agent-bus.json`; `scope` prints the
 current derived project/area; `areas` lists configured path patterns;
-`team init` prints suggested PM/worker/verifier names; `team
-init-folder` writes a separated-folder project config without prescribing
-agent behavior; `doctor` checks db path, scope, config, area list, and
-agent counts.
+`team init` writes neutral area scopes; `team init-folder` writes a
+separated-folder project config without prescribing agent behavior;
+`doctor` checks db path, scope, config, area list, and agent counts.
 
 For an app factory under one parent folder, run `team init-folder`
 inside each new app subfolder with a unique project name:
@@ -158,7 +157,7 @@ Optional local hook commands can be placed in `.agent-bus.json`:
 {
   "hooks": {
     "message.created": "node scripts/on-message.js",
-    "task.blocked": "agent-bus inject --to pm 'task blocked'"
+    "task.blocked": "agent-bus inject --to coordinator 'task blocked'"
   }
 }
 ```
@@ -179,27 +178,27 @@ agent-bus listen --agent worker-a --claim-s 300 --wait-s 110
 ### Agent state and reports
 
 ```bash
-agent-bus sleep claude-developer-2
-agent-bus wake claude-developer-2
-agent-bus status claude-developer-1 waiting_review
+agent-bus sleep worker-b
+agent-bus wake worker-b
+agent-bus status worker-a waiting_review
 
-agent-bus decision --by codex-project-manager --decision "Use task modes" --rationale "prevents accidental edits"
+agent-bus decision --by coordinator --decision "Use task modes" --rationale "prevents accidental edits"
 agent-bus decision --list
 
-agent-bus remember --by codex-project-manager --kind handoff --pinned "frontend owns editor polish; backend owns export worker"
+agent-bus remember --by coordinator --kind handoff --pinned "handoff summary for the next session"
 agent-bus memories --kind handoff --pinned
 agent-bus pin-memory 12
-agent-bus brief --agent codex-project-manager
+agent-bus brief --agent coordinator
 agent-bus board
-agent-bus scope-conflicts --files "src/components/auth/**"
-agent-bus ack-task 12 --agent claude-frontend --response claimed
-agent-bus review-task 12 --reviewer claude-verifier --approve --notes "tests passed"
-agent-bus handoff 12 --from claude-frontend --to claude-frontend-2 --reason "session ending"
-agent-bus task-event 12 --by claude-frontend --type progress --phase testing --message "Browser smoke is running"
+agent-bus scope-conflicts --files "src/module/**"
+agent-bus ack-task 12 --agent worker-a --response claimed
+agent-bus review-task 12 --reviewer reviewer --approve --notes "tests passed"
+agent-bus handoff 12 --from worker-a --to worker-b --reason "session ending"
+agent-bus task-event 12 --by worker-a --type progress --phase testing --message "Checks are running"
 agent-bus task-event 12 --list
 agent-bus task-result 12
-agent-bus cancel-task 12 --agent claude-frontend --reason "superseded by task 18"
-agent-bus test-result --by claude-verifier --task 12 --command "npm test" --status passed --summary "60 smoke tests passed"
+agent-bus cancel-task 12 --agent worker-a --reason "superseded by task 18"
+agent-bus test-result --by reviewer --task 12 --command "npm test" --status passed --summary "60 smoke tests passed"
 agent-bus test-result --list
 
 agent-bus final-report
@@ -247,7 +246,7 @@ Manually create or update an agent row. Useful for scripting.
 
 ```bash
 agent-bus register --name worker-1 --capabilities "tests,ci" --replace
-agent-bus register --name ios-verifier --capabilities "swift,tests" --role verifier --area ios --replace
+agent-bus register --name reviewer --capabilities "tests,review" --role reviewer --area all --replace
 ```
 
 ## Listener support

@@ -256,18 +256,18 @@ first `inbox` call.
 **When**: you want Claude Code and Codex sessions to collaborate.
 
 **How**: install agent-bus in both, register both with different names,
-then exchange messages just like Claude-to-Claude.
+then exchange messages agent-to-agent.
 
 ```
-# Claude Code terminal:
-/listen claude-frontend
+# Terminal A:
+/listen worker-a
 
-# Codex Desktop chat (after pasting listen-prompt):
-codex-backend listening on agent-bus.
+# Terminal B or another agent UI:
+worker-b listening on agent-bus.
 
-# A third Claude session:
-"register me as orchestrator, ask claude-frontend for the React patterns,
- then forward the answer to codex-backend with implementation context."
+# Coordinator session:
+"register me as coordinator, ask worker-a for input, then forward the
+ answer to worker-b with implementation context."
 ```
 
 The bus doesn't care which tool spoke — it's all just MCP messages and
@@ -327,9 +327,8 @@ automatic requeue.
 
 ## 11. Multi-project and multi-area workspace
 
-**When**: you run multiple Claude Code or Codex sessions across different
-repos on the same machine, or several teams inside one repo (`ios`,
-`backend`, `frontend`).
+**When**: you run multiple AI sessions across different repos on the
+same machine, or several work lanes inside one repo.
 
 **How**: keep one shared bus, but let each session register with a
 project derived from its repo cwd. Add `.agent-bus.json` when one repo
@@ -339,9 +338,9 @@ has multiple work lanes:
 {
   "project": "my-app",
   "areas": {
-    "ios": ["ios/**"],
-    "backend": ["backend/**", "api/**"],
-    "frontend": ["frontend/**", "web/**"]
+    "area-a": ["area-a/**"],
+    "area-b": ["area-b/**"],
+    "docs": ["docs/**"]
   }
 }
 ```
@@ -352,14 +351,14 @@ fixed area in each folder:
 ```json
 {
   "project": "my-app",
-  "area": "frontend"
+  "area": "area-a"
 }
 ```
 
 ```json
 {
   "project": "my-app",
-  "area": "backend"
+  "area": "area-b"
 }
 ```
 
@@ -386,10 +385,10 @@ MCP sessions do this automatically. Read commands and routing default to
 the current project and area:
 
 ```js
-register({ name: "agent-bus-verifier", capabilities: ["verification"] })
+register({ name: "worker-a", capabilities: ["tests"] })
 list_tasks({})              // current project
 whois({})                   // current project/area + null legacy agents
-ask_best({ from: "agent-bus-codex", capability: "verification", question: "..." })
+ask_best({ from: "coordinator", capability: "tests", question: "..." })
 ```
 
 Use the wildcard when you intentionally want global visibility:
@@ -398,7 +397,7 @@ Use the wildcard when you intentionally want global visibility:
 list_tasks({ project: "*" })
 list_tasks({ area: "*" })   // all areas in current project
 recent({ project: "*" })
-ask_best({ from: "agent-bus-codex", capability: "security", question: "...", project: "*", area: "*" })
+ask_best({ from: "coordinator", capability: "security", question: "...", project: "*", area: "*" })
 ```
 
 CLI commands derive the project from your shell cwd:
@@ -417,57 +416,55 @@ When a project manager creates work for a lane, set the target area on
 the task:
 
 ```js
-create_task({ requested_by: "pm", title: "fix iOS login", area: "ios" })
+create_task({ requested_by: "coordinator", title: "investigate issue", area: "area-a" })
 ```
 
 **Failure modes**:
 
-- Agent names are still globally unique. Use project-prefixed names like
-  `agent-bus-verifier` and `vidcut-verifier`.
+- Agent names are still globally unique. Use stable names that include
+  enough project or role context for your team.
 - `ask_best` does not silently route across projects or concrete areas.
   If there is no in-scope match, pass `project: "*"` or `area: "*"`
   explicitly.
 - CLI `inject` and CLI `register` are relay/admin commands and default
   to global/null project.
 
-## 12. Codex as manager for an existing web app
+## 12. Coordinator for an existing project
 
-**When**: you already have a web app and want one Codex session to plan,
-assign, and review work while Claude/Codex worker sessions handle
-frontend, backend, and verification lanes.
+**When**: you already have a project and want one AI session to plan,
+assign, and review work while other sessions handle scoped tasks.
 
 **How**: add a repo-level `.agent-bus.json` first:
 
 ```json
 {
-  "project": "webapp",
+  "project": "my-project",
   "areas": {
-    "frontend": ["src/**", "app/**", "pages/**", "components/**"],
-    "backend": ["api/**", "server/**", "routes/**", "db/**"],
-    "tests": ["test/**", "tests/**", "e2e/**", "__tests__/**"],
+    "area-a": ["area-a/**"],
+    "area-b": ["area-b/**"],
     "docs": ["docs/**", "README.md"]
   }
 }
 ```
 
-Start Codex in the repo root and paste:
+Start the coordinator in the repo root and adapt this template:
 
 ```text
-You are webapp-manager for this repo. Use agent-bus as the coordination layer.
+You are <coordinator-name> for this repo. Use agent-bus as the coordination layer.
 
-Register as webapp-manager with role pm, area "*", capabilities
-["planning","coordination","review","qa"], replace true.
+Register as <coordinator-name> with role pm, area "*", capabilities
+["planning","coordination"], replace true.
 
 Your job:
 - inspect the project structure
 - create tasks with clear mode, expected_output, and file_scope
-- assign tasks to area workers
+- assign tasks only to agents that match the user’s requested workflow
 - use ask_best when no exact agent is named
-- keep one verifier in test_only mode
+- use test_only/review tasks only when the user wants independent review
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
 - use session_brief at start and final_report before commit/push
-- do not let workers edit outside their file_scope
+- do not let agents edit outside their file_scope/edit_scope
 - do not push/deploy unless I explicitly approve
 
 First call directory and session_brief, then tell me who is available
@@ -477,37 +474,32 @@ and what the next task should be.
 Start worker sessions:
 
 ```text
-Register yourself as webapp-frontend with role worker, area frontend,
-capabilities react, typescript, css, ui, replace true. Listen for
+Register yourself as <worker-name> with role worker, area <area>,
+capabilities <capability-list>, replace true. Listen for
 assigned tasks. Only edit files inside the task file_scope.
 ```
 
 ```text
-Register yourself as webapp-backend with role worker, area backend,
-capabilities node, api, database, auth, replace true. Listen for
-assigned tasks. Only edit files inside the task file_scope.
-```
-
-```text
-Register yourself as webapp-verifier with role verifier, area "*",
-capabilities test, review, qa, replace true. Do not edit implementation
-files. Review diffs, run tests, report bugs and risks.
+Register yourself as <reviewer-name> with role reviewer, area "*",
+capabilities <capability-list>, replace true. Follow the task mode. For
+test_only/review tasks, inspect changes and report bugs and risks
+without implementation edits unless explicitly reassigned.
 ```
 
 Then talk to the manager naturally:
 
 ```text
-Create frontend, backend, and verifier tasks for password reset.
-Assign frontend UI to webapp-frontend and backend API to webapp-backend.
-Ask the verifier to review the current diff.
+Create scoped tasks for this goal.
+Assign each task to the matching available agent.
+Ask the reviewer to review the current diff.
 Record a pinned handoff memory for what remains.
 ```
 
 **Failure modes**:
 
-- Worker edits outside `file_scope` -> stop and reassign with a narrower
+- Agent edits outside `file_scope` -> stop and reassign with a narrower
   task. The bus records scope; agents must still respect it.
-- Verifier starts implementing -> set its task mode to `test_only` and
-  remind it not to edit implementation files.
-- Manager cannot find a worker -> call `directory`, start the missing
+- Reviewer starts implementing -> set its task mode to `test_only` and
+  clarify that implementation edits are not part of that task.
+- Coordinator cannot find a worker -> call `directory`, start the missing
   listener, or use `area: "*"` / `project: "*"` intentionally.

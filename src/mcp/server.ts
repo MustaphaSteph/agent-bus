@@ -416,7 +416,7 @@ const TOOLS = [
   {
     name: "register",
     description:
-      "Register this session as an agent on the bus. Pick a stable name like 'claude-frontend'. " +
+      "Register this session as an agent on the bus. Pick a stable name like 'worker-a'. " +
       "Call once at session start; safe to call again to update capabilities (use replace:true).",
     inputSchema: {
       type: "object",
@@ -439,7 +439,7 @@ const TOOLS = [
         },
         area: {
           type: ["string", "null"],
-          description: "Optional subfolder/domain scope from .agent-bus.json, e.g. ios or backend",
+          description: "Optional subfolder/domain scope from .agent-bus.json",
         },
         role: { type: ["string", "null"], description: "Optional role such as pm, worker, verifier, reviewer, listener" },
         routing_weight: { type: "number", description: "Optional routing preference weight for ask_best" },
@@ -589,7 +589,7 @@ const TOOLS = [
         agent: { type: "string" },
         channel: {
           type: "string",
-          description: "Channel name (e.g. 'alerts', 'review-queue', 'frontend-team')",
+          description: "Channel name (e.g. 'alerts', 'review-queue', 'team-updates')",
         },
       },
       required: ["agent", "channel"],

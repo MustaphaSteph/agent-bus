@@ -313,6 +313,6 @@ Hard limits in code (not env-tunable):
 | `MAX_ASK_TIMEOUT_S` | 110 | Claude Code tool-call timeout |
 | `MAX_INBOX_WAIT_S` | 110 | Same |
 | `validateName` regex | `[a-zA-Z0-9_.-]+` 1-64 chars | Filesystem-safe and shell-safe |
-| `validateChannel` regex | `[a-zA-Z0-9_.:#-]+` 1-64 chars | Slightly looser to allow `team:frontend` style |
+| `validateChannel` regex | `[a-zA-Z0-9_.:#-]+` 1-64 chars | Slightly looser to allow `team:area-a` style |
 
 Change these only if you know what breaks.

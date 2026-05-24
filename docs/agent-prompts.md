@@ -11,12 +11,12 @@ capabilities short and useful for `ask_best` routing.
 ```text
 Use agent-bus.
 
-Register yourself as `codex-builder-agent-bus` with capabilities:
-`typescript`, `cli`, `tests`, `implementation`.
+Register yourself as `<agent-name>` with capabilities:
+`<capability-1>`, `<capability-2>`, `<capability-3>`.
 
 Use `replace: true`.
 
-Treat this repo as project `agent-bus`.
+Treat this repo as project `<project-name>`.
 After registering, check your inbox.
 ```
 
@@ -25,12 +25,12 @@ For a reviewer:
 ```text
 Use agent-bus.
 
-Register yourself as `claude-reviewer-agent-bus` with capabilities:
+Register yourself as `<reviewer-name>` with capabilities:
 `review`, `architecture`, `verification`.
 
 Use `replace: true`.
 
-Treat this repo as project `agent-bus`.
+Treat this repo as project `<project-name>`.
 After registering, check your inbox.
 ```
 
@@ -43,8 +43,8 @@ loop of repeated long polls.
 ```text
 Use agent-bus.
 
-Register yourself as `claude-listener-agent-bus` with capabilities:
-`review`, `verification`, `planning`.
+Register yourself as `<listener-name>` with capabilities:
+`<capability-1>`, `<capability-2>`.
 
 Use `replace: true`.
 
@@ -60,13 +60,13 @@ Then keep listening indefinitely:
 For Claude Code, prefer the installed slash command:
 
 ```text
-/listen claude-listener-agent-bus
+/listen <listener-name>
 ```
 
 `/listen` registers the session and uses the Stop hook marker so Claude
 can re-enter the listener loop after a turn ends.
 
-## Start a verifier
+## Start a reviewer/tester
 
 Use this when one agent should inspect another agent's work from a
 separate context.
@@ -74,7 +74,7 @@ separate context.
 ```text
 Use agent-bus.
 
-Register yourself as `codex-verifier-agent-bus` with capabilities:
+Register yourself as `<reviewer-name>` with capabilities:
 `tests`, `verification`, `regression`, `review`.
 
 Use `replace: true`.
@@ -84,66 +84,56 @@ the actual project files, run relevant tests, report findings through
 agent-bus on the same thread, then keep listening with inbox(wait_s=110).
 ```
 
-## Use Codex as manager for an existing web app
+## Use one session as coordinator for an existing project
 
-Start Codex in the web app repo root and paste:
+Start the coordinating agent in the project root and adapt this
+template:
 
 ```text
-You are webapp-manager for this repo. Use agent-bus as the coordination layer.
+You are <coordinator-name> for this repo. Use agent-bus as the coordination layer.
 
-Register as webapp-manager with role pm, area "*", capabilities
-["planning","coordination","review","qa"], replace true.
+Register as <coordinator-name> with role pm, area "*", capabilities
+["planning","coordination"], replace true.
 
 Your job:
 - inspect the project structure
 - create tasks with clear mode, expected_output, and file_scope
-- assign tasks to area workers
+- assign tasks only to agents that match the user’s requested workflow
 - use ask_best when no exact agent is named
-- keep one verifier in test_only mode
+- use test_only/review tasks only when the user wants independent review
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
 - use session_brief at start and final_report before commit/push
-- do not let workers edit outside their file_scope
+- do not let agents edit outside their assigned file_scope/edit_scope
 - do not push/deploy unless I explicitly approve
 
 First call directory and session_brief, then tell me who is available
 and what the next task should be.
 ```
 
-Frontend worker:
+Area worker:
 
 ```text
 Use agent-bus.
 
-Register yourself as webapp-frontend with role worker, area frontend,
-capabilities react, typescript, css, ui, replace true.
+Register yourself as <worker-name> with role worker, area <area>,
+capabilities <capability-list>, replace true.
 
 Listen for assigned tasks. Only edit files inside the task file_scope.
 Reply with Summary, Files changed, Risks, and Tests.
 ```
 
-Backend worker:
+Reviewer/tester:
 
 ```text
 Use agent-bus.
 
-Register yourself as webapp-backend with role worker, area backend,
-capabilities node, api, database, auth, replace true.
+Register yourself as <reviewer-name> with role reviewer, area "*",
+capabilities <capability-list>, replace true.
 
-Listen for assigned tasks. Only edit files inside the task file_scope.
-Reply with Summary, Files changed, Risks, and Tests.
-```
-
-Verifier:
-
-```text
-Use agent-bus.
-
-Register yourself as webapp-verifier with role verifier, area "*",
-capabilities test, review, qa, replace true.
-
-Do not edit implementation files. Review diffs, run tests, report bugs
-and risks. Prefer task mode test_only.
+Follow the task mode. For test_only/review tasks, inspect changes, run
+relevant checks, and report bugs and risks without implementation edits
+unless the user explicitly changes the task.
 ```
 
 ## Naming convention
@@ -154,14 +144,12 @@ Use:
 <tool>-<role>-<project>
 ```
 
-Good names:
+Good name shapes:
 
 ```text
-codex-builder-agent-bus
-claude-reviewer-agent-bus
-codex-verifier-vorec
-claude-docs-bgai
-cursor-frontend-vorec
+<tool>-<role>-<project>
+<project>-<area>-<role>
+<project>-reviewer-1
 ```
 
 Avoid vague names:
@@ -185,7 +173,7 @@ Use tags that describe what the agent should be asked to do:
 ```text
 typescript, cli, tests, implementation
 review, architecture, verification
-react, css, frontend
+tests, review, docs
 postgres, supabase, sql
 security, qa, regression
 ```
@@ -209,7 +197,7 @@ Use it for stable single-session identities:
 
 ```js
 register({
-  name: "claude-reviewer-agent-bus",
+  name: "<reviewer-name>",
   capabilities: ["review", "verification"],
   replace: true
 })
@@ -223,9 +211,9 @@ Avoid `replace: true` when multiple live workers should run at the same
 time. Give each worker a unique name:
 
 ```text
-claude-reviewer-agent-bus-1
-claude-reviewer-agent-bus-2
-codex-verifier-agent-bus-1
+<project>-reviewer-1
+<project>-reviewer-2
+<project>-worker-1
 ```
 
 ## Reusable template

@@ -81,8 +81,8 @@ console.log("agent-bus smoke tests");
 console.log(`tmpdir: ${tmp}`);
 
 await test("register + whois", () => {
-  register({ name: "alice", capabilities: ["frontend"] });
-  register({ name: "bob", capabilities: ["backend"] });
+  register({ name: "alice", capabilities: ["area-a"] });
+  register({ name: "bob", capabilities: ["area-b"] });
   const list = whois();
   assert.equal(list.length, 2);
   const names = list.map((a) => a.name).sort();
@@ -97,8 +97,8 @@ await test("register without replace on active name fails", () => {
 });
 
 await test("register with replace succeeds", () => {
-  const a = register({ name: "alice", capabilities: ["frontend", "ui"], replace: true });
-  assert.deepEqual(a.capabilities, ["frontend", "ui"]);
+  const a = register({ name: "alice", capabilities: ["area-a", "ui"], replace: true });
+  assert.deepEqual(a.capabilities, ["area-a", "ui"]);
 });
 
 await test("agent sleep and wake update work status", () => {
@@ -325,32 +325,32 @@ await test("ack: expired claim redelivers the message", async () => {
 });
 
 await test("subscribe + send_channel fans out to subscribers", () => {
-  register({ name: "carol", capabilities: ["frontend"] });
-  register({ name: "dave", capabilities: ["frontend"] });
-  subscribe({ agent: "carol", channel: "frontend-team" });
-  subscribe({ agent: "dave", channel: "frontend-team" });
+  register({ name: "carol", capabilities: ["tests"] });
+  register({ name: "dave", capabilities: ["tests"] });
+  subscribe({ agent: "carol", channel: "team-updates" });
+  subscribe({ agent: "dave", channel: "team-updates" });
 
-  const list = subscribers("frontend-team");
+  const list = subscribers("team-updates");
   assert.deepEqual(list.sort(), ["carol", "dave"]);
 
-  const sent = sendChannel({ from: "alice", channel: "frontend-team", content: "standup at 10" });
+  const sent = sendChannel({ from: "alice", channel: "team-updates", content: "standup at 10" });
   assert.equal(sent.length, 2);
   for (const m of sent) {
-    assert.equal(m.channel, "frontend-team");
+    assert.equal(m.channel, "team-updates");
     assert.equal(m.content, "standup at 10");
   }
 });
 
 await test("send_channel excludes the sender even if they are subscribed", () => {
-  subscribe({ agent: "alice", channel: "frontend-team" });
-  const sent = sendChannel({ from: "alice", channel: "frontend-team", content: "no self echo" });
+  subscribe({ agent: "alice", channel: "team-updates" });
+  const sent = sendChannel({ from: "alice", channel: "team-updates", content: "no self echo" });
   const recipients = sent.map((m) => m.to_agent).sort();
   assert.deepEqual(recipients, ["carol", "dave"]);
 });
 
 await test("unsubscribe removes the agent from the channel", () => {
-  unsubscribe({ agent: "dave", channel: "frontend-team" });
-  assert.deepEqual(subscribers("frontend-team").sort(), ["alice", "carol"]);
+  unsubscribe({ agent: "dave", channel: "team-updates" });
+  assert.deepEqual(subscribers("team-updates").sort(), ["alice", "carol"]);
 });
 
 await test("ask_best routes to a capability-matching agent", async () => {
@@ -425,56 +425,56 @@ await test("deriveProject uses git root basename and sanitizes", () => {
 await test("deriveScope reads .agent-bus.json areas from cwd", () => {
   const root = mkdtempSync(join(tmpdir(), "agent bus scoped!"));
   mkdirSync(join(root, ".git"));
-  mkdirSync(join(root, "apps", "ios"), { recursive: true });
+  mkdirSync(join(root, "apps", "area-a"), { recursive: true });
   mkdirSync(join(root, "services", "api"), { recursive: true });
   writeFileSync(
     join(root, ".agent-bus.json"),
     JSON.stringify({
       project: "mobile-suite",
       areas: {
-        ios: ["apps/ios/**"],
-        backend: ["services/api/**"],
+        "area-a": ["apps/area-a/**"],
+        "area-b": ["services/api/**"],
       },
     }),
   );
 
-  assert.deepEqual(deriveScope(join(root, "apps", "ios", "Sources")), {
+  assert.deepEqual(deriveScope(join(root, "apps", "area-a", "Sources")), {
     project: "mobile-suite",
-    area: "ios",
+    area: "area-a",
   });
   assert.deepEqual(deriveScope(join(root, "services", "api")), {
     project: "mobile-suite",
-    area: "backend",
+    area: "area-b",
   });
 
   rmSync(root, { recursive: true, force: true });
 });
 
 await test("deriveScope supports direct area for separated project folders", () => {
-  const frontend = mkdtempSync(join(tmpdir(), "shop frontend"));
-  const backend = mkdtempSync(join(tmpdir(), "shop backend"));
-  mkdirSync(join(frontend, ".git"));
-  mkdirSync(join(backend, ".git"));
+  const areaA = mkdtempSync(join(tmpdir(), "shop area-a"));
+  const areaB = mkdtempSync(join(tmpdir(), "shop area-b"));
+  mkdirSync(join(areaA, ".git"));
+  mkdirSync(join(areaB, ".git"));
   writeFileSync(
-    join(frontend, ".agent-bus.json"),
-    JSON.stringify({ project: "shop", area: "frontend" }),
+    join(areaA, ".agent-bus.json"),
+    JSON.stringify({ project: "shop", area: "area-a" }),
   );
   writeFileSync(
-    join(backend, ".agent-bus.json"),
-    JSON.stringify({ project: "shop", area: "backend" }),
+    join(areaB, ".agent-bus.json"),
+    JSON.stringify({ project: "shop", area: "area-b" }),
   );
 
-  assert.deepEqual(deriveScope(frontend), {
+  assert.deepEqual(deriveScope(areaA), {
     project: "shop",
-    area: "frontend",
+    area: "area-a",
   });
-  assert.deepEqual(deriveScope(backend), {
+  assert.deepEqual(deriveScope(areaB), {
     project: "shop",
-    area: "backend",
+    area: "area-b",
   });
 
-  rmSync(frontend, { recursive: true, force: true });
-  rmSync(backend, { recursive: true, force: true });
+  rmSync(areaA, { recursive: true, force: true });
+  rmSync(areaB, { recursive: true, force: true });
 });
 
 await test("project: register, whois, send, recent, and messagesSince scope", () => {
@@ -514,29 +514,29 @@ await test("project: register, whois, send, recent, and messagesSince scope", ()
 });
 
 await test("area: register, messages, ask_best, and tasks stay in lane", async () => {
-  register({ name: "area-asker", project: "app", area: "ios" });
-  register({ name: "area-ios", project: "app", area: "ios", capabilities: ["build"] });
-  register({ name: "area-backend", project: "app", area: "backend", capabilities: ["build"] });
+  register({ name: "area-asker", project: "app", area: "area-a" });
+  register({ name: "area-area-a", project: "app", area: "area-a", capabilities: ["build"] });
+  register({ name: "area-area-b", project: "app", area: "area-b", capabilities: ["build"] });
   register({ name: "area-manager", project: "app", area: "pm", capabilities: ["plan"] });
 
-  const iosMsg = send({ from: "area-ios", to: "area-manager", content: "ios update" });
-  const backendMsg = send({ from: "area-backend", to: "area-manager", content: "backend update" });
-  assert.equal(iosMsg.area, "ios");
-  assert.equal(backendMsg.area, "backend");
+  const areaAMsg = send({ from: "area-area-a", to: "area-manager", content: "area-a update" });
+  const areaBMsg = send({ from: "area-area-b", to: "area-manager", content: "area-b update" });
+  assert.equal(areaAMsg.area, "area-a");
+  assert.equal(areaBMsg.area, "area-b");
 
-  const iosWhois = whois({ project: "app", area: "ios" }).map((a) => a.name);
-  assert.ok(iosWhois.includes("area-ios"));
-  assert.ok(!iosWhois.includes("area-backend"));
+  const areaAWhois = whois({ project: "app", area: "area-a" }).map((a) => a.name);
+  assert.ok(areaAWhois.includes("area-area-a"));
+  assert.ok(!areaAWhois.includes("area-area-b"));
 
-  const iosRecent = recentMessages({ project: "app", area: "ios", limit: 50 }).map((m) => m.id);
-  assert.ok(iosRecent.includes(iosMsg.id));
-  assert.ok(!iosRecent.includes(backendMsg.id));
+  const areaARecent = recentMessages({ project: "app", area: "area-a", limit: 50 }).map((m) => m.id);
+  assert.ok(areaARecent.includes(areaAMsg.id));
+  assert.ok(!areaARecent.includes(areaBMsg.id));
 
   const replier = setTimeout(async () => {
-    const pending = await inbox({ agent: "area-ios" });
+    const pending = await inbox({ agent: "area-area-a" });
     const askMsg = pending.find((m) => m.kind === "ask");
     assert.ok(askMsg, "expected area-scoped ask");
-    reply({ from: "area-ios", ask_id: askMsg.id, answer: "ios build answer" });
+    reply({ from: "area-area-a", ask_id: askMsg.id, answer: "area-a build answer" });
   }, 200);
 
   const answer = await askBest({
@@ -546,7 +546,7 @@ await test("area: register, messages, ask_best, and tasks stay in lane", async (
     timeout_s: 5,
   });
   clearTimeout(replier);
-  assert.equal(answer.from_agent, "area-ios");
+  assert.equal(answer.from_agent, "area-area-a");
 
   await assert.rejects(
     () =>
@@ -559,22 +559,22 @@ await test("area: register, messages, ask_best, and tasks stay in lane", async (
     (e: unknown) =>
       e instanceof BusError &&
       e.code === "UNKNOWN_AGENT" &&
-      e.message.includes("area 'ios'") &&
+      e.message.includes("area 'area-a'") &&
       e.message.includes('area="*"'),
   );
 
-  const iosTask = createTask({ requested_by: "area-ios", title: "ios task" });
-  const backendTask = createTask({ requested_by: "area-backend", title: "backend task" });
-  assert.equal(iosTask.area, "ios");
-  assert.equal(backendTask.area, "backend");
+  const areaATask = createTask({ requested_by: "area-area-a", title: "area-a task" });
+  const areaBTask = createTask({ requested_by: "area-area-b", title: "area-b task" });
+  assert.equal(areaATask.area, "area-a");
+  assert.equal(areaBTask.area, "area-b");
 
-  const iosTasks = listTasks({ project: "app", area: "ios", include_terminal: true }).map((t) => t.id);
-  assert.ok(iosTasks.includes(iosTask.id));
-  assert.ok(!iosTasks.includes(backendTask.id));
+  const areaATasks = listTasks({ project: "app", area: "area-a", include_terminal: true }).map((t) => t.id);
+  assert.ok(areaATasks.includes(areaATask.id));
+  assert.ok(!areaATasks.includes(areaBTask.id));
 
   const allAreaTasks = listTasks({ project: "app", area: PROJECT_WILDCARD, include_terminal: true }).map((t) => t.id);
-  assert.ok(allAreaTasks.includes(iosTask.id));
-  assert.ok(allAreaTasks.includes(backendTask.id));
+  assert.ok(allAreaTasks.includes(areaATask.id));
+  assert.ok(allAreaTasks.includes(areaBTask.id));
 });
 
 await test("project: ask_best is scoped and fails loud for wrong project", async () => {
@@ -668,14 +668,14 @@ await test("tasks: create + get round-trip", () => {
 });
 
 await test("tasks: capability requirements, assign, and claim_best", () => {
-  register({ name: "task-rust", capabilities: ["rust"], replace: true, project: "taskp", area: "backend" });
-  register({ name: "task-js", capabilities: ["js"], replace: true, project: "taskp", area: "backend" });
+  register({ name: "task-rust", capabilities: ["rust"], replace: true, project: "taskp", area: "area-b" });
+  register({ name: "task-js", capabilities: ["js"], replace: true, project: "taskp", area: "area-b" });
   const t = createTask({
     requested_by: "task-rust",
     title: "rust task",
     required_capability: "rust",
     project: "taskp",
-    area: "backend",
+    area: "area-b",
   });
   assert.equal(t.required_capability, "rust");
   assert.throws(
@@ -717,9 +717,9 @@ await test("tasks: manager checklist fields update and final report uses review 
 });
 
 await test("tasks: scope conflicts block overlapping active edits unless allowed", () => {
-  register({ name: "scope-pm", project: "scope", area: "frontend", replace: true });
-  register({ name: "scope-a", project: "scope", area: "frontend", replace: true });
-  register({ name: "scope-b", project: "scope", area: "frontend", replace: true });
+  register({ name: "scope-pm", project: "scope", area: "area-a", replace: true });
+  register({ name: "scope-a", project: "scope", area: "area-a", replace: true });
+  register({ name: "scope-b", project: "scope", area: "area-a", replace: true });
   const first = createTask({
     requested_by: "scope-pm",
     title: "edit auth form",
@@ -729,7 +729,7 @@ await test("tasks: scope conflicts block overlapping active edits unless allowed
 
   const conflicts = checkScopeConflicts({
     project: "scope",
-    area: "frontend",
+    area: "area-a",
     file_scope: ["src/components/auth/LoginForm.tsx"],
   });
   assert.equal(conflicts.length, 1);
@@ -823,8 +823,8 @@ await test("tasks: handoff records pinned memory and reassigns", () => {
 });
 
 await test("project board: summarizes review and pinned risks", () => {
-  register({ name: "board-pm", project: "boardp", area: "frontend", replace: true });
-  register({ name: "board-worker", project: "boardp", area: "frontend", replace: true });
+  register({ name: "board-pm", project: "boardp", area: "area-a", replace: true });
+  register({ name: "board-worker", project: "boardp", area: "area-a", replace: true });
   const task = createTask({
     requested_by: "board-pm",
     title: "board review task",
@@ -837,25 +837,25 @@ await test("project board: summarizes review and pinned risks", () => {
     kind: "risk",
     content: "Board task has pending review.",
     project: "boardp",
-    area: "frontend",
+    area: "area-a",
     pinned: true,
   });
-  const board = projectBoard({ project: "boardp", area: "frontend" });
+  const board = projectBoard({ project: "boardp", area: "area-a" });
   assert.ok(board.active_tasks.some((row) => row.id === task.id));
   assert.ok(board.waiting_review.some((row) => row.id === task.id));
   assert.ok(board.pinned_risks.some((row) => row.content.includes("pending review")));
 });
 
 await test("wait_for_agents reports ready, stale, missing, and wrong scope", async () => {
-  register({ name: "roster-ready", project: "roster", area: "frontend", replace: true });
-  register({ name: "roster-wrong", project: "other", area: "frontend", replace: true });
-  register({ name: "roster-stale", project: "roster", area: "frontend", replace: true });
+  register({ name: "roster-ready", project: "roster", area: "area-a", replace: true });
+  register({ name: "roster-wrong", project: "other", area: "area-a", replace: true });
+  register({ name: "roster-stale", project: "roster", area: "area-a", replace: true });
   getDb().prepare("UPDATE agents SET last_seen = ? WHERE name = ?").run(Date.now() - 10 * 60_000, "roster-stale");
 
   const result = await waitForAgents({
     names: ["roster-ready", "roster-wrong", "roster-stale", "roster-missing"],
     project: "roster",
-    area: "frontend",
+    area: "area-a",
     timeout_s: 0,
   });
   const globalResult = await waitForAgents({
@@ -887,7 +887,7 @@ await test("tasks: pending assignment is claimed after agent registers", async (
   assert.equal(assigned.pending_assignee, "future-worker");
   assert.equal(assigned.state, "open");
 
-  register({ name: "future-worker", project: "pendingp", area: "frontend", replace: true });
+  register({ name: "future-worker", project: "pendingp", area: "area-a", replace: true });
   const notices = await inbox({ agent: "future-worker" });
   assert.ok(notices.some((msg) => msg.content.includes("pending assignment task")));
   const claimed = claimBestTask({ agent: "future-worker", project: "pendingp", area: "*" });
@@ -897,8 +897,8 @@ await test("tasks: pending assignment is claimed after agent registers", async (
 });
 
 await test("tasks: read scope does not create edit conflicts for verifier", () => {
-  register({ name: "scope-v-pm", project: "scopev", area: "frontend", replace: true });
-  register({ name: "scope-v-worker", project: "scopev", area: "frontend", replace: true });
+  register({ name: "scope-v-pm", project: "scopev", area: "area-a", replace: true });
+  register({ name: "scope-v-worker", project: "scopev", area: "area-a", replace: true });
   register({ name: "scope-v-verifier", project: "scopev", area: "*", role: "verifier", replace: true });
   const editTask = createTask({
     requested_by: "scope-v-pm",
@@ -940,7 +940,7 @@ await test("test results are recorded in final report", () => {
 });
 
 await test("decisions: record and list by scope", () => {
-  register({ name: "decision-pm", project: "dp", area: "backend", replace: true });
+  register({ name: "decision-pm", project: "dp", area: "area-b", replace: true });
   const decision = recordDecision({
     by_agent: "decision-pm",
     decision: "Use task modes for agent permissions",
@@ -948,39 +948,39 @@ await test("decisions: record and list by scope", () => {
     implemented: true,
   });
   assert.equal(decision.project, "dp");
-  assert.equal(decision.area, "backend");
-  const listed = listDecisions({ project: "dp", area: "backend" });
+  assert.equal(decision.area, "area-b");
+  const listed = listDecisions({ project: "dp", area: "area-b" });
   assert.ok(listed.some((row) => row.id === decision.id && row.implemented));
 });
 
 await test("memories: remember and list by scope and metadata", () => {
-  register({ name: "memory-pm", project: "mp", area: "backend", replace: true });
-  register({ name: "memory-worker", project: "mp", area: "backend", replace: true });
+  register({ name: "memory-pm", project: "mp", area: "area-b", replace: true });
+  register({ name: "memory-worker", project: "mp", area: "area-b", replace: true });
   const task = createTask({ requested_by: "memory-pm", title: "memory linked task" });
   const oldMemory = remember({
     by_agent: "memory-pm",
     kind: "handoff",
-    content: "Old backend handoff.",
+    content: "Old area-b handoff.",
   });
   const memory = remember({
     by_agent: "memory-pm",
     agent: "memory-worker",
     kind: "handoff",
-    content: "Worker owns backend memory tests.",
+    content: "Worker owns area-b memory tests.",
     task_id: task.id,
     thread_id: "thread-memory",
     pinned: true,
     supersedes_id: oldMemory.id,
   });
   assert.equal(memory.project, "mp");
-  assert.equal(memory.area, "backend");
+  assert.equal(memory.area, "area-b");
   assert.equal(memory.task_id, task.id);
   assert.equal(memory.pinned, true);
   assert.equal(memory.supersedes_id, oldMemory.id);
 
   const listed = listMemories({
     project: "mp",
-    area: "backend",
+    area: "area-b",
     agent: "memory-worker",
     kind: "handoff",
     task_id: task.id,

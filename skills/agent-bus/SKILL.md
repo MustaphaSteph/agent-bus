@@ -127,10 +127,10 @@ By name still works (`send` / `ask` are direct addressed). `ask_best`,
 project/area. If the user asks broadly ("any reviewer anywhere"), pass
 `project: "*"` and/or `area: "*"` intentionally.
 
-For multi-folder repos, use areas to prevent accidental chatter:
-`backend` helpers should normally route to backend helpers, `ios` to
-ios, `frontend` to frontend. A project manager at the repo root can use
-`area: "*"` to see or route across all areas.
+For multi-folder repos, use areas to prevent accidental chatter. Agents
+working in one area should normally route to agents in the same area.
+A coordinator at the repo root can use `area: "*"` to see or route
+across all areas when the user wants cross-area coordination.
 
 ## Manager workflow defaults
 
@@ -145,7 +145,8 @@ ios, `frontend` to frontend. A project manager at the repo root can use
   `Summary / Files inspected / Findings / Suggested fix / Risks /
   Test plan / Confidence`.
 - Set `file_scope` when multiple agents may edit. Keep ownership
-  disjoint, such as `backend/**`, `ios/**`, `web/**`, or `docs/**`.
+  disjoint and project-specific, such as one glob per component,
+  package, app, service, or docs lane.
 - Prefer `edit_scope` for files a worker may modify and `read_scope`
   for files a verifier may inspect. A broad verifier `read_scope` should
   not block a worker's edit ownership.
@@ -178,14 +179,12 @@ ios, `frontend` to frontend. A project manager at the repo root can use
 - Use `review_gate` and `final_report` before commit/push/deploy
   decisions.
 
-For an existing web app, a strong default team is:
-`webapp-manager` (`role=pm`, `area="*"`), `webapp-frontend`
-(`role=worker`, `area=frontend`), `webapp-backend` (`role=worker`,
-`area=backend`), and `webapp-verifier` (`role=verifier`, `area="*"`).
-The manager should create tasks with `mode`, `expected_output`, and
-`file_scope`; frontend/backend workers should only edit within
-`file_scope`; the verifier should use `test_only` and avoid
-implementation edits.
+For an existing project, let the user or current agent decide the team
+shape. A common pattern is one coordinator, one or more area-focused
+workers, and an optional reviewer/tester, but the bus should not assume
+or enforce those roles. Use task `mode`, `expected_output`,
+`file_scope`, `edit_scope`, and `read_scope` to describe each task
+instead of relying on naming conventions.
 
 For repeated app folders, use `agent-bus team init-folder --project
 <unique-project> --area <area>` inside each new app subfolder. This

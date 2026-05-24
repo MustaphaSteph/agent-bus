@@ -27,10 +27,10 @@ register({
 within last 60s and `replace` not passed).
 
 ```js
-register({ name: "frontend-bot", capabilities: ["react", "css"] })
-// → { name: "frontend-bot", capabilities: ["react","css"],
+register({ name: "worker-a", capabilities: ["tests", "review"] })
+// → { name: "worker-a", capabilities: ["tests","review"],
 //     registered_at: ..., last_seen: ..., paused: false,
-//     project: "agent-bus", area: "frontend" }
+//     project: "agent-bus", area: "area-a" }
 ```
 
 ## send
@@ -198,8 +198,8 @@ subscribe({
 Idempotent — re-subscribing updates `subscribed_at`.
 
 ```js
-subscribe({ agent: "carol", channel: "frontend-team" })
-// → { channel: "frontend-team", agent: "carol", subscribed_at: ... }
+subscribe({ agent: "worker-a", channel: "team-updates" })
+// → { channel: "team-updates", agent: "worker-a", subscribed_at: ... }
 ```
 
 ## unsubscribe
@@ -245,7 +245,7 @@ subscribers({ channel: string }) → string[]
 ```
 
 ```js
-subscribers({ channel: "frontend-team" }) // → ["alice","carol","dave"]
+subscribers({ channel: "team-updates" }) // → ["worker-a","worker-b"]
 ```
 
 ## thread
@@ -302,9 +302,9 @@ wait_for_agents({
 }
 ```
 
-Use this when a PM knows the intended agents, such as
-`frontend-worker`, `backend-worker`, and `verifier`, but some sessions
-may not have registered yet.
+Use this when a coordinator knows the intended agents, such as
+`worker-a`, `worker-b`, and `reviewer`, but some sessions may not have
+registered yet.
 
 ## set_agent_status / sleep_agent / wake_agent
 

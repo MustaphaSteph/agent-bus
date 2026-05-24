@@ -189,18 +189,18 @@ directory({ area: "*" })
 Set agent state explicitly:
 
 ```
-set_agent_status({ agent: "ios-worker", status: "working" })
-sleep_agent({ agent: "backend-worker" })
-wake_agent({ agent: "backend-worker" })
+set_agent_status({ agent: "<agent-name>", status: "working" })
+sleep_agent({ agent: "<agent-name>" })
+wake_agent({ agent: "<agent-name>" })
 ```
 
 Record durable decisions:
 
 ```
 record_decision({
-  by_agent: "codex-project-manager",
-  decision: "Verifier sessions use test_only mode and do not edit files",
-  rationale: "keeps implementation and review responsibilities separate",
+  by_agent: "<agent-name>",
+  decision: "<decision>",
+  rationale: "<why this was chosen>",
   implemented: true,
 })
 ```
@@ -209,9 +209,9 @@ Record durable memories and generate handoffs:
 
 ```
 remember({
-  by_agent: "codex-project-manager",
+  by_agent: "<agent-name>",
   kind: "handoff",
-  content: "Frontend worker owns editor polish; verifier owns test-only review",
+  content: "<handoff summary for the next session>",
   pinned: true,
 })
 

@@ -27,8 +27,8 @@ function run(args: string[]): Promise<{ stdout: string; code: number }> {
 console.log("agent-bus cross-process smoke test");
 console.log(`tmpdir: ${tmp}`);
 
-await run(["register", "--name", "alice", "--capabilities", "frontend", "--replace"]);
-await run(["register", "--name", "bob", "--capabilities", "backend", "--replace"]);
+await run(["register", "--name", "alice", "--capabilities", "area-a", "--replace"]);
+await run(["register", "--name", "bob", "--capabilities", "area-b", "--replace"]);
 
 await Promise.all([
   run(["inject", "--from", "alice", "--to", "bob", "msg-1"]),

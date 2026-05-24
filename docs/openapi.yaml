@@ -69,8 +69,8 @@ paths:
                   name: alpha
               with-capabilities:
                 value:
-                  name: frontend-bot
-                  capabilities: [react, css, tailwind]
+                  name: worker-a
+                  capabilities: [tests, review]
                   project: agent-bus
               replace:
                 value:
@@ -320,7 +320,7 @@ paths:
               join:
                 value:
                   agent: carol
-                  channel: frontend-team
+                  channel: team-updates
       responses:
         '200':
           description: The subscription record.
@@ -348,7 +348,7 @@ paths:
               leave:
                 value:
                   agent: carol
-                  channel: frontend-team
+                  channel: team-updates
       responses:
         '200':
           description: Acknowledgement.
@@ -406,7 +406,7 @@ paths:
             examples:
               list:
                 value:
-                  channel: frontend-team
+                  channel: team-updates
       responses:
         '200':
           description: The list of agent names.
@@ -477,7 +477,7 @@ paths:
               scoped:
                 value:
                   project: agent-bus
-                  area: frontend
+                  area: area-a
               global:
                 value:
                   project: "*"
@@ -885,7 +885,7 @@ components:
       maxLength: 64
       pattern: '^[a-zA-Z0-9_.:#-]+$'
       description: Channel name. Slightly looser pattern than agent names — allows `:` and `#`.
-      example: frontend-team
+      example: team-updates
 
     ThreadId:
       type: string
@@ -914,7 +914,7 @@ components:
       maxLength: 64
       pattern: '^[a-zA-Z0-9_.-]+$'
       description: Area scope derived from `.agent-bus.json` or supplied explicitly.
-      example: frontend
+      example: area-a
 
     AreaFilter:
       oneOf:

@@ -60,7 +60,7 @@ a file and a process.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
-- **Project and area isolation.** Sessions default to the repo-derived project, and can derive an `area` like `ios` or `backend` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
+- **Project and area isolation.** Sessions default to the repo-derived project, and can derive a project-specific `area` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), wait for expected rosters, assign pending work before workers register, split read scope from edit scope, require acknowledgements, gate completion on review, record test evidence, hand off work with pinned memory, and generate final merge-readiness reports.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
 
@@ -274,14 +274,14 @@ same app:
 
 ```bash
 agent-bus board
-agent-bus wait-for-agents --names webapp-frontend,webapp-backend,webapp-verifier --area all
-agent-bus scope-conflicts --files "frontend/**,shared/ui/**"
-agent-bus ack-task 12 --agent webapp-frontend --response claimed
-agent-bus review-task 12 --reviewer webapp-verifier --approve
-agent-bus test-result --by webapp-verifier --task 12 --command "npm test" --status passed --summary "suite passed"
-agent-bus handoff 12 --from webapp-frontend --to webapp-backend \
-  --reason "frontend done; backend retry tests remain" \
-  --memory "Frontend reset form is complete; backend owns retry tests next."
+agent-bus wait-for-agents --names agent-a,agent-b,reviewer --area all
+agent-bus scope-conflicts --files "package-a/**,shared/**"
+agent-bus ack-task 12 --agent agent-a --response claimed
+agent-bus review-task 12 --reviewer reviewer --approve
+agent-bus test-result --by reviewer --task 12 --command "npm test" --status passed --summary "suite passed"
+agent-bus handoff 12 --from agent-a --to agent-b \
+  --reason "agent-a stopping; remaining checks need another session" \
+  --memory "Task handoff summary for the next session."
 ```
 
 Optional area config at the repo root:
@@ -290,9 +290,9 @@ Optional area config at the repo root:
 {
   "project": "my-app",
   "areas": {
-    "ios": ["ios/**"],
-    "backend": ["backend/**", "api/**"],
-    "frontend": ["frontend/**", "web/**"]
+    "area-a": ["area-a/**"],
+    "area-b": ["area-b/**"],
+    "docs": ["docs/**"]
   }
 }
 ```
@@ -303,14 +303,14 @@ For separated folders that belong to the same product, use the same
 ```json
 {
   "project": "shop",
-  "area": "frontend"
+  "area": "area-a"
 }
 ```
 
 ```json
 {
   "project": "shop",
-  "area": "backend"
+  "area": "area-b"
 }
 ```
 
@@ -328,16 +328,16 @@ agent-bus team init-folder --project app-one --area app
 That writes `{"project":"app-one","area":"app"}`. The agents or your
 own prompts decide the team structure and behavior.
 
-### Use Codex as a project manager
+### Use one session as a coordinator
 
-In an existing web app, open Codex at the repo root and make it the
-manager:
+In an existing project, open one AI session at the repo root and make it
+the coordinator:
 
 ```text
-You are webapp-manager for this repo. Use agent-bus as the coordination layer.
+You are <coordinator-name> for this repo. Use agent-bus as the coordination layer.
 
-Register as webapp-manager with role pm, area "*", capabilities
-["planning","coordination","review","qa"], replace true.
+Register as <coordinator-name> with role pm, area "*", capabilities
+["planning","coordination"], replace true.
 
 Your job:
 - inspect the project structure
@@ -348,7 +348,7 @@ Your job:
 - assign tasks to area workers; use allow_pending_agent when the worker session has not registered yet
 - check project_board and scope conflicts before overlapping edits
 - use ask_best when no exact agent is named
-- keep one verifier in test_only mode
+- create review/test-only tasks only when the user wants independent review
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
 - record progress and phase changes with record_task_event
@@ -356,7 +356,7 @@ Your job:
 - record build/lint/test evidence with record_test_result
 - use session_brief at start and review_gate/final_report before commit/push
 - cancel superseded work with cancel_task instead of leaving it active
-- do not let workers edit outside their file_scope
+- do not let agents edit outside their file_scope/edit_scope
 - do not push/deploy unless I explicitly approve
 
 First call directory and session_brief, then tell me who is available
@@ -366,24 +366,25 @@ and what the next task should be.
 Start workers in Claude Code, Codex, or another MCP-capable tool:
 
 ```text
-Register yourself as webapp-frontend with role worker, area frontend,
-capabilities react, typescript, css, ui, replace true. Listen for
+Register yourself as <worker-name> with role worker, area <area>,
+capabilities <capability-list>, replace true. Listen for
 assigned tasks. Only edit files inside the task file_scope. Reply with
 Summary, Files changed, Risks, and Tests.
 ```
 
 ```text
-Register yourself as webapp-verifier with role verifier, area "*",
-capabilities test, review, qa, replace true. Do not edit implementation
-files. Review diffs, run tests, report bugs and risks.
+Register yourself as <reviewer-name> with role reviewer, area "*",
+capabilities <capability-list>, replace true. Follow the task mode. For
+test_only/review tasks, inspect changes and report bugs and risks
+without implementation edits unless explicitly reassigned.
 ```
 
 Then tell the manager things like:
 
 ```text
-Create frontend, backend, and verifier tasks for password reset.
-Assign frontend UI to webapp-frontend and backend API to webapp-backend.
-Ask the verifier to review the current diff.
+Create scoped tasks for this goal.
+Assign each task to the matching available agent.
+Ask the reviewer to review the current diff.
 Record a pinned handoff memory for what remains.
 ```
 

@@ -68,7 +68,7 @@ Errors: `INVALID_INPUT`, `NAME_TAKEN`.
 
 Example:
 ```
-register({ name: "frontend-bot", capabilities: ["react","css"] })
+register({ name: "worker-a", capabilities: ["tests","review"] })
 ```
 
 ### send
