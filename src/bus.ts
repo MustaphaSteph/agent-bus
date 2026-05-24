@@ -26,6 +26,7 @@ export type MemoryKind = "summary" | "handoff" | "risk" | "todo" | "fact" | "blo
 export type TaskReviewState = "none" | "pending" | "approved" | "changes_requested";
 export type TaskAckResponse = "claimed" | "declined" | "blocked";
 export type TestResultStatus = "passed" | "failed" | "skipped";
+export type TaskEventType = "note" | "phase" | "progress" | "log" | "result" | "cancel";
 
 export const PROJECT_WILDCARD = "*";
 export const AREA_WILDCARD = PROJECT_WILDCARD;
@@ -41,6 +42,7 @@ export interface Agent {
   role: AgentRole | null;
   routing_weight: number;
   status: AgentStatus;
+  session_id: string | null;
 }
 
 export interface Message {
@@ -80,6 +82,7 @@ interface AgentRow {
   role: AgentRole | null;
   routing_weight: number;
   status: AgentStatus;
+  session_id: string | null;
 }
 
 interface MessageRow {
@@ -114,6 +117,7 @@ function toAgent(row: AgentRow): Agent {
     role: row.role,
     routing_weight: row.routing_weight,
     status: row.status,
+    session_id: row.session_id,
   };
 }
 
@@ -200,6 +204,20 @@ function validateTestResultStatus(status: TestResultStatus | undefined): void {
   }
 }
 
+function validateTaskEventType(eventType: TaskEventType | undefined): void {
+  if (eventType === undefined) return;
+  if (!["note", "phase", "progress", "log", "result", "cancel"].includes(eventType)) {
+    throw new BusError("INVALID_INPUT", "event_type must be note, phase, progress, log, result, or cancel");
+  }
+}
+
+function validateSessionId(sessionId: string | null | undefined): void {
+  if (sessionId === undefined || sessionId === null) return;
+  if (typeof sessionId !== "string" || sessionId.length === 0 || sessionId.length > 128) {
+    throw new BusError("INVALID_INPUT", "session_id must be 1-128 chars");
+  }
+}
+
 function validateMemoryKind(kind: string): void {
   if (typeof kind !== "string" || kind.length === 0 || kind.length > 64) {
     throw new BusError("INVALID_INPUT", "kind must be 1-64 chars");
@@ -254,6 +272,7 @@ export interface RegisterOptions {
   role?: AgentRole | null;
   routing_weight?: number;
   status?: AgentStatus;
+  session_id?: string | null;
 }
 
 export function register(opts: RegisterOptions): Agent {
@@ -262,6 +281,7 @@ export function register(opts: RegisterOptions): Agent {
   validateArea(opts.area);
   validateRole(opts.role);
   validateAgentStatus(opts.status);
+  validateSessionId(opts.session_id);
   if (opts.routing_weight !== undefined && !Number.isFinite(opts.routing_weight)) {
     throw new BusError("INVALID_INPUT", "routing_weight must be a number");
   }
@@ -287,9 +307,10 @@ export function register(opts: RegisterOptions): Agent {
   const role = opts.role ?? null;
   const routingWeight = Math.trunc(opts.routing_weight ?? 0);
   const status = opts.status ?? "idle";
+  const sessionId = opts.session_id ?? null;
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, role, routing_weight, status)
-       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @role, @routingWeight, @status)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, role, routing_weight, status, session_id)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @role, @routingWeight, @status, @sessionId)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
@@ -299,8 +320,9 @@ export function register(opts: RegisterOptions): Agent {
        area = excluded.area,
        role = excluded.role,
        routing_weight = excluded.routing_weight,
-       status = excluded.status`,
-  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, role, routingWeight, status });
+       status = excluded.status,
+       session_id = excluded.session_id`,
+  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, role, routingWeight, status, sessionId });
 
   const agent = requireAgent(opts.name);
   notifyPendingAssignments(agent.name);
@@ -1053,6 +1075,8 @@ export interface Task {
   review_notes: string | null;
   changed_files: string[];
   pending_assignee: string | null;
+  phase: string | null;
+  session_id: string | null;
   scope_conflicts?: ScopeConflict[];
   stale?: boolean;
 }
@@ -1095,6 +1119,8 @@ interface TaskRow {
   review_notes: string | null;
   changed_files: string;
   pending_assignee: string | null;
+  phase: string | null;
+  session_id: string | null;
 }
 
 function readTaskStaleThresholdMs(): number {
@@ -1161,6 +1187,8 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     review_notes: row.review_notes,
     changed_files: JSON.parse(row.changed_files) as string[],
     pending_assignee: row.pending_assignee,
+    phase: row.phase,
+    session_id: row.session_id,
   };
   if (
     lastSeenByAgent &&
@@ -1333,6 +1361,8 @@ export interface CreateTaskOptions {
   ack_required?: boolean;
   review_required?: boolean;
   changed_files?: string[];
+  phase?: string | null;
+  session_id?: string | null;
   allow_conflicts?: boolean;
 }
 
@@ -1365,6 +1395,7 @@ export function createTask(opts: CreateTaskOptions): Task {
   if (opts.changed_files !== undefined && !opts.changed_files.every((value) => typeof value === "string")) {
     throw new BusError("INVALID_INPUT", "changed_files must be an array of strings");
   }
+  validateSessionId(opts.session_id);
   const requester = requireAgent(opts.requested_by);
   heartbeat(opts.requested_by);
 
@@ -1390,6 +1421,7 @@ export function createTask(opts: CreateTaskOptions): Task {
   const rawFileScope = opts.file_scope ?? [];
   const rawEditScope = opts.edit_scope ?? ((mode === "edit_files" || mode === "propose_patch") ? rawFileScope : []);
   const rawReadScope = opts.read_scope ?? rawFileScope;
+  const sessionId = opts.session_id !== undefined ? opts.session_id : requester.session_id;
   if (opts.allow_conflicts !== true && (mode === "edit_files" || mode === "propose_patch")) {
     assertNoScopeConflicts(rawEditScope, project, area);
   }
@@ -1401,8 +1433,8 @@ export function createTask(opts: CreateTaskOptions): Task {
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, review_state, changed_files)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, review_state, changed_files, phase, session_id)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -1430,6 +1462,8 @@ export function createTask(opts: CreateTaskOptions): Task {
       reviewRequired ? 1 : 0,
       reviewRequired ? "pending" : "none",
       changedFiles,
+      opts.phase ?? null,
+      sessionId,
     );
 
   const task = toTask(getTaskRow(info.lastInsertRowid as number));
@@ -1527,6 +1561,8 @@ export interface UpdateTaskOptions {
   reviewed_by?: string | null;
   review_notes?: string | null;
   changed_files?: string[];
+  phase?: string | null;
+  session_id?: string | null;
   allow_conflicts?: boolean;
 }
 
@@ -1631,6 +1667,15 @@ export function updateTask(opts: UpdateTaskOptions): Task {
   if (opts.manager_reviewed !== undefined) {
     sets.push("manager_reviewed = ?");
     params.push(opts.manager_reviewed ? 1 : 0);
+  }
+  if (opts.phase !== undefined) {
+    sets.push("phase = ?");
+    params.push(opts.phase);
+  }
+  if (opts.session_id !== undefined) {
+    validateSessionId(opts.session_id);
+    sets.push("session_id = ?");
+    params.push(opts.session_id);
   }
   if (opts.file_scope !== undefined) {
     if (!opts.file_scope.every((value) => typeof value === "string")) {
@@ -2052,6 +2097,188 @@ export function tasksUpdatedSince(timestamp: number, limit = 100): Task[] {
     .all(timestamp, Math.min(Math.max(limit, 1), 500)) as TaskRow[];
   const seen = lastSeenMap();
   return rows.map((r) => toTask(r, seen));
+}
+
+export interface TaskEvent {
+  id: number;
+  task_id: number;
+  by_agent: string;
+  event_type: TaskEventType;
+  message: string;
+  phase: string | null;
+  metadata: Record<string, unknown>;
+  project: string | null;
+  area: string | null;
+  created_at: number;
+}
+
+interface TaskEventRow {
+  id: number;
+  task_id: number;
+  by_agent: string;
+  event_type: TaskEventType;
+  message: string;
+  phase: string | null;
+  metadata: string;
+  project: string | null;
+  area: string | null;
+  created_at: number;
+}
+
+function toTaskEvent(row: TaskEventRow): TaskEvent {
+  return {
+    ...row,
+    metadata: JSON.parse(row.metadata) as Record<string, unknown>,
+  };
+}
+
+export interface RecordTaskEventOptions {
+  by_agent: string;
+  task_id: number;
+  event_type?: TaskEventType;
+  message: string;
+  phase?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export function recordTaskEvent(opts: RecordTaskEventOptions): TaskEvent {
+  validateName(opts.by_agent);
+  validateTaskEventType(opts.event_type);
+  requireAgent(opts.by_agent);
+  heartbeat(opts.by_agent);
+  const task = getTask(opts.task_id);
+  if (opts.message.trim().length === 0) throw new BusError("INVALID_INPUT", "message must be non-empty");
+  if (opts.phase !== undefined && opts.phase !== null && opts.phase.trim().length === 0) {
+    throw new BusError("INVALID_INPUT", "phase must be non-empty or null");
+  }
+  const eventType = opts.event_type ?? (opts.phase ? "phase" : "note");
+  const metadata = opts.metadata ?? {};
+  if (metadata === null || typeof metadata !== "object" || Array.isArray(metadata)) {
+    throw new BusError("INVALID_INPUT", "metadata must be an object");
+  }
+  const ts = now();
+  const info = getDb()
+    .prepare(
+      `INSERT INTO task_events (task_id, by_agent, event_type, message, phase, metadata, project, area, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(opts.task_id, opts.by_agent, eventType, opts.message, opts.phase ?? null, JSON.stringify(metadata), task.project, task.area, ts);
+  if (opts.phase !== undefined) {
+    getDb().prepare("UPDATE tasks SET phase = ?, updated_at = ? WHERE id = ?").run(opts.phase, ts, opts.task_id);
+  }
+  const row = getDb().prepare("SELECT * FROM task_events WHERE id = ?").get(info.lastInsertRowid) as TaskEventRow;
+  return toTaskEvent(row);
+}
+
+export interface ListTaskEventsOptions {
+  task_id?: number;
+  by_agent?: string;
+  event_type?: TaskEventType;
+  project?: string;
+  area?: string;
+  limit?: number;
+}
+
+export function listTaskEvents(opts: ListTaskEventsOptions = {}): TaskEvent[] {
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) validateProject(opts.project);
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) validateArea(opts.area);
+  validateTaskEventType(opts.event_type);
+  if (opts.by_agent !== undefined) validateName(opts.by_agent);
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.task_id !== undefined) {
+    where.push("task_id = ?");
+    params.push(opts.task_id);
+  }
+  if (opts.by_agent !== undefined) {
+    where.push("by_agent = ?");
+    params.push(opts.by_agent);
+  }
+  if (opts.event_type !== undefined) {
+    where.push("event_type = ?");
+    params.push(opts.event_type);
+  }
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    where.push("project = ?");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    where.push("area = ?");
+    params.push(opts.area);
+  }
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
+  const rows = getDb()
+    .prepare(`SELECT * FROM task_events${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY id DESC LIMIT ?`)
+    .all(...params, limit) as TaskEventRow[];
+  return rows.reverse().map(toTaskEvent);
+}
+
+export interface TaskResult {
+  task: Task;
+  events: TaskEvent[];
+  test_results: TestResult[];
+  memories: Memory[];
+  messages: Message[];
+}
+
+export function taskResult(taskId: number, limit = 100): TaskResult {
+  const task = getTask(taskId);
+  const bounded = Math.min(Math.max(limit, 1), 500);
+  return {
+    task,
+    events: listTaskEvents({ task_id: taskId, limit: bounded }),
+    test_results: listTestResults({ task_id: taskId, limit: bounded }),
+    memories: listMemories({ task_id: taskId, limit: bounded }),
+    messages: threadMessages(task.thread_id, bounded),
+  };
+}
+
+export interface CancelTaskOptions {
+  agent: string;
+  task_id: number;
+  reason?: string | null;
+}
+
+export interface CancelTaskResult {
+  task: Task;
+  event: TaskEvent;
+}
+
+export function cancelTask(opts: CancelTaskOptions): CancelTaskResult {
+  validateName(opts.agent);
+  requireAgent(opts.agent);
+  heartbeat(opts.agent);
+  const row = getTaskRow(opts.task_id);
+  if (row.requested_by !== opts.agent && row.claimed_by !== opts.agent) {
+    throw new BusError("TASK_FORBIDDEN", "only the requester or current holder can cancel a task");
+  }
+  if (TERMINAL_TASK_STATES.includes(row.state)) {
+    throw new BusError("TASK_INVALID_TRANSITION", `task ${opts.task_id} is already in terminal state '${row.state}'`);
+  }
+  const ts = now();
+  getDb()
+    .prepare(
+      `UPDATE tasks
+         SET state = 'canceled', phase = 'canceled', result = COALESCE(?, result), finished_at = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(opts.reason ?? null, ts, ts, opts.task_id);
+  const event = recordTaskEvent({
+    by_agent: opts.agent,
+    task_id: opts.task_id,
+    event_type: "cancel",
+    phase: "canceled",
+    message: opts.reason ?? "Task canceled",
+  });
+  const task = getTask(opts.task_id);
+  if (task.claimed_by && task.claimed_by !== opts.agent) {
+    send({ from: opts.agent, to: task.claimed_by, content: `canceled task #${task.id}: ${task.title}`, thread_id: task.thread_id });
+  }
+  if (task.requested_by !== opts.agent) {
+    send({ from: opts.agent, to: task.requested_by, content: `canceled task #${task.id}: ${task.title}`, thread_id: task.thread_id });
+  }
+  runLocalHook("task.canceled", task);
+  return { task, event };
 }
 
 // ---------------------------------------------------------------------------
@@ -2580,6 +2807,14 @@ export interface FinalReport {
   safe_to_deploy: false;
 }
 
+export interface ReviewGateReport {
+  ok: boolean;
+  blockers: string[];
+  warnings: string[];
+  final_report: FinalReport;
+  board: ProjectBoard;
+}
+
 export function finalReport(opts: ListTasksOptions = {}): FinalReport {
   const tasks = listTasks({ ...opts, include_terminal: true, limit: opts.limit ?? 500 });
   const testResults = listTestResults({ project: opts.project, area: opts.area, limit: 100 });
@@ -2612,5 +2847,27 @@ export function finalReport(opts: ListTasksOptions = {}): FinalReport {
     safe_to_commit: safe,
     safe_to_push: safe,
     safe_to_deploy: false,
+  };
+}
+
+export function reviewGate(opts: ListTasksOptions = {}): ReviewGateReport {
+  const board = projectBoard(opts);
+  const report = finalReport(opts);
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (board.active_tasks.length > 0) blockers.push(`${board.active_tasks.length} active task(s) still running`);
+  if (board.blocked_tasks.length > 0) blockers.push(`${board.blocked_tasks.length} blocked task(s)`);
+  if (board.waiting_review.length > 0) blockers.push(`${board.waiting_review.length} task(s) waiting for review`);
+  if (board.waiting_acknowledgement.length > 0) warnings.push(`${board.waiting_acknowledgement.length} task(s) waiting for acknowledgement`);
+  if (board.stale_tasks.length > 0) warnings.push(`${board.stale_tasks.length} stale task holder(s)`);
+  if (board.scope_conflicts.length > 0) blockers.push(`${board.scope_conflicts.length} edit scope conflict(s)`);
+  if (!report.safe_to_commit) blockers.push("final_report says safe_to_commit=false");
+  if (!report.safe_to_push) blockers.push("final_report says safe_to_push=false");
+  return {
+    ok: blockers.length === 0,
+    blockers,
+    warnings,
+    final_report: report,
+    board,
   };
 }

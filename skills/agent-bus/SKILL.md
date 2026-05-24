@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.8.0
+  - agent-bus-mcp >= 0.9.0
 ---
 
 # agent-bus
@@ -11,8 +11,9 @@ Turn your Claude / Codex / Cursor / Gemini sessions on the same machine
 into a local agent team. Each session registers a name, then you can
 send messages, ask blocking questions, delegate tasks, broadcast to
 channels, route work by capability/role, track agent status, record
-decisions and memories, generate session briefs, and produce merge-readiness reports — all through one
-SQLite file at `~/.agent-bus/bus.db`.
+decisions and memories, record task progress, generate session briefs,
+and produce merge-readiness reports — all through one SQLite file at
+`~/.agent-bus/bus.db`.
 
 This skill is the **coordinator playbook**: when the user speaks
 naturally, you translate their intent into agent-bus tool calls.
@@ -76,11 +77,14 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Review / approve this task" | `submit_review(reviewer=<your name>, task_id=…, approved=…)`; required reviews gate completion |
 | "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
+| "Record progress / update phase" | `record_task_event(by_agent=<your name>, task_id=…, event_type="progress", message=…, phase=…)` |
+| "Show what happened on this task" | `task_result(task_id=…)` and summarize task, events, test evidence, memories, and thread messages |
+| "Cancel this task" | `cancel_task(agent=<your name>, task_id=…, reason=…)` |
 | "Record that tests passed/failed" | `record_test_result(by_agent=<your name>, command=…, status=…)` |
 | "Put <agent> to sleep" / "wake <agent>" | `sleep_agent(agent=…)` / `wake_agent(agent=…)` |
 | "Set <agent> blocked / waiting for review" | `set_agent_status(agent=…, status=…)` |
 | "Record this decision…" | `record_decision(by_agent=<your name>, decision=…, rationale=…)` |
-| "Final merge report" | `final_report()` and render implemented, gaps, risks, tests, and safe-to-commit/push flags |
+| "Final merge report" | `review_gate()` first, then `final_report()`; render blockers, warnings, implemented work, gaps, risks, tests, and safe-to-commit/push flags |
 
 ## When to choose ask vs send
 
@@ -166,7 +170,13 @@ ios, `frontend` to frontend. A project manager at the repo root can use
 - Record explicit build, lint, unit test, browser smoke, and manual
   verification evidence with `record_test_result`; final reports surface
   these rows.
-- Use `final_report` before commit/push/deploy decisions.
+- Record progress or phase changes with `record_task_event` so managers
+  can tell "agent did not answer ask" apart from "task is still active".
+- Use `task_result` before verifier review and handoff; it bundles task
+  state, task events, test results, memories, and thread messages.
+- Use `cancel_task` when work is superseded or intentionally stopped.
+- Use `review_gate` and `final_report` before commit/push/deploy
+  decisions.
 
 For an existing web app, a strong default team is:
 `webapp-manager` (`role=pm`, `area="*"`), `webapp-frontend`
@@ -200,11 +210,11 @@ implementation edits.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 42 MCP tools with input/output shapes
+- `references/tools.md` — the 47 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `assign_task`,
-  `record_decision`, `record_test_result`, `remember`, `session_brief`,
-  `final_report`).
+  `record_decision`, `record_task_event`, `task_result`,
+  `record_test_result`, `remember`, `session_brief`, `review_gate`).
 - `references/patterns.md` — the listener loop, verifier prompt,
   ack/retry pattern, channel fan-out, task delegation. Load when the
   user asks "set up a listener", "make this reliable", "broadcast

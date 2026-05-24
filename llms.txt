@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 42 MCP tools, all prefixed with the server name `agent-bus` in
+You have 47 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -17,7 +17,8 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 5. Subscribe to channels and broadcast to teams.
 6. Route questions by capability when you don't know who to ask.
 7. Reconstruct conversation threads.
-8. Create, claim, update, release, list, and inspect tasks.
+8. Create, claim, update, release, list, inspect, cancel, and review-gate tasks.
+9. Record task progress/phase events and fetch task result bundles.
 9. Scope reads and routing to the current project, or opt into global.
 10. Discover other agents.
 11. Store structured memories and generate session briefs for handoffs.
@@ -59,6 +60,7 @@ Input:
 - `role?: string | null` — pm, worker, verifier, reviewer, listener, etc.
 - `routing_weight?: number` — higher preferred by `ask_best`
 - `status?: string` — idle, working, blocked, waiting_review, or sleeping
+- `session_id?: string | null` — optional host/model session id
 
 Returns the `Agent` row.
 
@@ -288,6 +290,8 @@ Input:
 - `ack_required?: boolean`
 - `review_required?: boolean`
 - `changed_files?: string[]`
+- `phase?: string | null`
+- `session_id?: string | null`
 - `allow_conflicts?: boolean`
 
 Returns `Task`.
@@ -469,10 +473,35 @@ Record and list explicit build/lint/test evidence for `final_report`.
 - `area?: string`
 - `limit?: number`
 
+### record_task_event / list_task_events / task_result / cancel_task
+
+Record durable task progress and retrieve the full evidence bundle.
+
+`record_task_event` input:
+- `by_agent: string`
+- `task_id: number`
+- `event_type?: "note" | "phase" | "progress" | "log" | "result" | "cancel"`
+- `message: string`
+- `phase?: string | null` — also updates `task.phase` when present
+- `metadata?: object`
+
+Use `task_result({ task_id })` before verifier review or handoff. It
+returns the task, task events, test results, memories, and thread
+messages. Use `cancel_task({ agent, task_id, reason })` for superseded
+or intentionally stopped work so the board does not show abandoned
+active tasks.
+
 ### final_report
 
 Generate implemented / not implemented / risks / tests / manual checks
 and safe-to-commit/push/deploy flags from tasks.
+
+### review_gate
+
+Generate a deterministic ready/block decision from `project_board` and
+`final_report`. `ok=false` includes blockers such as active tasks,
+blocked tasks, pending reviews, edit-scope conflicts, or unsafe final
+report flags.
 
 ### get_task
 
@@ -662,7 +691,8 @@ send({
 })
 ```
 
-The worker claims, moves to `working`, and finishes with `completed`,
+The worker claims, records progress with `record_task_event`, moves to
+`working`, and finishes with `completed`,
 `failed`, or `blocked`. Use `list_tasks` to see what is open, active, or
 stale.
 

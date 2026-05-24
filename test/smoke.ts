@@ -10,6 +10,7 @@ const {
   ack,
   acknowledgeTask,
   assignTask,
+  cancelTask,
   claimTask,
   claimBestTask,
   checkScopeConflicts,
@@ -21,6 +22,7 @@ const {
   askBest,
   inbox,
   listTasks,
+  listTaskEvents,
   listTestResults,
   listMemories,
   messagesSince,
@@ -30,6 +32,7 @@ const {
   recentMessages,
   register,
   recordDecision,
+  recordTaskEvent,
   recordTestResult,
   remember,
   releaseTask,
@@ -50,6 +53,8 @@ const {
   sessionBrief,
   submitReview,
   handoffTask,
+  reviewGate,
+  taskResult,
 } = await import("../src/bus.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
@@ -1137,6 +1142,121 @@ await test("tasks: blocked_on_task_id must reference an existing task", () => {
       }),
     (e: unknown) => e instanceof BusError && e.code === "TASK_NOT_FOUND",
   );
+});
+
+await test("sessions: register and create task carry session metadata", () => {
+  const agent = register({
+    name: "session-worker",
+    capabilities: ["session"],
+    session_id: "codex-session-1",
+    replace: true,
+  });
+  assert.equal(agent.session_id, "codex-session-1");
+
+  const task = createTask({
+    requested_by: "session-worker",
+    title: "session-scoped task",
+  });
+  assert.equal(task.session_id, "codex-session-1");
+});
+
+await test("task events: record progress and build task result bundle", () => {
+  register({ name: "event-pm", project: "events", replace: true });
+  register({ name: "event-worker", project: "events", replace: true });
+  const task = createTask({
+    requested_by: "event-pm",
+    title: "eventful task",
+    project: "events",
+    phase: "planned",
+  });
+  claimTask({ agent: "event-worker", task_id: task.id });
+  const event = recordTaskEvent({
+    by_agent: "event-worker",
+    task_id: task.id,
+    event_type: "progress",
+    message: "Implemented first pass",
+    phase: "editing",
+    metadata: { files: ["src/demo.ts"] },
+  });
+  assert.equal(event.phase, "editing");
+
+  const listed = listTaskEvents({ task_id: task.id });
+  assert.ok(listed.some((row) => row.id === event.id));
+  assert.equal(getTask(task.id).phase, "editing");
+
+  recordTestResult({
+    by_agent: "event-worker",
+    task_id: task.id,
+    command: "npm test",
+    status: "passed",
+    output_summary: "smoke passed",
+    project: "events",
+  });
+  remember({
+    by_agent: "event-worker",
+    kind: "summary",
+    content: "Eventful task has a progress row.",
+    task_id: task.id,
+    project: "events",
+  });
+
+  const result = taskResult(task.id);
+  assert.equal(result.task.id, task.id);
+  assert.ok(result.events.some((row) => row.id === event.id));
+  assert.ok(result.test_results.some((row) => row.command === "npm test"));
+  assert.ok(result.memories.some((row) => row.content.includes("progress row")));
+});
+
+await test("cancelTask cancels active work, records event, and notifies requester", async () => {
+  register({ name: "cancel-pm", project: "cancel", replace: true });
+  register({ name: "cancel-worker", project: "cancel", replace: true });
+  const task = createTask({
+    requested_by: "cancel-pm",
+    title: "cancel me",
+    project: "cancel",
+  });
+  claimTask({ agent: "cancel-worker", task_id: task.id });
+  const result = cancelTask({
+    agent: "cancel-worker",
+    task_id: task.id,
+    reason: "scope changed",
+  });
+  assert.equal(result.task.state, "canceled");
+  assert.equal(result.task.phase, "canceled");
+  assert.equal(result.event.event_type, "cancel");
+
+  const notices = await inbox({ agent: "cancel-pm" });
+  assert.ok(notices.some((row) => row.content.includes("canceled task")));
+});
+
+await test("reviewGate blocks unsafe project state and passes clean completed work", () => {
+  register({ name: "gate-pm", project: "gate", replace: true });
+  register({ name: "gate-worker", project: "gate", replace: true });
+  const task = createTask({
+    requested_by: "gate-pm",
+    title: "review gate task",
+    project: "gate",
+    review_required: true,
+  });
+  claimTask({ agent: "gate-worker", task_id: task.id });
+  updateTask({ agent: "gate-worker", task_id: task.id, state: "working" });
+
+  const blocked = reviewGate({ project: "gate" });
+  assert.equal(blocked.ok, false);
+  assert.ok(blocked.blockers.some((row) => row.includes("active task")));
+
+  submitReview({ reviewer: "gate-pm", task_id: task.id, approved: true, notes: "ok" });
+  updateTask({ agent: "gate-worker", task_id: task.id, state: "completed", result: "done" });
+  recordTestResult({
+    by_agent: "gate-worker",
+    task_id: task.id,
+    command: "npm test",
+    status: "passed",
+    project: "gate",
+  });
+
+  const clean = reviewGate({ project: "gate" });
+  assert.equal(clean.ok, true);
 });
 
 closeDb();

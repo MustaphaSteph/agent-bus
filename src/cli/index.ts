@@ -4,6 +4,7 @@ import kleur from "kleur";
 import {
   ack,
   acknowledgeTask,
+  cancelTask,
   checkScopeConflicts,
   directory,
   finalReport,
@@ -11,6 +12,7 @@ import {
   inbox,
   listDecisions,
   listMemories,
+  listTaskEvents,
   listTestResults,
   AREA_WILDCARD,
   pinMemory,
@@ -19,8 +21,10 @@ import {
   recentMessages,
   register,
   recordDecision,
+  recordTaskEvent,
   recordTestResult,
   remember,
+  reviewGate,
   send,
   setAgentStatus,
   setPaused,
@@ -30,6 +34,7 @@ import {
   wakeAgent,
   whois,
   waitForAgents,
+  taskResult,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
 import { packageVersion } from "../util/package-info.js";
@@ -325,6 +330,78 @@ program
       notes: opts.notes,
     });
     console.log(`${kleur.green("reviewed")} task #${task.id} ${task.review_state}`);
+  });
+
+program
+  .command("task-event <task-id>")
+  .description("Record or list task progress/event rows")
+  .option("--by <agent>", "agent recording the event")
+  .option("--type <type>", "note, phase, progress, log, result, or cancel", "note")
+  .option("--message <text>", "event message")
+  .option("--phase <phase>", "optional phase; also updates task.phase")
+  .option("--metadata <json>", "optional JSON metadata object")
+  .option("--list", "list events instead of recording")
+  .option("-n, --last <count>", "how many events to list", "50")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((taskId: string, opts: { by?: string; type: string; message?: string; phase?: string; metadata?: string; list?: boolean; last: string; project?: string; area?: string }) => {
+    if (opts.list === true) {
+      const rows = listTaskEvents({
+        ...resolveScopeOptions(opts.project, opts.area),
+        task_id: Number(taskId),
+        limit: Number(opts.last),
+      });
+      console.log(formatList(rows.map((row) => `#${row.id} [${row.event_type}] ${row.by_agent}: ${row.message}${row.phase ? ` phase=${row.phase}` : ""}`)));
+      return;
+    }
+    if (!opts.by || !opts.message) throw new Error("--by and --message are required unless --list is used");
+    const metadata = opts.metadata ? parseJsonObject(opts.metadata, "--metadata") : undefined;
+    const row = recordTaskEvent({
+      by_agent: opts.by,
+      task_id: Number(taskId),
+      event_type: opts.type as never,
+      message: opts.message,
+      phase: opts.phase ?? null,
+      metadata,
+    });
+    console.log(`${kleur.green("recorded")} task event #${row.id}`);
+  });
+
+program
+  .command("task-result <task-id>")
+  .description("Show a task with event log, tests, memories, and thread messages")
+  .option("-n, --last <count>", "maximum related rows per section", "50")
+  .option("--json", "print raw JSON")
+  .action((taskId: string, opts: { last: string; json?: boolean }) => {
+    const result = taskResult(Number(taskId), Number(opts.last));
+    if (opts.json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(kleur.bold(`#${result.task.id} ${result.task.title}`));
+    console.log(`state=${result.task.state} phase=${result.task.phase ?? "-"} holder=${result.task.claimed_by ?? "-"}`);
+    console.log(kleur.bold("Events:"));
+    console.log(formatList(result.events.map((row) => `#${row.id} [${row.event_type}] ${row.by_agent}: ${row.message}${row.phase ? ` phase=${row.phase}` : ""}`)));
+    console.log(kleur.bold("Test evidence:"));
+    console.log(formatList(result.test_results.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}`)));
+    console.log(kleur.bold("Memories:"));
+    console.log(formatList(result.memories.map((row) => `#${row.id} [${row.kind}] ${row.content}`)));
+    console.log(kleur.bold("Messages:"));
+    console.log(formatList(result.messages.map((row) => `#${row.id} ${row.from_agent} -> ${row.to_agent}: ${row.content}`)));
+  });
+
+program
+  .command("cancel-task <task-id>")
+  .description("Cancel a non-terminal task and notify the other side")
+  .requiredOption("--agent <name>", "requester or current holder")
+  .option("--reason <text>", "why the task was canceled")
+  .action((taskId: string, opts: { agent: string; reason?: string }) => {
+    const result = cancelTask({
+      agent: opts.agent,
+      task_id: Number(taskId),
+      reason: opts.reason ?? null,
+    });
+    console.log(`${kleur.yellow("canceled")} task #${result.task.id}${result.event ? ` event #${result.event.id}` : ""}`);
   });
 
 program
@@ -628,6 +705,33 @@ program
   });
 
 program
+  .command("review-gate")
+  .description("Check whether the current project is ready to merge/push")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .option("--json", "print raw JSON")
+  .option("--hook-decision", "print a Claude Code Stop-hook decision JSON object")
+  .action((opts: { project?: string; area?: string; json?: boolean; hookDecision?: boolean }) => {
+    const gate = reviewGate(resolveScopeOptions(opts.project, opts.area));
+    if (opts.hookDecision === true) {
+      const reason = [...gate.blockers, ...gate.warnings].join("; ");
+      console.log(JSON.stringify({ decision: gate.ok ? "approve" : "block", reason }, null, 2));
+      return;
+    }
+    if (opts.json === true) {
+      console.log(JSON.stringify(gate, null, 2));
+      return;
+    }
+    console.log(`Ready: ${gate.ok ? kleur.green("yes") : kleur.red("no")}`);
+    console.log(kleur.bold("Blockers:"));
+    console.log(formatList(gate.blockers));
+    console.log(kleur.bold("Warnings:"));
+    console.log(formatList(gate.warnings));
+    console.log(`Safe to commit: ${gate.final_report.safe_to_commit ? "yes" : "no"}`);
+    console.log(`Safe to push: ${gate.final_report.safe_to_push ? "yes" : "no"}`);
+  });
+
+program
   .command("resume <agent>")
   .description("Resume delivery to this agent")
   .action((agent: string) => {
@@ -719,4 +823,12 @@ program.parseAsync(process.argv).catch((err) => {
 
 function formatList(values: string[]): string {
   return values.length === 0 ? "  - none" : values.map((value) => `  - ${value}`).join("\n");
+}
+
+function parseJsonObject(value: string, label: string): Record<string, unknown> {
+  const parsed = JSON.parse(value) as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label} must be a JSON object`);
+  }
+  return parsed as Record<string, unknown>;
 }

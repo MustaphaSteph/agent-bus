@@ -177,10 +177,16 @@ agent-bus scope-conflicts --files "src/components/auth/**"
 agent-bus ack-task 12 --agent claude-frontend --response claimed
 agent-bus review-task 12 --reviewer claude-verifier --approve --notes "tests passed"
 agent-bus handoff 12 --from claude-frontend --to claude-frontend-2 --reason "session ending"
+agent-bus task-event 12 --by claude-frontend --type progress --phase testing --message "Browser smoke is running"
+agent-bus task-event 12 --list
+agent-bus task-result 12
+agent-bus cancel-task 12 --agent claude-frontend --reason "superseded by task 18"
 agent-bus test-result --by claude-verifier --task 12 --command "npm test" --status passed --summary "60 smoke tests passed"
 agent-bus test-result --list
 
 agent-bus final-report
+agent-bus review-gate
+agent-bus review-gate --hook-decision
 ```
 
 `sleep`/`wake` are semantic work states, separate from `pause`/`resume`
@@ -188,9 +194,14 @@ delivery. `remember` stores durable structured notes; `brief` generates
 startup/handoff context from agents, tasks, decisions, memories, and
 recent messages. `board` is the manager view for agents, tasks, review
 queues, pending acknowledgements, scope conflicts, risks, and handoffs.
+`task-event` records progress/phase/log/result notes; `task-result`
+shows one task with its events, test evidence, memories, and thread
+messages. `cancel-task` marks active work canceled and notifies the
+other side.
 `test-result` records explicit build/lint/test evidence for the final
 report. `final-report` summarizes implemented work, gaps, risks, tests,
-manual checks, and commit/push/deploy safety.
+manual checks, and commit/push/deploy safety. `review-gate` turns the
+board and final report into a deterministic ready/block decision.
 
 ### `agent-bus inject`
 

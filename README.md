@@ -209,7 +209,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 5. Verify
 
 ```bash
-agent-bus --version                # 0.8.0
+agent-bus --version                # 0.9.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -340,8 +340,11 @@ Your job:
 - keep one verifier in test_only mode
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
+- record progress and phase changes with record_task_event
+- use task_result before verification or handoff
 - record build/lint/test evidence with record_test_result
-- use session_brief at start and final_report before commit/push
+- use session_brief at start and review_gate/final_report before commit/push
+- cancel superseded work with cancel_task instead of leaving it active
 - do not let workers edit outside their file_scope
 - do not push/deploy unless I explicitly approve
 
@@ -413,9 +416,9 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **42 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, pending assignment, split read/edit scope, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
+- **47 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
-- **Persistent** — agents, messages, channels, threads, tasks, decisions, and memories survive restarts via SQLite WAL.
+- **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all` on other read commands.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.

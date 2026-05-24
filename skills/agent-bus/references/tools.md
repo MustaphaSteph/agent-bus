@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 42 MCP tools. All return JSON.
+doesn't cover in detail. There are 47 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -23,6 +23,7 @@ register({
   role?: string | null,
   routing_weight?: number,
   status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
+  session_id?: string | null,
 }) -> Agent
 ```
 
@@ -148,6 +149,8 @@ create_task({
   ack_required?: boolean,
   review_required?: boolean,
   changed_files?: string[],
+  phase?: string | null,
+  session_id?: string | null,
   allow_conflicts?: boolean,
 }) -> Task
 ```
@@ -312,6 +315,38 @@ list_test_results({
   limit?: number,
 }) -> TestResult[]
 
+record_task_event({
+  by_agent: string,
+  task_id: number,
+  event_type?: "note" | "phase" | "progress" | "log" | "result" | "cancel",
+  message: string,
+  phase?: string | null,
+  metadata?: Record<string, unknown>,
+}) -> TaskEvent
+
+list_task_events({
+  task_id?: number,
+  by_agent?: string,
+  event_type?: "note" | "phase" | "progress" | "log" | "result" | "cancel",
+  project?: string | "*",
+  area?: string | "*",
+  limit?: number,
+}) -> TaskEvent[]
+
+task_result({ task_id: number, limit?: number }) -> {
+  task: Task,
+  events: TaskEvent[],
+  test_results: TestResult[],
+  memories: Memory[],
+  messages: Message[],
+}
+
+cancel_task({
+  agent: string,
+  task_id: number,
+  reason?: string | null,
+}) -> { task: Task, event: TaskEvent }
+
 remember({
   by_agent: string,
   kind: "summary" | "handoff" | "risk" | "todo" | "fact" | "blocker" | "lesson" | "gotcha" | string,
@@ -367,6 +402,14 @@ final_report({ project?: string | "*", area?: string | "*" }) -> {
   safe_to_commit: boolean,
   safe_to_push: boolean,
   safe_to_deploy: boolean,
+}
+
+review_gate({ project?: string | "*", area?: string | "*" }) -> {
+  ok: boolean,
+  blockers: string[],
+  warnings: string[],
+  final_report: FinalReport,
+  board: ProjectBoard,
 }
 ```
 

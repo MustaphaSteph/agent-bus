@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.8.0
+  version: 0.9.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 42 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 47 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
@@ -733,6 +733,142 @@ paths:
         '400':
           $ref: '#/components/responses/BusError'
 
+  /tools/record_task_event:
+    post:
+      tags: [Tasks]
+      summary: Record a task event or progress note
+      description: |
+        Appends durable task progress. A non-null `phase` also updates
+        `tasks.phase`, so managers can distinguish silent asks from
+        active work.
+      operationId: record_task_event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordTaskEventRequest'
+      responses:
+        '200':
+          description: The recorded task event.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskEvent'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/list_task_events:
+    post:
+      tags: [Tasks]
+      summary: List task event rows
+      operationId: list_task_events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ListTaskEventsRequest'
+      responses:
+        '200':
+          description: Matching task events.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TaskEvent'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/task_result:
+    post:
+      tags: [Tasks]
+      summary: Fetch a task result bundle
+      description: Returns one task with its events, test evidence, memories, and thread messages.
+      operationId: task_result
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskResultRequest'
+      responses:
+        '200':
+          description: Task result bundle.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResult'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/cancel_task:
+    post:
+      tags: [Tasks]
+      summary: Cancel a non-terminal task
+      description: Marks the task canceled, records a cancel event, notifies the other side, and runs local hooks.
+      operationId: cancel_task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelTaskRequest'
+      responses:
+        '200':
+          description: Canceled task and cancel event.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [task, event]
+                properties:
+                  task:
+                    $ref: '#/components/schemas/Task'
+                  event:
+                    $ref: '#/components/schemas/TaskEvent'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/review_gate:
+    post:
+      tags: [Reports]
+      summary: Check merge/push readiness
+      description: Combines project-board blockers with final-report safety flags.
+      operationId: review_gate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScopeRequest'
+      responses:
+        '200':
+          description: Review gate report.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, blockers, warnings, final_report, board]
+                properties:
+                  ok:
+                    type: boolean
+                  blockers:
+                    type: array
+                    items:
+                      type: string
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                  final_report:
+                    type: object
+                  board:
+                    type: object
+        '400':
+          $ref: '#/components/responses/BusError'
+
 components:
   schemas:
     AgentName:
@@ -844,6 +980,12 @@ components:
         routing_weight:
           type: integer
           description: Higher values are preferred by ask_best.
+        status:
+          type: string
+          enum: [idle, working, blocked, waiting_review, sleeping]
+        session_id:
+          type: [string, 'null']
+          description: Optional host/model session id.
 
     Message:
       type: object
@@ -980,6 +1122,12 @@ components:
         required_capability:
           type: [string, 'null']
           description: Capability required to claim this task.
+        phase:
+          type: [string, 'null']
+          description: Fine-grained progress phase.
+        session_id:
+          type: [string, 'null']
+          description: Optional host/model session id associated with this task.
 
     Subscription:
       type: object
@@ -1251,6 +1399,10 @@ components:
         required_capability:
           type: [string, 'null']
           description: Optional capability required to claim this task.
+        phase:
+          type: [string, 'null']
+        session_id:
+          type: [string, 'null']
 
     ClaimTaskRequest:
       type: object
@@ -1284,6 +1436,10 @@ components:
           type: [string, 'null']
         priority:
           type: integer
+        phase:
+          type: [string, 'null']
+        session_id:
+          type: [string, 'null']
 
     ReleaseTaskRequest:
       type: object
@@ -1334,6 +1490,137 @@ components:
         task_id:
           type: integer
           format: int64
+
+    TaskEventType:
+      type: string
+      enum: [note, phase, progress, log, result, cancel]
+
+    TaskEvent:
+      type: object
+      required: [id, task_id, by_agent, event_type, message, metadata, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        task_id:
+          type: integer
+          format: int64
+        by_agent:
+          $ref: '#/components/schemas/AgentName'
+        event_type:
+          $ref: '#/components/schemas/TaskEventType'
+        message:
+          type: string
+        phase:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+        project:
+          type: [string, 'null']
+        area:
+          type: [string, 'null']
+        created_at:
+          type: integer
+          format: int64
+
+    RecordTaskEventRequest:
+      type: object
+      required: [by_agent, task_id, message]
+      additionalProperties: false
+      properties:
+        by_agent:
+          $ref: '#/components/schemas/AgentName'
+        task_id:
+          type: integer
+          format: int64
+        event_type:
+          $ref: '#/components/schemas/TaskEventType'
+        message:
+          type: string
+        phase:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ListTaskEventsRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        task_id:
+          type: integer
+          format: int64
+        by_agent:
+          $ref: '#/components/schemas/AgentName'
+        event_type:
+          $ref: '#/components/schemas/TaskEventType'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+
+    TaskResultRequest:
+      type: object
+      required: [task_id]
+      additionalProperties: false
+      properties:
+        task_id:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+
+    TaskResult:
+      type: object
+      required: [task, events, test_results, memories, messages]
+      properties:
+        task:
+          $ref: '#/components/schemas/Task'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskEvent'
+        test_results:
+          type: array
+          items:
+            type: object
+        memories:
+          type: array
+          items:
+            type: object
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+
+    CancelTaskRequest:
+      type: object
+      required: [agent, task_id]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        task_id:
+          type: integer
+          format: int64
+        reason:
+          type: [string, 'null']
+
+    ScopeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
 
   responses:
     BusError:

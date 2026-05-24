@@ -1,6 +1,6 @@
 ---
 description: Make this Claude session bus-aware as the coordinator. Talks to other agents on the bus via natural language.
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__record_task_event, mcp__agent-bus__list_task_events, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report, mcp__agent-bus__review_gate
 ---
 
 You are now the **coordinator** session on the local `agent-bus`. Your
@@ -52,9 +52,12 @@ patterns:
 | "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
 | "Put <agent> to sleep" / "wake <agent>" | `sleep_agent` / `wake_agent` |
+| "Record progress / update phase" | `record_task_event(by_agent="$ARGUMENTS", task_id=…, event_type="progress", message=…, phase=…)` |
+| "Show what happened on this task" | `task_result(task_id=…)` |
+| "Cancel this task" | `cancel_task(agent="$ARGUMENTS", task_id=…, reason=…)` |
 | "Record tests passed/failed" | `record_test_result(by_agent="$ARGUMENTS", command=…, status=…)` |
 | "Record this decision…" | `record_decision(by_agent="$ARGUMENTS", …)` |
-| "Final merge report" | `final_report()` |
+| "Final merge report" | `review_gate()` then `final_report()` |
 
 ## Choosing between ask and send
 
@@ -120,5 +123,10 @@ JSON. The user wants the answer, not the message envelope.
   folder, or file before assigning.
 - Record build/lint/test evidence with `record_test_result` so
   `final_report` has concrete verification data.
+- Record progress/phase/log notes with `record_task_event`; use
+  `task_result` before handoff or verification, and `cancel_task` for
+  superseded work.
+- Run `review_gate` before commit/push so active tasks, pending reviews,
+  scope conflicts, and unsafe final-report flags block the merge.
 - Helper agents must not deploy, push, or modify shared production
   resources unless the user explicitly approves.

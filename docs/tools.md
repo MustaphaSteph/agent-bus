@@ -17,6 +17,7 @@ register({
   role?: string | null,         // pm, worker, verifier, reviewer, listener, ...
   routing_weight?: number,      // higher wins when ask_best candidates tie
   status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
+  session_id?: string | null,   // optional host/model session id
 }) → Agent
 ```
 
@@ -357,6 +358,8 @@ create_task({
   ack_required?: boolean,
   review_required?: boolean,
   changed_files?: string[],
+  phase?: string | null,
+  session_id?: string | null,
   allow_conflicts?: boolean,
 }) -> Task
 ```
@@ -440,6 +443,8 @@ update_task({
   reviewed_by?: string | null,
   review_notes?: string | null,
   changed_files?: string[],
+  phase?: string | null,
+  session_id?: string | null,
   allow_conflicts?: boolean,
 }) -> Task
 ```
@@ -653,6 +658,52 @@ session_brief({
 Pinned memories are surfaced near the top of `session_brief`; use pinned
 `handoff` memories for "next agent please read" context.
 
+## record_task_event / list_task_events / task_result / cancel_task
+
+Append durable task progress, fetch a full task evidence bundle, or
+cancel work cleanly.
+
+```ts
+record_task_event({
+  by_agent: string,
+  task_id: number,
+  event_type?: "note" | "phase" | "progress" | "log" | "result" | "cancel",
+  message: string,
+  phase?: string | null,       // also updates task.phase when present
+  metadata?: Record<string, unknown>,
+}) -> TaskEvent
+
+list_task_events({
+  task_id?: number,
+  by_agent?: string,
+  event_type?: "note" | "phase" | "progress" | "log" | "result" | "cancel",
+  project?: string,
+  area?: string,
+  limit?: number,
+}) -> TaskEvent[]
+
+task_result({ task_id: number, limit?: number }) -> {
+  task: Task,
+  events: TaskEvent[],
+  test_results: TestResult[],
+  memories: Memory[],
+  messages: Message[],
+}
+
+cancel_task({
+  agent: string,       // requester or current holder
+  task_id: number,
+  reason?: string | null,
+}) -> { task: Task, event: TaskEvent }
+```
+
+Use `record_task_event` for phase changes (`planning`, `editing`,
+`testing`, `review`), progress notes, command summaries, and final
+result notes. Use `task_result` before verification or handoff so the
+reviewer sees task state, events, tests, memories, and thread messages
+together. `cancel_task` marks the task terminal, records a cancel event,
+notifies the other side, and runs `task.canceled` hooks.
+
 ## record_test_result / list_test_results
 
 Record explicit evidence from build, lint, unit test, browser smoke, or
@@ -697,6 +748,25 @@ final_report({ project?: string, area?: string }) -> {
   safe_to_deploy: false,
 }
 ```
+
+## review_gate
+
+Build a deterministic merge/push gate from `project_board` and
+`final_report`.
+
+```ts
+review_gate({ project?: string, area?: string }) -> {
+  ok: boolean,
+  blockers: string[],
+  warnings: string[],
+  final_report: FinalReport,
+  board: ProjectBoard,
+}
+```
+
+`ok=false` when active work, blocked work, pending reviews, edit-scope
+conflicts, or unsafe final-report flags remain. Warnings include stale
+holders and missing acknowledgements.
 
 ---
 

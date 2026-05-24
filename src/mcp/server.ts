@@ -12,6 +12,7 @@ import {
   assignTask,
   ask,
   askBest,
+  cancelTask,
   checkScopeConflicts,
   claimTask,
   claimBestTask,
@@ -20,6 +21,7 @@ import {
   finalReport,
   getTask,
   inbox,
+  listTaskEvents,
   listTasks,
   listDecisions,
   listMemories,
@@ -27,6 +29,7 @@ import {
   pinMemory,
   projectBoard,
   register,
+  recordTaskEvent,
   recordTestResult,
   releaseTask,
   recordDecision,
@@ -44,6 +47,8 @@ import {
   handoffTask,
   waitForAgents,
   listTestResults,
+  reviewGate,
+  taskResult,
   whois,
   sleepAgent,
   wakeAgent,
@@ -86,6 +91,7 @@ const RegisterInput = z.object({
   role: z.string().min(1).max(64).nullable().optional(),
   routing_weight: z.number().int().optional(),
   status: AgentStatusEnum.optional(),
+  session_id: z.string().min(1).max(128).nullable().optional(),
 });
 
 const SendInput = z.object({
@@ -190,6 +196,8 @@ const CreateTaskInput = z.object({
   ack_required: z.boolean().optional(),
   review_required: z.boolean().optional(),
   changed_files: z.array(z.string()).optional(),
+  phase: z.string().nullable().optional(),
+  session_id: z.string().min(1).max(128).nullable().optional(),
   allow_conflicts: z.boolean().optional(),
 });
 
@@ -235,7 +243,38 @@ const UpdateTaskInput = z.object({
   reviewed_by: z.string().min(1).nullable().optional(),
   review_notes: z.string().nullable().optional(),
   changed_files: z.array(z.string()).optional(),
+  phase: z.string().nullable().optional(),
+  session_id: z.string().min(1).max(128).nullable().optional(),
   allow_conflicts: z.boolean().optional(),
+});
+
+const RecordTaskEventInput = z.object({
+  by_agent: z.string().min(1),
+  task_id: z.number().int().positive(),
+  event_type: z.enum(["note", "phase", "progress", "log", "result", "cancel"]).optional(),
+  message: z.string().min(1),
+  phase: z.string().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const ListTaskEventsInput = z.object({
+  task_id: z.number().int().positive().optional(),
+  by_agent: z.string().min(1).optional(),
+  event_type: z.enum(["note", "phase", "progress", "log", "result", "cancel"]).optional(),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+const TaskResultInput = z.object({
+  task_id: z.number().int().positive(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+const CancelTaskInput = z.object({
+  agent: z.string().min(1),
+  task_id: z.number().int().positive(),
+  reason: z.string().nullable().optional(),
 });
 
 const AcknowledgeTaskInput = z.object({
@@ -404,6 +443,15 @@ const TOOLS = [
         },
         role: { type: ["string", "null"], description: "Optional role such as pm, worker, verifier, reviewer, listener" },
         routing_weight: { type: "number", description: "Optional routing preference weight for ask_best" },
+        status: {
+          type: "string",
+          enum: ["idle", "working", "blocked", "waiting_review", "sleeping"],
+          description: "Optional current work state for manager boards",
+        },
+        session_id: {
+          type: ["string", "null"],
+          description: "Optional host/model session id for grouping tasks and cleanup",
+        },
       },
       required: ["name"],
     },
@@ -680,6 +728,8 @@ const TOOLS = [
         ack_required: { type: "boolean" },
         review_required: { type: "boolean" },
         changed_files: { type: "array", items: { type: "string" } },
+        phase: { type: ["string", "null"], description: "Optional fine-grained phase such as planning, editing, testing, or review" },
+        session_id: { type: ["string", "null"], description: "Optional session id associated with this task" },
         allow_conflicts: { type: "boolean" },
       },
       required: ["requested_by", "title"],
@@ -795,6 +845,8 @@ const TOOLS = [
         reviewed_by: { type: ["string", "null"] },
         review_notes: { type: ["string", "null"] },
         changed_files: { type: "array", items: { type: "string" } },
+        phase: { type: ["string", "null"], description: "Optional fine-grained phase such as planning, editing, testing, or review" },
+        session_id: { type: ["string", "null"], description: "Optional session id associated with this task" },
         allow_conflicts: { type: "boolean" },
       },
       required: ["agent", "task_id"],
@@ -907,6 +959,64 @@ const TOOLS = [
         area: { type: "string" },
         limit: { type: "number" },
       },
+    },
+  },
+  {
+    name: "record_task_event",
+    description:
+      "Append a task progress/event log row. Use for phases, progress notes, command summaries, result notes, and cancellation context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        by_agent: { type: "string" },
+        task_id: { type: "number" },
+        event_type: { type: "string", enum: ["note", "phase", "progress", "log", "result", "cancel"] },
+        message: { type: "string" },
+        phase: { type: ["string", "null"], description: "Optional phase; also updates task.phase when present" },
+        metadata: { type: "object", additionalProperties: true },
+      },
+      required: ["by_agent", "task_id", "message"],
+    },
+  },
+  {
+    name: "list_task_events",
+    description: "List task event/progress rows, optionally filtered by task, agent, type, project, or area.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "number" },
+        by_agent: { type: "string" },
+        event_type: { type: "string", enum: ["note", "phase", "progress", "log", "result", "cancel"] },
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        limit: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "task_result",
+    description: "Fetch one task plus its event log, test evidence, related memories, and thread messages.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "number" },
+        limit: { type: "number", description: "Maximum related rows per section" },
+      },
+      required: ["task_id"],
+    },
+  },
+  {
+    name: "cancel_task",
+    description:
+      "Cancel a non-terminal task, record a cancel event, notify the other side, and run task.canceled hooks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Requester or current holder" },
+        task_id: { type: "number" },
+        reason: { type: ["string", "null"] },
+      },
+      required: ["agent", "task_id"],
     },
   },
   {
@@ -1078,6 +1188,18 @@ const TOOLS = [
   {
     name: "final_report",
     description: "Generate a merge-readiness report from tasks.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        area: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "review_gate",
+    description:
+      "Return a deterministic merge/push gate from the project board and final report. ok=false includes blockers and warnings.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1263,6 +1385,22 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
+    case "record_task_event":
+      return recordTaskEvent(RecordTaskEventInput.parse(raw));
+    case "list_task_events": {
+      const input = ListTaskEventsInput.parse(raw);
+      return listTaskEvents({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
+    case "task_result": {
+      const input = TaskResultInput.parse(raw);
+      return taskResult(input.task_id, input.limit);
+    }
+    case "cancel_task":
+      return cancelTask(CancelTaskInput.parse(raw));
     case "list_tasks": {
       const input = ListTasksInput.parse(raw);
       return listTasks({
@@ -1332,6 +1470,13 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     case "final_report": {
       const input = WhoisInput.parse(raw);
       return finalReport({
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
+    case "review_gate": {
+      const input = WhoisInput.parse(raw);
+      return reviewGate({
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });

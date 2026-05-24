@@ -136,6 +136,9 @@ function migrate(db: Database.Database): void {
   if (!agentCols.has("status")) {
     db.exec(`ALTER TABLE agents ADD COLUMN status TEXT NOT NULL DEFAULT 'idle'`);
   }
+  if (!agentCols.has("session_id")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN session_id TEXT`);
+  }
 
   const taskCols = tableColumns(db, "tasks");
   if (!taskCols.has("project")) {
@@ -201,6 +204,12 @@ function migrate(db: Database.Database): void {
   if (!taskCols.has("pending_assignee")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN pending_assignee TEXT`);
   }
+  if (!taskCols.has("phase")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN phase TEXT`);
+  }
+  if (!taskCols.has("session_id")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN session_id TEXT`);
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS decisions (
@@ -242,6 +251,19 @@ function migrate(db: Database.Database): void {
       area            TEXT,
       created_at      INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS task_events (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id         INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      by_agent        TEXT NOT NULL REFERENCES agents(name),
+      event_type      TEXT NOT NULL CHECK (event_type IN ('note','phase','progress','log','result','cancel')),
+      message         TEXT NOT NULL,
+      phase           TEXT,
+      metadata        TEXT NOT NULL DEFAULT '{}',
+      project         TEXT,
+      area            TEXT,
+      created_at      INTEGER NOT NULL
+    );
   `);
 
   const memoryCols = tableColumns(db, "memories");
@@ -271,6 +293,8 @@ function migrate(db: Database.Database): void {
       ON agents(role);
     CREATE INDEX IF NOT EXISTS idx_agents_status
       ON agents(status);
+    CREATE INDEX IF NOT EXISTS idx_agents_session
+      ON agents(session_id);
     CREATE INDEX IF NOT EXISTS idx_tasks_project
       ON tasks(project);
     CREATE INDEX IF NOT EXISTS idx_tasks_area
@@ -287,6 +311,10 @@ function migrate(db: Database.Database): void {
       ON tasks(ack_required);
     CREATE INDEX IF NOT EXISTS idx_tasks_pending_assignee
       ON tasks(pending_assignee);
+    CREATE INDEX IF NOT EXISTS idx_tasks_phase
+      ON tasks(phase);
+    CREATE INDEX IF NOT EXISTS idx_tasks_session
+      ON tasks(session_id);
     CREATE INDEX IF NOT EXISTS idx_decisions_scope
       ON decisions(project, area);
     CREATE INDEX IF NOT EXISTS idx_memories_scope
@@ -306,5 +334,11 @@ function migrate(db: Database.Database): void {
       ON test_results(project, area);
     CREATE INDEX IF NOT EXISTS idx_test_results_task
       ON test_results(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_events_task
+      ON task_events(task_id, id);
+    CREATE INDEX IF NOT EXISTS idx_task_events_scope
+      ON task_events(project, area);
+    CREATE INDEX IF NOT EXISTS idx_task_events_type
+      ON task_events(event_type);
   `);
 }
