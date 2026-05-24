@@ -126,13 +126,32 @@ agent-bus init --project my-app --areas backend,frontend,ios
 agent-bus scope
 agent-bus areas
 agent-bus team init backend frontend ios
+agent-bus team init-ios-app --project ios-movie-tmdb --api tmdb
 agent-bus doctor
 ```
 
 `init` writes a monorepo-style `.agent-bus.json`; `scope` prints the
-current derived project/area; `areas` lists configured path patterns; `team init` also
-prints suggested PM/worker/verifier names; `doctor` checks db path,
-scope, config, area list, and agent counts.
+current derived project/area; `areas` lists configured path patterns;
+`team init` prints suggested PM/worker/verifier names; `team
+init-ios-app` writes a separated-folder iOS app config and prints a
+Codex/Claude team prompt; `doctor` checks db path, scope, config, area
+list, and agent counts.
+
+For an app factory under one parent folder, run `team init-ios-app`
+inside each new app subfolder with a unique project name:
+
+```bash
+mkdir MovieApp && cd MovieApp
+agent-bus team init-ios-app --project ios-movie-tmdb --api tmdb
+
+cd ..
+mkdir BudgetApp && cd BudgetApp
+agent-bus team init-ios-app --project ios-budget --api local
+```
+
+Each folder gets its own `.agent-bus.json` with `area: "ios"`, so
+agents in `MovieApp` see `ios-movie-tmdb` by default while agents in
+`BudgetApp` see `ios-budget`.
 
 Optional local hook commands can be placed in `.agent-bus.json`:
 

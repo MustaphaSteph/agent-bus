@@ -317,6 +317,18 @@ For separated folders that belong to the same product, use the same
 Those sessions are in different paths, but agent-bus treats them as one
 logical project with separate lanes.
 
+For repeated iOS app builds under one parent folder, initialize each app
+subfolder as its own project:
+
+```bash
+mkdir MovieApp && cd MovieApp
+agent-bus team init-ios-app --project ios-movie-tmdb --api tmdb
+```
+
+That writes `{"project":"ios-movie-tmdb","area":"ios"}` and prints the
+recommended Codex/Claude team: Codex PM, two Claude UI researchers, one
+Claude UI executor, one core worker, and one verifier.
+
 ### Use Codex as a project manager
 
 In an existing web app, open Codex at the repo root and make it the
