@@ -317,17 +317,16 @@ For separated folders that belong to the same product, use the same
 Those sessions are in different paths, but agent-bus treats them as one
 logical project with separate lanes.
 
-For repeated iOS app builds under one parent folder, initialize each app
-subfolder as its own project:
+For repeated app builds under one parent folder, initialize each app
+subfolder as its own neutral project scope:
 
 ```bash
-mkdir MovieApp && cd MovieApp
-agent-bus team init-ios-app --project ios-movie-tmdb --api tmdb
+mkdir AppOne && cd AppOne
+agent-bus team init-folder --project app-one --area app
 ```
 
-That writes `{"project":"ios-movie-tmdb","area":"ios"}` and prints the
-recommended Codex/Claude team: Codex PM, two Claude UI researchers, one
-Claude UI executor, one core worker, and one verifier.
+That writes `{"project":"app-one","area":"app"}`. The agents or your
+own prompts decide the team structure and behavior.
 
 ### Use Codex as a project manager
 

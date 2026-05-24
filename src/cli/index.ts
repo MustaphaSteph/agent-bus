@@ -195,45 +195,31 @@ teamCommand
   });
 
 teamCommand
-  .command("init-ios-app")
-  .description("Create an iOS app team workflow config and print Codex/Claude session prompts")
-  .option("--project <name>", "unique project name for this app folder (default derived from cwd)")
-  .option("--prefix <name>", "agent name prefix (default project name)")
-  .option("--api <name>", "API/data source name to mention in prompts, e.g. tmdb")
+  .command("init-folder")
+  .description("Create a neutral .agent-bus.json for one separated project folder")
+  .option("--project <name>", "unique project name for this folder (default derived from cwd)")
+  .option("--area <name>", "area/lane for this folder", "app")
   .option("--force", "overwrite existing .agent-bus.json")
-  .action((opts: { project?: string; prefix?: string; api?: string; force?: boolean }) => {
+  .action((opts: { project?: string; area: string; force?: boolean }) => {
     const existing = scopeConfigPath();
     if (existing && opts.force !== true) {
       throw new Error(`${existing} already exists; pass --force to overwrite`);
     }
-    const project = opts.project ?? deriveScope().project ?? "ios-app";
-    const prefix = opts.prefix ?? project;
-    const api = opts.api?.trim();
+    const project = opts.project ?? deriveScope().project ?? "agent-bus-project";
+    const area = opts.area.trim() || "app";
     const path = writeScopeConfig({
       project,
-      area: "ios",
+      area,
       routing: { default: "same-area", managerAreas: ["pm"] },
       hooks: {},
     });
     console.log(`${kleur.green("created")} ${path}`);
     console.log("");
     console.log(kleur.bold("Project scope:"));
-    console.log(`  project=${project} area=ios`);
+    console.log(`  project=${project} area=${area}`);
     console.log("");
-    console.log(kleur.bold("Recommended agents:"));
-    const agents = iosAppAgents(prefix);
-    for (const agent of agents) console.log(`  ${agent.name} ${kleur.gray(agent.role)}`);
-    console.log("");
-    console.log(kleur.bold("Start sessions:"));
-    console.log(`  Codex PM: ${agents[0]!.name}`);
-    console.log(`  Claude UI research A: ${agents[1]!.name}`);
-    console.log(`  Claude UI research B: ${agents[2]!.name}`);
-    console.log(`  Claude UI executor: ${agents[3]!.name}`);
-    console.log(`  Codex/Claude core worker: ${agents[4]!.name}`);
-    console.log(`  Claude verifier: ${agents[5]!.name}`);
-    console.log("");
-    console.log(kleur.bold("PM prompt:"));
-    console.log(formatIosPrompt(project, prefix, api));
+    console.log("Open any agent session in this folder and register it with this project/area.");
+    console.log("Use task modes, file scopes, and review gates according to your own workflow.");
   });
 
 program
@@ -867,47 +853,6 @@ program.parseAsync(process.argv).catch((err) => {
 
 function formatList(values: string[]): string {
   return values.length === 0 ? "  - none" : values.map((value) => `  - ${value}`).join("\n");
-}
-
-function iosAppAgents(prefix: string): Array<{ name: string; role: string }> {
-  return [
-    { name: `${prefix}-codex-pm`, role: "pm / architect / integrator" },
-    { name: `${prefix}-ui-research-a`, role: "Claude UI researcher: flows and information architecture" },
-    { name: `${prefix}-ui-research-b`, role: "Claude UI researcher: visual style and interactions" },
-    { name: `${prefix}-ui-executor`, role: "Claude SwiftUI executor with FlowDeck" },
-    { name: `${prefix}-core-worker`, role: "Codex or Claude core/data worker" },
-    { name: `${prefix}-verifier`, role: "Claude verifier, test_only" },
-  ];
-}
-
-function formatIosPrompt(project: string, prefix: string, api?: string): string {
-  const apiLine = api ? `- Use the local ${api} docs/key files in this folder. Never expose or commit secrets.` : "- Use any local API docs/key files in this folder. Never expose or commit secrets.";
-  return [
-    `You are ${prefix}-codex-pm for project ${project}.`,
-    "",
-    "Goal: build a fully working iOS app in this folder with Codex and Claude Code sessions.",
-    "",
-    "Use agent-bus as manager:",
-    `- register as ${prefix}-codex-pm with role pm, area ios, replace true`,
-    `- wait_for_agents for ${prefix}-ui-research-a, ${prefix}-ui-research-b, ${prefix}-ui-executor, ${prefix}-core-worker, ${prefix}-verifier`,
-    "- create two investigate_only UI research tasks first",
-    "- require the UI researchers to discuss and merge their ideas before implementation",
-    "- record the final UI direction with record_decision",
-    "- create scoped edit_files tasks for UI executor and core worker",
-    "- set ack_required and review_required for implementation work",
-    "- use record_task_event for progress and phase changes",
-    "- use task_result before verifier review or handoff",
-    "- use record_test_result for build, FlowDeck, simulator, and API smoke checks",
-    "- run review_gate and final_report before saying done",
-    "",
-    "Security and ownership:",
-    apiLine,
-    "- Add local key/config files to .gitignore before implementation.",
-    "- UI researchers do not edit files during research.",
-    `- ${prefix}-ui-executor owns SwiftUI views, UI components, assets, animation, and FlowDeck visual fixes.`,
-    `- ${prefix}-core-worker owns models, networking, persistence, state, and tests.`,
-    `- ${prefix}-verifier is test_only and should not implement unless explicitly reassigned.`,
-  ].join("\n");
 }
 
 function parseJsonObject(value: string, label: string): Record<string, unknown> {

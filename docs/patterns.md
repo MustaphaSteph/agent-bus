@@ -370,23 +370,17 @@ For app factories where each app is a new subfolder under one parent,
 prefer one unique project per app folder:
 
 ```bash
-mkdir MovieApp && cd MovieApp
-agent-bus team init-ios-app --project ios-movie-tmdb --api tmdb
+mkdir AppOne && cd AppOne
+agent-bus team init-folder --project app-one --area app
 
 cd ..
-mkdir NextMovieApp && cd NextMovieApp
-agent-bus team init-ios-app --project ios-next-movie --api tmdb
+mkdir AppTwo && cd AppTwo
+agent-bus team init-folder --project app-two --area app
 ```
 
 Each folder is isolated by project even though it lives under the same
-parent. The helper prints names for a six-session team:
-
-- Codex PM/integrator
-- Claude UI research A for flows and information architecture
-- Claude UI research B for visual style and interactions
-- Claude UI executor for SwiftUI and FlowDeck feedback
-- core worker for API/data/state/tests
-- verifier in `test_only` mode
+parent. The helper writes only neutral project/area scope; your agent
+prompt or team convention decides roles, tasks, and behavior.
 
 MCP sessions do this automatically. Read commands and routing default to
 the current project and area:
