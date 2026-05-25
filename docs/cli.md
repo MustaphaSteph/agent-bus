@@ -43,6 +43,7 @@ last-seen, and paused state.
 agent-bus whois
 agent-bus whois --project all
 agent-bus whois --area all
+agent-bus whois --team ios-ui
 ```
 
 Scoped output includes agents in the current project plus null-project
@@ -61,6 +62,21 @@ agent-bus wait-for-agents --names worker-a,worker-b --project my-app --area all 
 The output separates `Ready`, `Missing`, `Stale`, and `Wrong scope` so a
 manager can tell whether workers are absent, registered in the wrong
 project/area, or simply old/stale.
+
+### `agent-bus send-team` / `agent-bus ask-team`
+
+Message agents registered with the same neutral team scope. This is for
+workgroup routing, not behavior control.
+
+```bash
+agent-bus send-team --from coordinator --team ios-ui "sync on navigation"
+agent-bus send-team --from coordinator --team ios-ui --project movie-app --area all "status?"
+agent-bus ask-team --from coordinator --team ios-ui --capability design "which detail layout should we implement first?"
+```
+
+`send-team` fans out to active, non-paused team members. `ask-team`
+picks one best active team member, optionally narrowed by capability or
+role.
 
 ### `agent-bus tasks`
 
@@ -203,6 +219,7 @@ agent-bus memories --kind handoff --pinned
 agent-bus pin-memory 12
 agent-bus brief --agent coordinator
 agent-bus board
+agent-bus team-board --team ios-ui
 agent-bus scope-conflicts --files "src/module/**"
 agent-bus delegate --from coordinator --to worker-a --title "Investigate bug" --mode investigate_only --expect "findings and fix options"
 agent-bus ack-task 12 --agent worker-a --response claimed
@@ -229,6 +246,7 @@ delivery. `remember` stores durable structured notes; `brief` generates
 startup/handoff context from agents, tasks, decisions, memories, and
 recent messages. `board` is the manager view for agents, tasks, review
 queues, pending acknowledgements, scope conflicts, risks, and handoffs.
+`team-board` is the same manager board scoped to one workgroup.
 `task-event` records progress/phase/log/result notes; `task-result`
 shows one task with its events, test evidence, memories, and thread
 messages. `delegate` creates a task, assigns it, notifies the worker,
@@ -270,6 +288,7 @@ Manually create or update an agent row. Useful for scripting.
 ```bash
 agent-bus register --name worker-1 --capabilities "tests,ci" --replace
 agent-bus register --name reviewer --capabilities "tests,review" --role reviewer --area all --replace
+agent-bus register --name ui-1 --capabilities "swiftui,design" --project movie-app --area app --team ios-ui --replace
 ```
 
 ## Listener support

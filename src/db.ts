@@ -37,7 +37,10 @@ function migrate(db: Database.Database): void {
       capabilities   TEXT NOT NULL DEFAULT '[]',
       registered_at  INTEGER NOT NULL,
       last_seen      INTEGER NOT NULL,
-      paused         INTEGER NOT NULL DEFAULT 0
+      paused         INTEGER NOT NULL DEFAULT 0,
+      project        TEXT,
+      area           TEXT,
+      team           TEXT
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -50,7 +53,15 @@ function migrate(db: Database.Database): void {
       status        TEXT NOT NULL CHECK (status IN ('pending','delivered','answered')),
       created_at    INTEGER NOT NULL,
       delivered_at  INTEGER,
-      replied_at    INTEGER
+      replied_at    INTEGER,
+      thread_id     TEXT,
+      claim_deadline INTEGER,
+      claimed_by    TEXT,
+      channel       TEXT,
+      project       TEXT,
+      area          TEXT,
+      team          TEXT,
+      priority      TEXT NOT NULL DEFAULT 'normal'
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_to_status
@@ -84,7 +95,10 @@ function migrate(db: Database.Database): void {
       created_at          INTEGER NOT NULL,
       updated_at          INTEGER NOT NULL,
       claimed_at          INTEGER,
-      finished_at         INTEGER
+      finished_at         INTEGER,
+      project             TEXT,
+      area                TEXT,
+      team                TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_tasks_state_claimed
@@ -116,6 +130,9 @@ function migrate(db: Database.Database): void {
   if (!messageCols.has("area")) {
     db.exec(`ALTER TABLE messages ADD COLUMN area TEXT`);
   }
+  if (!messageCols.has("team")) {
+    db.exec(`ALTER TABLE messages ADD COLUMN team TEXT`);
+  }
   if (!messageCols.has("priority")) {
     db.exec(`ALTER TABLE messages ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'`);
   }
@@ -126,6 +143,9 @@ function migrate(db: Database.Database): void {
   }
   if (!agentCols.has("area")) {
     db.exec(`ALTER TABLE agents ADD COLUMN area TEXT`);
+  }
+  if (!agentCols.has("team")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN team TEXT`);
   }
   if (!agentCols.has("role")) {
     db.exec(`ALTER TABLE agents ADD COLUMN role TEXT`);
@@ -146,6 +166,9 @@ function migrate(db: Database.Database): void {
   }
   if (!taskCols.has("area")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN area TEXT`);
+  }
+  if (!taskCols.has("team")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN team TEXT`);
   }
   if (!taskCols.has("required_capability")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN required_capability TEXT`);
@@ -220,6 +243,7 @@ function migrate(db: Database.Database): void {
       implemented     INTEGER NOT NULL DEFAULT 0,
       project         TEXT,
       area            TEXT,
+      team            TEXT,
       created_at      INTEGER NOT NULL,
       updated_at      INTEGER NOT NULL
     );
@@ -232,6 +256,7 @@ function migrate(db: Database.Database): void {
       content         TEXT NOT NULL,
       project         TEXT,
       area            TEXT,
+      team            TEXT,
       task_id         INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
       thread_id       TEXT,
       pinned          INTEGER NOT NULL DEFAULT 0,
@@ -249,6 +274,7 @@ function migrate(db: Database.Database): void {
       output_summary  TEXT,
       project         TEXT,
       area            TEXT,
+      team            TEXT,
       created_at      INTEGER NOT NULL
     );
 
@@ -262,11 +288,27 @@ function migrate(db: Database.Database): void {
       metadata        TEXT NOT NULL DEFAULT '{}',
       project         TEXT,
       area            TEXT,
+      team            TEXT,
       created_at      INTEGER NOT NULL
     );
   `);
 
   const memoryCols = tableColumns(db, "memories");
+  const decisionCols = tableColumns(db, "decisions");
+  const testResultCols = tableColumns(db, "test_results");
+  const taskEventCols = tableColumns(db, "task_events");
+  if (!decisionCols.has("team")) {
+    db.exec(`ALTER TABLE decisions ADD COLUMN team TEXT`);
+  }
+  if (!memoryCols.has("team")) {
+    db.exec(`ALTER TABLE memories ADD COLUMN team TEXT`);
+  }
+  if (!testResultCols.has("team")) {
+    db.exec(`ALTER TABLE test_results ADD COLUMN team TEXT`);
+  }
+  if (!taskEventCols.has("team")) {
+    db.exec(`ALTER TABLE task_events ADD COLUMN team TEXT`);
+  }
   if (!memoryCols.has("pinned")) {
     db.exec(`ALTER TABLE memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
   }
@@ -283,12 +325,16 @@ function migrate(db: Database.Database): void {
       ON messages(project);
     CREATE INDEX IF NOT EXISTS idx_messages_area
       ON messages(area);
+    CREATE INDEX IF NOT EXISTS idx_messages_team
+      ON messages(team);
     CREATE INDEX IF NOT EXISTS idx_messages_priority
       ON messages(priority);
     CREATE INDEX IF NOT EXISTS idx_agents_project
       ON agents(project);
     CREATE INDEX IF NOT EXISTS idx_agents_area
       ON agents(area);
+    CREATE INDEX IF NOT EXISTS idx_agents_team
+      ON agents(team);
     CREATE INDEX IF NOT EXISTS idx_agents_role
       ON agents(role);
     CREATE INDEX IF NOT EXISTS idx_agents_status
@@ -299,6 +345,8 @@ function migrate(db: Database.Database): void {
       ON tasks(project);
     CREATE INDEX IF NOT EXISTS idx_tasks_area
       ON tasks(area);
+    CREATE INDEX IF NOT EXISTS idx_tasks_team
+      ON tasks(team);
     CREATE INDEX IF NOT EXISTS idx_tasks_required_capability
       ON tasks(required_capability);
     CREATE INDEX IF NOT EXISTS idx_tasks_mode
@@ -317,8 +365,12 @@ function migrate(db: Database.Database): void {
       ON tasks(session_id);
     CREATE INDEX IF NOT EXISTS idx_decisions_scope
       ON decisions(project, area);
+    CREATE INDEX IF NOT EXISTS idx_decisions_team
+      ON decisions(team);
     CREATE INDEX IF NOT EXISTS idx_memories_scope
       ON memories(project, area);
+    CREATE INDEX IF NOT EXISTS idx_memories_team
+      ON memories(team);
     CREATE INDEX IF NOT EXISTS idx_memories_agent
       ON memories(agent);
     CREATE INDEX IF NOT EXISTS idx_memories_kind
@@ -332,12 +384,16 @@ function migrate(db: Database.Database): void {
       WHERE pinned = 1;
     CREATE INDEX IF NOT EXISTS idx_test_results_scope
       ON test_results(project, area);
+    CREATE INDEX IF NOT EXISTS idx_test_results_team
+      ON test_results(team);
     CREATE INDEX IF NOT EXISTS idx_test_results_task
       ON test_results(task_id);
     CREATE INDEX IF NOT EXISTS idx_task_events_task
       ON task_events(task_id, id);
     CREATE INDEX IF NOT EXISTS idx_task_events_scope
       ON task_events(project, area);
+    CREATE INDEX IF NOT EXISTS idx_task_events_team
+      ON task_events(team);
     CREATE INDEX IF NOT EXISTS idx_task_events_type
       ON task_events(event_type);
   `);

@@ -12,6 +12,7 @@ import {
   assignTask,
   ask,
   askBest,
+  askTeam,
   cancelTask,
   checkScopeConflicts,
   claimTask,
@@ -40,6 +41,7 @@ import {
   replyThread,
   send,
   sendChannel,
+  sendTeam,
   sessionBrief,
   submitReview,
   subscribe,
@@ -54,6 +56,7 @@ import {
   messageStatus,
   reviewGate,
   taskResult,
+  teamBoard,
   whois,
   whyNoReply,
   sleepAgent,
@@ -87,6 +90,8 @@ const ProjectField = z.string().min(1).max(64).nullable().optional();
 const ProjectFilterField = z.string().min(1).max(64).optional();
 const AreaField = z.string().min(1).max(64).nullable().optional();
 const AreaFilterField = z.string().min(1).max(64).optional();
+const TeamField = z.string().min(1).max(64).nullable().optional();
+const TeamFilterField = z.string().min(1).max(64).optional();
 
 const RegisterInput = z.object({
   name: z.string().min(1).max(64),
@@ -94,6 +99,7 @@ const RegisterInput = z.object({
   replace: z.boolean().optional(),
   project: ProjectField,
   area: AreaField,
+  team: TeamField,
   role: z.string().min(1).max(64).nullable().optional(),
   routing_weight: z.number().int().optional(),
   status: AgentStatusEnum.optional(),
@@ -137,6 +143,29 @@ const AskBestInput = z.object({
   thread_id: z.string().optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
+  role: z.string().min(1).max(64).optional(),
+});
+
+const SendTeamInput = z.object({
+  from: z.string().min(1),
+  team: TeamFilterField,
+  message: z.string(),
+  thread_id: z.string().optional(),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  include_self: z.boolean().optional(),
+});
+
+const AskTeamInput = z.object({
+  from: z.string().min(1),
+  team: TeamFilterField,
+  question: z.string(),
+  timeout_s: z.number().int().positive().max(110).optional(),
+  thread_id: z.string().optional(),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  capability: z.string().min(1).optional(),
   role: z.string().min(1).max(64).optional(),
 });
 
@@ -170,12 +199,14 @@ const ThreadInput = z.object({
 const WhoisInput = z.object({
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
 });
 
 const WaitForAgentsInput = z.object({
   names: z.array(z.string().min(1)).min(1),
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
   timeout_s: z.number().int().nonnegative().max(110).optional(),
 });
 
@@ -189,6 +220,7 @@ const CreateTaskInput = z.object({
   blocked_on_task_id: z.number().int().positive().optional(),
   project: ProjectField,
   area: AreaField,
+  team: TeamField,
   required_capability: z.string().min(1).nullable().optional(),
   mode: TaskModeEnum.optional(),
   expected_output: z.string().nullable().optional(),
@@ -230,6 +262,7 @@ const ClaimBestTaskInput = z.object({
   agent: z.string().min(1),
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
 });
 
 const UpdateTaskInput = z.object({
@@ -275,6 +308,7 @@ const ListTaskEventsInput = z.object({
   event_type: z.enum(["note", "phase", "progress", "log", "result", "cancel"]).optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
   limit: z.number().int().positive().max(500).optional(),
 });
 
@@ -338,6 +372,7 @@ const CheckScopeConflictsInput = z.object({
   edit_scope: z.array(z.string()).optional(),
   project: ProjectField,
   area: AreaField,
+  team: TeamField,
   exclude_task_id: z.number().int().positive().optional(),
 });
 
@@ -349,6 +384,7 @@ const RecordTestResultInput = z.object({
   output_summary: z.string().nullable().optional(),
   project: ProjectField,
   area: AreaField,
+  team: TeamField,
 });
 
 const ListTestResultsInput = z.object({
@@ -357,6 +393,7 @@ const ListTestResultsInput = z.object({
   status: z.enum(["passed", "failed", "skipped"]).optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
   limit: z.number().int().positive().max(500).optional(),
 });
 
@@ -379,6 +416,7 @@ const ListTasksInput = z.object({
   limit: z.number().int().positive().max(500).optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
   required_capability: z.string().min(1).optional(),
   mode: TaskModeEnum.optional(),
   manager_reviewed: z.boolean().optional(),
@@ -392,6 +430,7 @@ const RecentInput = z.object({
   limit: z.number().int().positive().max(500).optional(),
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
 });
 
 const RecordDecisionInput = z.object({
@@ -401,11 +440,13 @@ const RecordDecisionInput = z.object({
   implemented: z.boolean().optional(),
   project: ProjectField,
   area: AreaField,
+  team: TeamField,
 });
 
 const ListDecisionsInput = z.object({
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
   implemented: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
 });
@@ -417,6 +458,7 @@ const RememberInput = z.object({
   agent: z.string().min(1).nullable().optional(),
   project: ProjectField,
   area: AreaField,
+  team: TeamField,
   task_id: z.number().int().positive().nullable().optional(),
   thread_id: z.string().min(1).nullable().optional(),
   pinned: z.boolean().optional(),
@@ -426,6 +468,7 @@ const RememberInput = z.object({
 const ListMemoriesInput = z.object({
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
   agent: z.string().min(1).optional(),
   kind: z.string().min(1).max(64).optional(),
   task_id: z.number().int().positive().optional(),
@@ -442,8 +485,16 @@ const PinMemoryInput = z.object({
 const SessionBriefInput = z.object({
   project: ProjectFilterField,
   area: AreaFilterField,
+  team: TeamFilterField,
   agent: z.string().min(1).optional(),
   limit: z.number().int().positive().max(50).optional(),
+});
+
+const TeamBoardInput = z.object({
+  team: z.string().min(1).max(64),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  limit: z.number().int().positive().max(100).optional(),
 });
 
 const TOOLS = [
@@ -474,6 +525,10 @@ const TOOLS = [
         area: {
           type: ["string", "null"],
           description: "Optional subfolder/domain scope from .agent-bus.json",
+        },
+        team: {
+          type: ["string", "null"],
+          description: "Optional coordination team scope. Agents in different teams stay out of team-scoped routing/views.",
         },
         role: { type: ["string", "null"], description: "Optional role such as pm, worker, verifier, reviewer, listener" },
         routing_weight: { type: "number", description: "Optional routing preference weight for ask_best" },
@@ -606,6 +661,7 @@ const TOOLS = [
         thread_id: { type: "string" },
         project: { type: "string", description: "Optional project filter; '*' searches all projects" },
         area: { type: "string", description: "Optional area filter; '*' searches every area" },
+        team: { type: "string", description: "Optional team filter; '*' searches every team" },
         role: { type: "string", description: "Optional role filter such as verifier or worker" },
       },
       required: ["from", "capability", "question"],
@@ -662,6 +718,44 @@ const TOOLS = [
         message_id: { type: "number" },
       },
       required: ["message_id"],
+    },
+  },
+  {
+    name: "send_team",
+    description:
+      "Send one message to every active agent in a team, optionally scoped by project/area. Use for private team fan-out without manually addressing each agent.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        team: { type: "string", description: "Team to send to. Defaults to sender's registered team when omitted." },
+        message: { type: "string" },
+        thread_id: { type: "string" },
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        include_self: { type: "boolean" },
+      },
+      required: ["from", "message"],
+    },
+  },
+  {
+    name: "ask_team",
+    description:
+      "Ask the best active member of a team. Optionally filter by capability and role. Use for team-scoped request/response.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        team: { type: "string", description: "Team to ask. Defaults to sender's registered team when omitted." },
+        question: { type: "string" },
+        timeout_s: { type: "number" },
+        thread_id: { type: "string" },
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        capability: { type: "string", description: "Optional capability required on the selected team member" },
+        role: { type: "string", description: "Optional role required on the selected team member" },
+      },
+      required: ["from", "question"],
     },
   },
   {
@@ -740,6 +834,7 @@ const TOOLS = [
       properties: {
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
       },
     },
   },
@@ -752,6 +847,7 @@ const TOOLS = [
       properties: {
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
       },
     },
   },
@@ -765,6 +861,7 @@ const TOOLS = [
         names: { type: "array", items: { type: "string" } },
         project: { type: "string", description: "Expected project; '*' means any project" },
         area: { type: "string", description: "Expected area; '*' means any area" },
+        team: { type: "string", description: "Expected team; '*' means any team" },
         timeout_s: { type: "number", description: "Seconds to wait, max 110" },
       },
       required: ["names"],
@@ -779,6 +876,7 @@ const TOOLS = [
         limit: { type: "number", description: "Default 50, max 500" },
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
       },
     },
   },
@@ -800,6 +898,7 @@ const TOOLS = [
         blocked_on_task_id: { type: "number" },
         project: { type: ["string", "null"], description: "Optional project scope; defaults to requester" },
         area: { type: ["string", "null"], description: "Optional area scope; defaults to requester" },
+        team: { type: ["string", "null"], description: "Optional team scope; defaults to requester" },
         required_capability: { type: ["string", "null"], description: "Optional capability required to claim this task" },
         mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
         expected_output: { type: ["string", "null"] },
@@ -837,6 +936,7 @@ const TOOLS = [
         blocked_on_task_id: { type: "number" },
         project: { type: ["string", "null"], description: "Optional project scope; defaults to requester/session" },
         area: { type: ["string", "null"], description: "Optional area scope; defaults to requester/session" },
+        team: { type: ["string", "null"], description: "Optional team scope; defaults to requester/session" },
         required_capability: { type: ["string", "null"] },
         mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
         expected_output: { type: ["string", "null"] },
@@ -1041,6 +1141,7 @@ const TOOLS = [
         edit_scope: { type: "array", items: { type: "string" } },
         project: { type: ["string", "null"] },
         area: { type: ["string", "null"] },
+        team: { type: ["string", "null"] },
         exclude_task_id: { type: "number" },
       },
       required: [],
@@ -1060,6 +1161,7 @@ const TOOLS = [
         output_summary: { type: ["string", "null"] },
         project: { type: ["string", "null"] },
         area: { type: ["string", "null"] },
+        team: { type: ["string", "null"] },
       },
       required: ["by_agent", "command", "status"],
     },
@@ -1075,6 +1177,7 @@ const TOOLS = [
         status: { type: "string", enum: ["passed", "failed", "skipped"] },
         project: { type: "string" },
         area: { type: "string" },
+        team: { type: "string" },
         limit: { type: "number" },
       },
     },
@@ -1107,6 +1210,7 @@ const TOOLS = [
         event_type: { type: "string", enum: ["note", "phase", "progress", "log", "result", "cancel"] },
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
         limit: { type: "number" },
       },
     },
@@ -1183,6 +1287,7 @@ const TOOLS = [
         limit: { type: "number" },
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
         required_capability: { type: "string" },
         mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
         manager_reviewed: { type: "boolean" },
@@ -1198,9 +1303,25 @@ const TOOLS = [
       properties: {
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
         agent: { type: "string", description: "Optional agent-specific memory filter" },
         limit: { type: "number", description: "Maximum items per section" },
       },
+    },
+  },
+  {
+    name: "team_board",
+    description:
+      "Manager board for one team: agents, tasks, review queue, acknowledgements, conflicts, pinned risks/handoffs, and next actions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        team: { type: "string", description: "Team to inspect" },
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        limit: { type: "number", description: "Maximum items per section" },
+      },
+      required: ["team"],
     },
   },
   {
@@ -1226,6 +1347,7 @@ const TOOLS = [
         implemented: { type: "boolean" },
         project: { type: ["string", "null"] },
         area: { type: ["string", "null"] },
+        team: { type: ["string", "null"] },
       },
       required: ["by_agent", "decision"],
     },
@@ -1238,6 +1360,7 @@ const TOOLS = [
       properties: {
         project: { type: "string" },
         area: { type: "string" },
+        team: { type: "string" },
         implemented: { type: "boolean" },
         limit: { type: "number" },
       },
@@ -1256,6 +1379,7 @@ const TOOLS = [
         agent: { type: ["string", "null"], description: "Optional subject/target agent" },
         project: { type: ["string", "null"], description: "Optional project scope; defaults to this MCP session's scope" },
         area: { type: ["string", "null"], description: "Optional area scope; defaults to this MCP session's scope" },
+        team: { type: ["string", "null"], description: "Optional team scope; defaults to recording agent" },
         task_id: { type: ["number", "null"], description: "Optional related task id" },
         thread_id: { type: ["string", "null"], description: "Optional related thread id" },
         pinned: { type: "boolean", description: "Pin this memory so session_brief surfaces it above recent memories" },
@@ -1272,6 +1396,7 @@ const TOOLS = [
       properties: {
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
         agent: { type: "string", description: "Optional subject or author agent filter" },
         kind: { type: "string", description: "Optional memory kind filter" },
         task_id: { type: "number", description: "Optional related task filter" },
@@ -1313,6 +1438,7 @@ const TOOLS = [
       properties: {
         project: { type: "string", description: "Optional project filter; '*' means all projects" },
         area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
         agent: { type: "string", description: "Optional agent-specific memory filter" },
         limit: { type: "number", description: "Maximum items per section, up to 50" },
       },
@@ -1326,6 +1452,7 @@ const TOOLS = [
       properties: {
         project: { type: "string" },
         area: { type: "string" },
+        team: { type: "string" },
       },
     },
   },
@@ -1338,6 +1465,7 @@ const TOOLS = [
       properties: {
         project: { type: "string" },
         area: { type: "string" },
+        team: { type: "string" },
       },
     },
   },
@@ -1389,6 +1517,15 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         thread_id: input.thread_id,
       });
     }
+    case "send_team": {
+      const input = SendTeamInput.parse(raw);
+      return sendTeam({
+        ...input,
+        content: input.message,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+      });
+    }
     case "inbox":
       return inbox(InboxInput.parse(raw));
     case "inbox_status":
@@ -1403,6 +1540,16 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
+      });
+    }
+    case "ask_team": {
+      const input = AskTeamInput.parse(raw);
+      return await askTeam({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "reply":
@@ -1439,6 +1586,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       return whois({
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "directory": {
@@ -1446,6 +1594,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       return directory({
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "wait_for_agents": {
@@ -1454,6 +1603,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "recent": {
@@ -1462,6 +1612,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         limit: input.limit ?? 50,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "create_task": {
@@ -1470,6 +1621,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+        team: input.team,
       });
     }
     case "delegate": {
@@ -1478,6 +1630,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+        team: input.team,
       });
     }
     case "claim_task":
@@ -1498,6 +1651,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "update_task":
@@ -1516,6 +1670,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+        team: input.team,
       });
     }
     case "record_test_result": {
@@ -1524,6 +1679,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+        team: input.team,
       });
     }
     case "list_test_results": {
@@ -1532,6 +1688,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "record_task_event":
@@ -1542,6 +1699,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "task_result": {
@@ -1560,6 +1718,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "get_task":
@@ -1578,6 +1737,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "remember": {
@@ -1586,6 +1746,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+        team: input.team,
       });
     }
     case "list_memories": {
@@ -1594,6 +1755,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "pin_memory": {
@@ -1610,11 +1772,21 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "project_board": {
       const input = SessionBriefInput.parse(raw);
       return projectBoard({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
+      });
+    }
+    case "team_board": {
+      const input = TeamBoardInput.parse(raw);
+      return teamBoard({
         ...input,
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
@@ -1625,6 +1797,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       return finalReport({
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     case "review_gate": {
@@ -1632,6 +1805,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       return reviewGate({
         project: input.project ?? (SESSION_SCOPE.project ?? undefined),
         area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
       });
     }
     default:

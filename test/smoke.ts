@@ -21,6 +21,7 @@ const {
   getTask,
   ask,
   askBest,
+  askTeam,
   inbox,
   inboxStatus,
   listTasks,
@@ -42,6 +43,7 @@ const {
   replyThread,
   send,
   sendChannel,
+  sendTeam,
   sleepAgent,
   setPaused,
   subscribe,
@@ -58,6 +60,7 @@ const {
   handoffTask,
   reviewGate,
   taskResult,
+  teamBoard,
   waitForTask,
   messageStatus,
   whyNoReply,
@@ -628,6 +631,48 @@ await test("area: register, messages, ask_best, and tasks stay in lane", async (
   const allAreaTasks = listTasks({ project: "app", area: PROJECT_WILDCARD, include_terminal: true }).map((t) => t.id);
   assert.ok(allAreaTasks.includes(areaATask.id));
   assert.ok(allAreaTasks.includes(areaBTask.id));
+});
+
+await test("team: directory, send_team, ask_team, and tasks stay in team", async () => {
+  register({ name: "team-pm", project: "teamproj", area: "area-a", replace: true });
+  register({ name: "team-alpha-a", project: "teamproj", area: "area-a", team: "alpha", capabilities: ["review"], replace: true });
+  register({ name: "team-alpha-b", project: "teamproj", area: "area-a", team: "alpha", capabilities: ["review"], replace: true });
+  register({ name: "team-beta-a", project: "teamproj", area: "area-a", team: "beta", capabilities: ["review"], replace: true });
+
+  const alphaDirectory = directory({ project: "teamproj", area: "area-a", team: "alpha" }).map((agent) => agent.name);
+  assert.ok(alphaDirectory.includes("team-alpha-a"));
+  assert.ok(!alphaDirectory.includes("team-beta-a"));
+
+  const sent = sendTeam({ from: "team-pm", team: "alpha", content: "alpha only" });
+  assert.deepEqual(sent.map((message) => message.to_agent).sort(), ["team-alpha-a", "team-alpha-b"]);
+  assert.ok(sent.every((message) => message.team === "alpha"));
+  assert.equal((await inbox({ agent: "team-beta-a" })).length, 0);
+
+  const replier = setTimeout(async () => {
+    const pending = [
+      ...(await inbox({ agent: "team-alpha-a" })),
+      ...(await inbox({ agent: "team-alpha-b" })),
+    ];
+    const askMsg = pending.find((message) => message.kind === "ask");
+    assert.ok(askMsg, "expected team ask");
+    reply({ from: askMsg.to_agent, ask_id: askMsg.id, answer: "alpha answer" });
+  }, 200);
+  const answer = await askTeam({
+    from: "team-pm",
+    team: "alpha",
+    capability: "review",
+    question: "team-scoped?",
+    timeout_s: 5,
+  });
+  clearTimeout(replier);
+  assert.ok(["team-alpha-a", "team-alpha-b"].includes(answer.from_agent));
+
+  const alphaTask = createTask({ requested_by: "team-pm", title: "alpha task", team: "alpha" });
+  const betaTask = createTask({ requested_by: "team-beta-a", title: "beta task", team: "beta" });
+  const alphaTasks = listTasks({ project: "teamproj", area: "area-a", team: "alpha", include_terminal: true }).map((task) => task.id);
+  assert.ok(alphaTasks.includes(alphaTask.id));
+  assert.ok(!alphaTasks.includes(betaTask.id));
+  assert.ok(teamBoard({ project: "teamproj", area: "area-a", team: "alpha" }).open_tasks.some((task) => task.id === alphaTask.id));
 });
 
 await test("project: ask_best is scoped and fails loud for wrong project", async () => {

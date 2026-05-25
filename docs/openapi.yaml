@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.11.0
+  version: 0.12.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 53 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 56 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
@@ -40,6 +40,8 @@ tags:
     description: Synchronous blocking question/answer flows.
   - name: Channels
     description: One-to-many pub/sub broadcasting.
+  - name: Teams
+    description: Scoped workgroup routing inside a project/area.
   - name: Discovery
     description: Read conversation threads and recent bus traffic.
   - name: Tasks
@@ -119,6 +121,33 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/send_team:
+    post:
+      tags: [Teams]
+      summary: Send a message to active members of a team
+      description: |
+        Fans out to active, non-paused, non-stale agents registered with
+        the selected team. Team is neutral routing metadata, not a
+        behavior policy.
+      operationId: send_team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendTeamRequest'
+      responses:
+        '200':
+          description: Inserted messages, one per recipient.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
         '400':
           $ref: '#/components/responses/BusError'
 
@@ -286,6 +315,27 @@ paths:
       responses:
         '200':
           description: The reply message from the chosen agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/ask_team:
+    post:
+      tags: [Teams]
+      summary: Ask the best active member of a team
+      operationId: ask_team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskTeamRequest'
+      responses:
+        '200':
+          description: The reply from the selected team member.
           content:
             application/json:
               schema:
@@ -995,6 +1045,27 @@ paths:
         '400':
           $ref: '#/components/responses/BusError'
 
+  /tools/team_board:
+    post:
+      tags: [Teams, Tasks]
+      summary: Manager board scoped to one team
+      operationId: team_board
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamBoardRequest'
+      responses:
+        '200':
+          description: Same shape as project_board, filtered to the selected team.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BusError'
+
 components:
   schemas:
     AgentName:
@@ -1049,6 +1120,21 @@ components:
           enum: ['*']
           description: Wildcard meaning all areas.
 
+    TeamName:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: '^[a-zA-Z0-9_.-]+$'
+      description: Optional workgroup scope inside a project/area.
+      example: ios-ui
+
+    TeamFilter:
+      oneOf:
+        - $ref: '#/components/schemas/TeamName'
+        - type: string
+          enum: ['*']
+          description: Wildcard meaning all teams.
+
     MessageKind:
       type: string
       enum: [msg, ask, reply]
@@ -1075,7 +1161,7 @@ components:
 
     Agent:
       type: object
-      required: [name, capabilities, registered_at, last_seen, paused, project, area]
+      required: [name, capabilities, registered_at, last_seen, paused, project, area, team]
       properties:
         name:
           $ref: '#/components/schemas/AgentName'
@@ -1100,6 +1186,9 @@ components:
         area:
           type: [string, 'null']
           description: Area associated with this agent. Null means no area/legacy.
+        team:
+          type: [string, 'null']
+          description: Optional workgroup associated with this agent.
         role:
           type: [string, 'null']
           description: Optional routing role.
@@ -1126,6 +1215,7 @@ components:
         - thread_id
         - project
         - area
+        - team
       properties:
         id:
           type: integer
@@ -1168,10 +1258,13 @@ components:
           description: Set when the message arrived via `send_channel`.
         project:
           type: [string, 'null']
-          description: Project copied from the sender agent at insert time. Null means legacy/global.
+          description: Message project scope. Direct messages copy sender scope; team-routed messages use recipient scope.
         area:
           type: [string, 'null']
-          description: Area copied from the sender agent at insert time. Null means no area/legacy.
+          description: Message area scope. Null means no area/legacy.
+        team:
+          type: [string, 'null']
+          description: Message team scope, if any.
         priority:
           type: string
           enum: [low, normal, high, urgent]
@@ -1189,6 +1282,7 @@ components:
         - updated_at
         - project
         - area
+        - team
       properties:
         id:
           type: integer
@@ -1245,6 +1339,9 @@ components:
         area:
           type: [string, 'null']
           description: Area scope for this task. Null-area tasks only appear in global area task listings.
+        team:
+          type: [string, 'null']
+          description: Optional workgroup scope for this task.
         required_capability:
           type: [string, 'null']
           description: Capability required to claim this task.
@@ -1324,6 +1421,9 @@ components:
         area:
           type: [string, 'null']
           description: Optional area association. MCP sessions default this from `.agent-bus.json`; null is no area.
+        team:
+          type: [string, 'null']
+          description: Optional workgroup association.
         role:
           type: [string, 'null']
         routing_weight:
@@ -1342,6 +1442,26 @@ components:
           type: string
         thread_id:
           $ref: '#/components/schemas/ThreadId'
+
+    SendTeamRequest:
+      type: object
+      required: [from, message]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+        message:
+          type: string
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
+        include_self:
+          type: boolean
 
     InboxRequest:
       type: object
@@ -1436,6 +1556,34 @@ components:
           $ref: '#/components/schemas/ProjectFilter'
         area:
           $ref: '#/components/schemas/AreaFilter'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+        role:
+          type: string
+
+    AskTeamRequest:
+      type: object
+      required: [from, question]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+        question:
+          type: string
+        timeout_s:
+          type: integer
+          minimum: 1
+          maximum: 110
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
+        capability:
+          type: string
         role:
           type: string
 
@@ -1529,6 +1677,8 @@ components:
           $ref: '#/components/schemas/ProjectFilter'
         area:
           $ref: '#/components/schemas/AreaFilter'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
 
     CreateTaskRequest:
       type: object
@@ -1559,6 +1709,9 @@ components:
         area:
           type: [string, 'null']
           description: Optional area. Defaults to the requester agent's area.
+        team:
+          type: [string, 'null']
+          description: Optional team. Defaults to the requester agent's team.
         required_capability:
           type: [string, 'null']
           description: Optional capability required to claim this task.
@@ -1676,6 +1829,8 @@ components:
           $ref: '#/components/schemas/ProjectFilter'
         area:
           $ref: '#/components/schemas/AreaFilter'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
         required_capability:
           type: string
 
@@ -1717,6 +1872,8 @@ components:
           type: [string, 'null']
         area:
           type: [string, 'null']
+        team:
+          type: [string, 'null']
         created_at:
           type: integer
           format: int64
@@ -1756,6 +1913,8 @@ components:
           $ref: '#/components/schemas/ProjectFilter'
         area:
           $ref: '#/components/schemas/AreaFilter'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
         limit:
           type: integer
           minimum: 1
@@ -1838,6 +1997,24 @@ components:
           $ref: '#/components/schemas/ProjectFilter'
         area:
           $ref: '#/components/schemas/AreaFilter'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+
+    TeamBoardRequest:
+      type: object
+      required: [team]
+      additionalProperties: false
+      properties:
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
 
   responses:
     BusError:

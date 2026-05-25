@@ -30,6 +30,7 @@ export type TaskEventType = "note" | "phase" | "progress" | "log" | "result" | "
 
 export const PROJECT_WILDCARD = "*";
 export const AREA_WILDCARD = PROJECT_WILDCARD;
+export const TEAM_WILDCARD = PROJECT_WILDCARD;
 
 export interface Agent {
   name: string;
@@ -39,6 +40,7 @@ export interface Agent {
   paused: boolean;
   project: string | null;
   area: string | null;
+  team: string | null;
   role: AgentRole | null;
   routing_weight: number;
   status: AgentStatus;
@@ -62,6 +64,7 @@ export interface Message {
   channel: string | null;
   project: string | null;
   area: string | null;
+  team: string | null;
   priority: MessagePriority;
 }
 
@@ -79,6 +82,7 @@ interface AgentRow {
   paused: number;
   project: string | null;
   area: string | null;
+  team: string | null;
   role: AgentRole | null;
   routing_weight: number;
   status: AgentStatus;
@@ -102,6 +106,7 @@ interface MessageRow {
   channel: string | null;
   project: string | null;
   area: string | null;
+  team: string | null;
   priority: MessagePriority;
 }
 
@@ -114,6 +119,7 @@ function toAgent(row: AgentRow): Agent {
     paused: row.paused === 1,
     project: row.project,
     area: row.area,
+    team: row.team,
     role: row.role,
     routing_weight: row.routing_weight,
     status: row.status,
@@ -139,6 +145,7 @@ function toMessage(row: MessageRow): Message {
     channel: row.channel,
     project: row.project,
     area: row.area,
+    team: row.team,
     priority: row.priority,
   };
 }
@@ -151,7 +158,7 @@ function getMessageRow(id: number): MessageRow {
   return row;
 }
 
-function validateScopeName(kind: "project" | "area" | "role", value: string | null | undefined): void {
+function validateScopeName(kind: "project" | "area" | "team" | "role", value: string | null | undefined): void {
   if (value === null || value === undefined) return;
   if (typeof value !== "string" || value.length === 0 || value.length > 64) {
     throw new BusError("INVALID_INPUT", `${kind} must be 1-64 chars or omitted`);
@@ -171,6 +178,11 @@ function validateProject(project: string | null | undefined): void {
 function validateArea(area: string | null | undefined): void {
   if (area === AREA_WILDCARD) return;
   validateScopeName("area", area);
+}
+
+function validateTeam(team: string | null | undefined): void {
+  if (team === TEAM_WILDCARD) return;
+  validateScopeName("team", team);
 }
 
 function validateRole(role: string | null | undefined): void {
@@ -277,6 +289,7 @@ export interface RegisterOptions {
   replace?: boolean;
   project?: string | null;
   area?: string | null;
+  team?: string | null;
   role?: AgentRole | null;
   routing_weight?: number;
   status?: AgentStatus;
@@ -287,6 +300,7 @@ export function register(opts: RegisterOptions): Agent {
   validateName(opts.name);
   validateProject(opts.project);
   validateArea(opts.area);
+  validateTeam(opts.team);
   validateRole(opts.role);
   validateAgentStatus(opts.status);
   validateSessionId(opts.session_id);
@@ -312,13 +326,14 @@ export function register(opts: RegisterOptions): Agent {
 
   const project = opts.project ?? null;
   const area = opts.area ?? null;
+  const team = opts.team ?? null;
   const role = opts.role ?? null;
   const routingWeight = Math.trunc(opts.routing_weight ?? 0);
   const status = opts.status ?? "idle";
   const sessionId = opts.session_id ?? null;
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, role, routing_weight, status, session_id)
-       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @role, @routingWeight, @status, @sessionId)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, team, role, routing_weight, status, session_id)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @team, @role, @routingWeight, @status, @sessionId)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
@@ -326,11 +341,12 @@ export function register(opts: RegisterOptions): Agent {
        paused = 0,
        project = excluded.project,
        area = excluded.area,
+       team = excluded.team,
        role = excluded.role,
        routing_weight = excluded.routing_weight,
        status = excluded.status,
        session_id = excluded.session_id`,
-  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, role, routingWeight, status, sessionId });
+  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, team, role, routingWeight, status, sessionId });
 
   const agent = requireAgent(opts.name);
   notifyPendingAssignments(agent.name);
@@ -359,6 +375,7 @@ export function heartbeat(name: string): void {
 export interface WhoisOptions {
   project?: string;
   area?: string;
+  team?: string;
 }
 
 export function whois(opts: WhoisOptions = {}): Agent[] {
@@ -374,6 +391,11 @@ export function whois(opts: WhoisOptions = {}): Agent[] {
     validateArea(opts.area);
     where.push("(area = ? OR area IS NULL)");
     params.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    validateTeam(opts.team);
+    where.push("team = ?");
+    params.push(opts.team);
   }
   const rows = db
     .prepare(
@@ -439,8 +461,10 @@ export interface WaitForAgentsResult {
     name: string;
     project: string | null;
     area: string | null;
+    team: string | null;
     expected_project: string | null;
     expected_area: string | null;
+    expected_team: string | null;
   }>;
 }
 
@@ -451,6 +475,7 @@ export async function waitForAgents(opts: WaitForAgentsOptions): Promise<WaitFor
   for (const name of opts.names) validateName(name);
   if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) validateProject(opts.project);
   validateArea(opts.area);
+  validateTeam(opts.team);
   const timeout = Math.min(Math.max(opts.timeout_s ?? 60, 0), MAX_INBOX_WAIT_S);
   const deadline = now() + timeout * 1000;
   let latest = inspectAgents(opts);
@@ -463,7 +488,7 @@ export async function waitForAgents(opts: WaitForAgentsOptions): Promise<WaitFor
 
 function inspectAgents(opts: WaitForAgentsOptions): WaitForAgentsResult {
   const expected = new Set(opts.names);
-  const all = directory({ project: PROJECT_WILDCARD, area: AREA_WILDCARD }).filter((agent) => expected.has(agent.name));
+  const all = directory({ project: PROJECT_WILDCARD, area: AREA_WILDCARD, team: TEAM_WILDCARD }).filter((agent) => expected.has(agent.name));
   const byName = new Map(all.map((agent) => [agent.name, agent]));
   const missing = opts.names.filter((name) => !byName.has(name));
   const wrong_scope: WaitForAgentsResult["wrong_scope"] = [];
@@ -472,13 +497,16 @@ function inspectAgents(opts: WaitForAgentsOptions): WaitForAgentsResult {
   for (const agent of all) {
     const projectWrong = opts.project !== undefined && opts.project !== PROJECT_WILDCARD && agent.project !== opts.project;
     const areaWrong = opts.area !== undefined && opts.area !== AREA_WILDCARD && agent.area !== opts.area;
-    if (projectWrong || areaWrong) {
+    const teamWrong = opts.team !== undefined && opts.team !== TEAM_WILDCARD && agent.team !== opts.team;
+    if (projectWrong || areaWrong || teamWrong) {
       wrong_scope.push({
         name: agent.name,
         project: agent.project,
         area: agent.area,
+        team: agent.team,
         expected_project: opts.project === undefined || opts.project === PROJECT_WILDCARD ? null : opts.project,
         expected_area: opts.area === undefined || opts.area === AREA_WILDCARD ? null : opts.area,
+        expected_team: opts.team === undefined || opts.team === TEAM_WILDCARD ? null : opts.team,
       });
     } else if (agent.presence === "stale" || agent.presence === "paused") {
       stale.push(agent);
@@ -505,6 +533,7 @@ function insertMessage(
   threadId: string,
   senderProject: string | null,
   senderArea: string | null,
+  senderTeam: string | null,
 ): Message {
   validatePriority(opts.priority);
   const db = getDb();
@@ -513,8 +542,8 @@ function insertMessage(
   const info = db
     .prepare(
       `INSERT INTO messages
-         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel, project, area, priority)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+         (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, channel, project, area, team, priority)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.from,
@@ -527,6 +556,7 @@ function insertMessage(
       opts.channel ?? null,
       senderProject,
       senderArea,
+      senderTeam,
       priority,
     );
 
@@ -547,7 +577,7 @@ export function send(opts: SendOptions): Message {
   const sender = requireAgent(opts.from);
   requireAgent(opts.to);
   heartbeat(opts.from);
-  return insertMessage(opts, opts.thread_id ?? newThreadId(), sender.project, sender.area);
+  return insertMessage(opts, opts.thread_id ?? newThreadId(), sender.project, sender.area, sender.team);
 }
 
 export interface InboxOptions {
@@ -764,8 +794,13 @@ function hasPendingAsk(from: string, to: string): boolean {
   return Boolean(row);
 }
 
-export async function ask(opts: AskOptions): Promise<Message> {
+async function askWithScope(
+  opts: AskOptions,
+  scope?: { project: string | null; area: string | null; team: string | null },
+): Promise<Message> {
   const timeout_s = Math.min(opts.timeout_s ?? 60, MAX_ASK_TIMEOUT_S);
+  const sender = requireAgent(opts.from);
+  requireAgent(opts.to);
 
   if (hasPendingAsk(opts.to, opts.from)) {
     throw new BusError(
@@ -774,13 +809,20 @@ export async function ask(opts: AskOptions): Promise<Message> {
     );
   }
 
-  const asked = send({
-    from: opts.from,
-    to: opts.to,
-    content: opts.question,
-    kind: "ask",
-    thread_id: opts.thread_id,
-  });
+  heartbeat(opts.from);
+  const asked = insertMessage(
+    {
+      from: opts.from,
+      to: opts.to,
+      content: opts.question,
+      kind: "ask",
+      thread_id: opts.thread_id,
+    },
+    opts.thread_id ?? newThreadId(),
+    scope?.project ?? sender.project,
+    scope?.area ?? sender.area,
+    scope?.team ?? sender.team,
+  );
 
   const deadline = now() + timeout_s * 1000;
   const db = getDb();
@@ -798,6 +840,10 @@ export async function ask(opts: AskOptions): Promise<Message> {
     "ASK_TIMEOUT",
     `no reply from '${opts.to}' within ${timeout_s}s (ask_id=${asked.id})`,
   );
+}
+
+export async function ask(opts: AskOptions): Promise<Message> {
+  return askWithScope(opts);
 }
 
 export interface ReplyOptions {
@@ -835,6 +881,7 @@ export function reply(opts: ReplyOptions): Message {
     threadId,
     replier.project,
     replier.area,
+    replier.team,
   );
   heartbeat(opts.from);
 
@@ -961,6 +1008,7 @@ export interface AskBestOptions {
   thread_id?: string;
   project?: string;
   area?: string;
+  team?: string;
   role?: AgentRole;
 }
 
@@ -971,8 +1019,10 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
   // Resolve scope: explicit > asker metadata. "*" means no filter on that dimension.
   const projectScope = opts.project !== undefined ? opts.project : asker.project;
   const areaScope = opts.area !== undefined ? opts.area : asker.area;
+  const teamScope = opts.team !== undefined ? opts.team : asker.team;
   if (projectScope !== null && projectScope !== PROJECT_WILDCARD) validateProject(projectScope);
   if (areaScope !== null && areaScope !== AREA_WILDCARD) validateArea(areaScope);
+  if (teamScope !== null && teamScope !== TEAM_WILDCARD) validateTeam(teamScope);
   validateRole(opts.role);
 
   const db = getDb();
@@ -999,8 +1049,12 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
       areaScope === null ||
       areaScope === AREA_WILDCARD ||
       a.area === areaScope;
+    const teamOk =
+      teamScope === null ||
+      teamScope === TEAM_WILDCARD ||
+      a.team === teamScope;
     const roleOk = opts.role === undefined || a.role === opts.role;
-    return projectOk && areaOk && roleOk;
+    return projectOk && areaOk && teamOk && roleOk;
   }).sort((a, b) => {
     const weightDiff = b.routing_weight - a.routing_weight;
     if (weightDiff !== 0) return weightDiff;
@@ -1011,12 +1065,14 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
     const scopedParts = [
       projectScope !== null && projectScope !== PROJECT_WILDCARD ? `project '${projectScope}'` : null,
       areaScope !== null && areaScope !== AREA_WILDCARD ? `area '${areaScope}'` : null,
+      teamScope !== null && teamScope !== TEAM_WILDCARD ? `team '${teamScope}'` : null,
       opts.role !== undefined ? `role '${opts.role}'` : null,
     ].filter(Boolean);
     const scopeText = scopedParts.length > 0 ? ` in ${scopedParts.join(", ")}` : "";
     const hintParts = [
       projectScope !== null && projectScope !== PROJECT_WILDCARD ? `project="${PROJECT_WILDCARD}"` : null,
       areaScope !== null && areaScope !== AREA_WILDCARD ? `area="${AREA_WILDCARD}"` : null,
+      teamScope !== null && teamScope !== TEAM_WILDCARD ? `team="${TEAM_WILDCARD}"` : null,
     ].filter(Boolean);
     const hint =
       hintParts.length > 0
@@ -1118,10 +1174,103 @@ export function sendChannel(opts: SendChannelOptions): Message[] {
         threadId,
         sender.project,
         sender.area,
+        sender.team,
       ),
     );
   }
   return out;
+}
+
+export interface SendTeamOptions {
+  from: string;
+  team?: string;
+  content: string;
+  thread_id?: string;
+  project?: string;
+  area?: string;
+  include_self?: boolean;
+}
+
+function teamRecipients(opts: { from: string; team?: string; project?: string; area?: string; include_self?: boolean; capability?: string; role?: AgentRole }): Agent[] {
+  validateName(opts.from);
+  const sender = requireAgent(opts.from);
+  const team = opts.team !== undefined ? opts.team : sender.team;
+  if (!team || team === TEAM_WILDCARD) {
+    throw new BusError("INVALID_INPUT", "team is required for team routing");
+  }
+  validateTeam(team);
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) validateProject(opts.project);
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) validateArea(opts.area);
+  validateRole(opts.role);
+  return directory({ project: opts.project ?? sender.project ?? undefined, area: opts.area ?? sender.area ?? undefined, team })
+    .filter((agent) => (opts.include_self === true || agent.name !== opts.from))
+    .filter((agent) => !agent.paused && agent.presence !== "stale")
+    .filter((agent) => opts.capability === undefined || agent.capabilities.includes(opts.capability))
+    .filter((agent) => opts.role === undefined || agent.role === opts.role)
+    .sort((a, b) => {
+      const weightDiff = b.routing_weight - a.routing_weight;
+      if (weightDiff !== 0) return weightDiff;
+      return b.last_seen - a.last_seen;
+    });
+}
+
+export function sendTeam(opts: SendTeamOptions): Message[] {
+  if (typeof opts.content !== "string") {
+    throw new BusError("INVALID_INPUT", "content must be a string");
+  }
+  requireAgent(opts.from);
+  heartbeat(opts.from);
+  const recipients = teamRecipients(opts);
+  if (recipients.length === 0) return [];
+  const threadId = opts.thread_id ?? newThreadId();
+  return recipients.map((recipient) =>
+    insertMessage(
+      {
+        from: opts.from,
+        to: recipient.name,
+        content: opts.content,
+        kind: "msg",
+        thread_id: threadId,
+      },
+      threadId,
+      recipient.project,
+      recipient.area,
+      recipient.team,
+    ),
+  );
+}
+
+export interface AskTeamOptions {
+  from: string;
+  team?: string;
+  question: string;
+  timeout_s?: number;
+  thread_id?: string;
+  project?: string;
+  area?: string;
+  capability?: string;
+  role?: AgentRole;
+}
+
+export async function askTeam(opts: AskTeamOptions): Promise<Message> {
+  if (typeof opts.question !== "string") {
+    throw new BusError("INVALID_INPUT", "question must be a string");
+  }
+  const recipients = teamRecipients(opts);
+  if (recipients.length === 0) {
+    throw new BusError("UNKNOWN_AGENT", `no active agent in team '${opts.team ?? requireAgent(opts.from).team ?? ""}' matches the request`);
+  }
+  const recipient = recipients[0]!;
+  return askWithScope(
+    {
+      from: opts.from,
+      to: recipient.name,
+      question: opts.question,
+      timeout_s: opts.timeout_s,
+      thread_id: opts.thread_id,
+    },
+    { project: recipient.project, area: recipient.area, team: recipient.team },
+  );
 }
 
 export function setPaused(name: string, paused: boolean): void {
@@ -1153,6 +1302,7 @@ export interface RecentMessagesOptions {
   limit?: number;
   project?: string;
   area?: string;
+  team?: string;
 }
 
 export function recentMessages(arg: number | RecentMessagesOptions = 100): Message[] {
@@ -1172,6 +1322,11 @@ export function recentMessages(arg: number | RecentMessagesOptions = 100): Messa
     where.push("(area = ? OR area IS NULL)");
     params.push(opts.area);
   }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    validateTeam(opts.team);
+    where.push("team = ?");
+    params.push(opts.team);
+  }
   const rows = db
     .prepare(
       `SELECT * FROM messages${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
@@ -1182,7 +1337,7 @@ export function recentMessages(arg: number | RecentMessagesOptions = 100): Messa
   return rows.reverse().map(toMessage);
 }
 
-export function messagesSince(id: number, limit = 100, project?: string, area?: string): Message[] {
+export function messagesSince(id: number, limit = 100, project?: string, area?: string, team?: string): Message[] {
   const boundedLimit = Math.min(Math.max(limit, 1), 1000);
   const where: string[] = ["id > ?"];
   const params: unknown[] = [id];
@@ -1195,6 +1350,11 @@ export function messagesSince(id: number, limit = 100, project?: string, area?: 
     validateArea(area);
     where.push("(area = ? OR area IS NULL)");
     params.push(area);
+  }
+  if (team !== undefined && team !== TEAM_WILDCARD) {
+    validateTeam(team);
+    where.push("team = ?");
+    params.push(team);
   }
 
   const rows = getDb()
@@ -1244,6 +1404,7 @@ export interface Task {
   finished_at: number | null;
   project: string | null;
   area: string | null;
+  team: string | null;
   required_capability: string | null;
   mode: TaskMode;
   expected_output: string | null;
@@ -1288,6 +1449,7 @@ interface TaskRow {
   finished_at: number | null;
   project: string | null;
   area: string | null;
+  team: string | null;
   required_capability: string | null;
   mode: TaskMode;
   expected_output: string | null;
@@ -1356,6 +1518,7 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     finished_at: row.finished_at,
     project: row.project,
     area: row.area,
+    team: row.team,
     required_capability: row.required_capability,
     mode: row.mode,
     expected_output: row.expected_output,
@@ -1458,6 +1621,7 @@ export interface CheckScopeConflictsOptions {
   edit_scope?: string[];
   project?: string | null;
   area?: string | null;
+  team?: string | null;
   exclude_task_id?: number;
 }
 
@@ -1466,6 +1630,7 @@ export function checkScopeConflicts(opts: CheckScopeConflictsOptions): ScopeConf
     validateProject(opts.project);
   }
   validateArea(opts.area);
+  validateTeam(opts.team);
   const requestedScope = opts.edit_scope ?? opts.file_scope ?? [];
   if (!requestedScope.every((value) => typeof value === "string")) {
     throw new BusError("INVALID_INPUT", "edit_scope/file_scope must be an array of strings");
@@ -1482,6 +1647,10 @@ export function checkScopeConflicts(opts: CheckScopeConflictsOptions): ScopeConf
   if (opts.area !== undefined && opts.area !== null && opts.area !== AREA_WILDCARD) {
     where.push("area = ?");
     params.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== null && opts.team !== TEAM_WILDCARD) {
+    where.push("team = ?");
+    params.push(opts.team);
   }
   if (opts.exclude_task_id !== undefined) {
     where.push("id != ?");
@@ -1510,11 +1679,12 @@ export function checkScopeConflicts(opts: CheckScopeConflictsOptions): ScopeConf
   return conflicts;
 }
 
-function assertNoScopeConflicts(editScope: string[], project: string | null, area: string | null, excludeTaskId?: number): void {
+function assertNoScopeConflicts(editScope: string[], project: string | null, area: string | null, excludeTaskId?: number, team?: string | null): void {
   const conflicts = checkScopeConflicts({
     edit_scope: editScope,
     project,
     area,
+    team,
     exclude_task_id: excludeTaskId,
   });
   if (conflicts.length > 0) {
@@ -1536,6 +1706,7 @@ export interface CreateTaskOptions {
   blocked_on_task_id?: number;
   project?: string | null;
   area?: string | null;
+  team?: string | null;
   required_capability?: string | null;
   mode?: TaskMode;
   expected_output?: string | null;
@@ -1567,6 +1738,7 @@ export function createTask(opts: CreateTaskOptions): Task {
   }
   validateProject(opts.project);
   validateArea(opts.area);
+  validateTeam(opts.team);
   validateTaskMode(opts.mode);
   if (opts.required_capability !== undefined && opts.required_capability !== null && opts.required_capability.length === 0) {
     throw new BusError("INVALID_INPUT", "required_capability must be non-empty or null");
@@ -1604,6 +1776,7 @@ export function createTask(opts: CreateTaskOptions): Task {
   const threadId = opts.thread_id ?? newThreadId();
   const project = opts.project !== undefined ? opts.project : requester.project;
   const area = opts.area !== undefined ? opts.area : requester.area;
+  const team = opts.team !== undefined ? opts.team : requester.team;
   const requiredCapability = opts.required_capability ?? null;
   const mode = opts.mode ?? "edit_files";
   const rawFileScope = opts.file_scope ?? [];
@@ -1611,7 +1784,7 @@ export function createTask(opts: CreateTaskOptions): Task {
   const rawReadScope = opts.read_scope ?? rawFileScope;
   const sessionId = opts.session_id !== undefined ? opts.session_id : requester.session_id;
   if (opts.allow_conflicts !== true && (mode === "edit_files" || mode === "propose_patch")) {
-    assertNoScopeConflicts(rawEditScope, project, area);
+    assertNoScopeConflicts(rawEditScope, project, area, undefined, team);
   }
   const fileScope = JSON.stringify(rawFileScope);
   const editScope = JSON.stringify(rawEditScope);
@@ -1621,8 +1794,8 @@ export function createTask(opts: CreateTaskOptions): Task {
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, review_state, changed_files, phase, session_id)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, team, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, review_state, changed_files, phase, session_id)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -1636,6 +1809,7 @@ export function createTask(opts: CreateTaskOptions): Task {
       ts,
       project,
       area,
+      team,
       requiredCapability,
       mode,
       opts.expected_output ?? null,
@@ -1686,12 +1860,17 @@ export function claimTask(opts: ClaimTaskOptions): Task {
       throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} belongs to area '${row.area}'`);
     }
   }
+  if (row.team !== null && agent.team !== null && row.team !== agent.team) {
+    if (row.team !== TEAM_WILDCARD && agent.team !== TEAM_WILDCARD) {
+      throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} belongs to team '${row.team}'`);
+    }
+  }
   if (row.pending_assignee !== null && row.pending_assignee !== opts.agent) {
     throw new BusError("TASK_FORBIDDEN", `task ${opts.task_id} is reserved for '${row.pending_assignee}'`);
   }
   const rowScope = JSON.parse(row.edit_scope) as string[];
   if (opts.allow_conflicts !== true && (row.mode === "edit_files" || row.mode === "propose_patch")) {
-    assertNoScopeConflicts(rowScope, row.project, row.area, opts.task_id);
+    assertNoScopeConflicts(rowScope, row.project, row.area, opts.task_id, row.team);
   }
   const ts = now();
   const info = db
@@ -1877,12 +2056,12 @@ export function updateTask(opts: UpdateTaskOptions): Task {
       throw new BusError("INVALID_INPUT", "edit_scope must be an array of strings");
     }
     if (opts.allow_conflicts !== true && (opts.mode ?? row.mode) !== "investigate_only" && (opts.mode ?? row.mode) !== "test_only") {
-      assertNoScopeConflicts(opts.edit_scope, row.project, row.area, opts.task_id);
+      assertNoScopeConflicts(opts.edit_scope, row.project, row.area, opts.task_id, row.team);
     }
     sets.push("edit_scope = ?");
     params.push(JSON.stringify(opts.edit_scope));
   } else if (opts.file_scope !== undefined && opts.allow_conflicts !== true && (opts.mode ?? row.mode) !== "investigate_only" && (opts.mode ?? row.mode) !== "test_only") {
-    assertNoScopeConflicts(opts.file_scope, row.project, row.area, opts.task_id);
+    assertNoScopeConflicts(opts.file_scope, row.project, row.area, opts.task_id, row.team);
     sets.push("edit_scope = ?");
     params.push(JSON.stringify(opts.file_scope));
   }
@@ -1992,6 +2171,7 @@ export interface ListTasksOptions {
   limit?: number;
   project?: string;
   area?: string;
+  team?: string;
   required_capability?: string;
   mode?: TaskMode;
   manager_reviewed?: boolean;
@@ -2021,6 +2201,11 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
     // Scoped: only this area. NULL-area tasks are hidden until area='*'.
     where.push("area = ?");
     params.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    validateTeam(opts.team);
+    where.push("team = ?");
+    params.push(opts.team);
   }
   if (opts.required_capability !== undefined) {
     where.push("required_capability = ?");
@@ -2081,7 +2266,7 @@ export function assignTask(opts: AssignTaskOptions): Task {
   }
   const rowScope = JSON.parse(row.edit_scope) as string[];
   if (opts.allow_conflicts !== true && (row.mode === "edit_files" || row.mode === "propose_patch")) {
-    assertNoScopeConflicts(rowScope, row.project, row.area, opts.task_id);
+    assertNoScopeConflicts(rowScope, row.project, row.area, opts.task_id, row.team);
   }
   const ts = now();
   if (agent === null) {
@@ -2174,6 +2359,7 @@ export interface ClaimBestTaskOptions {
   agent: string;
   project?: string;
   area?: string;
+  team?: string;
 }
 
 export function claimBestTask(opts: ClaimBestTaskOptions): Task | null {
@@ -2181,11 +2367,13 @@ export function claimBestTask(opts: ClaimBestTaskOptions): Task | null {
   heartbeat(opts.agent);
   const project = opts.project !== undefined ? opts.project : agent.project;
   const area = opts.area !== undefined ? opts.area : agent.area;
+  const team = opts.team !== undefined ? opts.team : agent.team;
   const tasks = listTasks({
     state: "open",
     include_terminal: false,
     project: project ?? undefined,
     area: area ?? undefined,
+    team: team ?? undefined,
     limit: 100,
   }).filter((task) => task.required_capability === null || agent.capabilities.includes(task.required_capability));
   const task = tasks.find((candidate) => candidate.pending_assignee === null || candidate.pending_assignee === opts.agent);
@@ -2352,6 +2540,7 @@ export interface TaskEvent {
   metadata: Record<string, unknown>;
   project: string | null;
   area: string | null;
+  team: string | null;
   created_at: number;
 }
 
@@ -2365,6 +2554,7 @@ interface TaskEventRow {
   metadata: string;
   project: string | null;
   area: string | null;
+  team: string | null;
   created_at: number;
 }
 
@@ -2402,10 +2592,10 @@ export function recordTaskEvent(opts: RecordTaskEventOptions): TaskEvent {
   const ts = now();
   const info = getDb()
     .prepare(
-      `INSERT INTO task_events (task_id, by_agent, event_type, message, phase, metadata, project, area, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO task_events (task_id, by_agent, event_type, message, phase, metadata, project, area, team, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(opts.task_id, opts.by_agent, eventType, opts.message, opts.phase ?? null, JSON.stringify(metadata), task.project, task.area, ts);
+    .run(opts.task_id, opts.by_agent, eventType, opts.message, opts.phase ?? null, JSON.stringify(metadata), task.project, task.area, task.team, ts);
   if (opts.phase !== undefined) {
     getDb().prepare("UPDATE tasks SET phase = ?, updated_at = ? WHERE id = ?").run(opts.phase, ts, opts.task_id);
   }
@@ -2419,12 +2609,14 @@ export interface ListTaskEventsOptions {
   event_type?: TaskEventType;
   project?: string;
   area?: string;
+  team?: string;
   limit?: number;
 }
 
 export function listTaskEvents(opts: ListTaskEventsOptions = {}): TaskEvent[] {
   if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) validateProject(opts.project);
   if (opts.area !== undefined && opts.area !== AREA_WILDCARD) validateArea(opts.area);
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
   validateTaskEventType(opts.event_type);
   if (opts.by_agent !== undefined) validateName(opts.by_agent);
   const where: string[] = [];
@@ -2448,6 +2640,10 @@ export function listTaskEvents(opts: ListTaskEventsOptions = {}): TaskEvent[] {
   if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
     where.push("area = ?");
     params.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    where.push("team = ?");
+    params.push(opts.team);
   }
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
   const rows = getDb()
@@ -2609,6 +2805,7 @@ export interface Decision {
   implemented: boolean;
   project: string | null;
   area: string | null;
+  team: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -2621,6 +2818,7 @@ interface DecisionRow {
   implemented: number;
   project: string | null;
   area: string | null;
+  team: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -2641,6 +2839,7 @@ export interface TestResult {
   output_summary: string | null;
   project: string | null;
   area: string | null;
+  team: string | null;
   created_at: number;
 }
 
@@ -2653,6 +2852,7 @@ interface TestResultRow {
   output_summary: string | null;
   project: string | null;
   area: string | null;
+  team: string | null;
   created_at: number;
 }
 
@@ -2667,12 +2867,14 @@ export interface RecordDecisionOptions {
   implemented?: boolean;
   project?: string | null;
   area?: string | null;
+  team?: string | null;
 }
 
 export function recordDecision(opts: RecordDecisionOptions): Decision {
   validateName(opts.by_agent);
   validateProject(opts.project);
   validateArea(opts.area);
+  validateTeam(opts.team);
   const agent = requireAgent(opts.by_agent);
   if (opts.decision.trim().length === 0) {
     throw new BusError("INVALID_INPUT", "decision must be non-empty");
@@ -2680,11 +2882,12 @@ export function recordDecision(opts: RecordDecisionOptions): Decision {
   const ts = now();
   const project = opts.project !== undefined ? opts.project : agent.project;
   const area = opts.area !== undefined ? opts.area : agent.area;
+  const team = opts.team !== undefined ? opts.team : agent.team;
   const info = getDb()
     .prepare(
       `INSERT INTO decisions
-         (by_agent, decision, rationale, implemented, project, area, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (by_agent, decision, rationale, implemented, project, area, team, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.by_agent,
@@ -2693,6 +2896,7 @@ export function recordDecision(opts: RecordDecisionOptions): Decision {
       opts.implemented === true ? 1 : 0,
       project,
       area,
+      team,
       ts,
       ts,
     );
@@ -2704,6 +2908,7 @@ export function recordDecision(opts: RecordDecisionOptions): Decision {
 export interface ListDecisionsOptions {
   project?: string;
   area?: string;
+  team?: string;
   implemented?: boolean;
   limit?: number;
 }
@@ -2720,6 +2925,11 @@ export function listDecisions(opts: ListDecisionsOptions = {}): Decision[] {
     validateArea(opts.area);
     where.push("(area = ? OR area IS NULL)");
     params.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    validateTeam(opts.team);
+    where.push("team = ?");
+    params.push(opts.team);
   }
   if (opts.implemented !== undefined) {
     where.push("implemented = ?");
@@ -2744,6 +2954,7 @@ export interface RecordTestResultOptions {
   output_summary?: string | null;
   project?: string | null;
   area?: string | null;
+  team?: string | null;
 }
 
 export function recordTestResult(opts: RecordTestResultOptions): TestResult {
@@ -2751,22 +2962,25 @@ export function recordTestResult(opts: RecordTestResultOptions): TestResult {
   validateTestResultStatus(opts.status);
   validateProject(opts.project);
   validateArea(opts.area);
+  validateTeam(opts.team);
   const agent = requireAgent(opts.by_agent);
   if (opts.command.trim().length === 0) throw new BusError("INVALID_INPUT", "command must be non-empty");
   let project = opts.project !== undefined ? opts.project : agent.project;
   let area = opts.area !== undefined ? opts.area : agent.area;
+  let team = opts.team !== undefined ? opts.team : agent.team;
   if (opts.task_id !== undefined && opts.task_id !== null) {
     const task = getTask(opts.task_id);
     project = opts.project !== undefined ? opts.project : task.project;
     area = opts.area !== undefined ? opts.area : task.area;
+    team = opts.team !== undefined ? opts.team : task.team;
   }
   const ts = now();
   const info = getDb()
     .prepare(
-      `INSERT INTO test_results (by_agent, task_id, command, status, output_summary, project, area, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO test_results (by_agent, task_id, command, status, output_summary, project, area, team, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(opts.by_agent, opts.task_id ?? null, opts.command, opts.status, opts.output_summary ?? null, project, area, ts);
+    .run(opts.by_agent, opts.task_id ?? null, opts.command, opts.status, opts.output_summary ?? null, project, area, team, ts);
   const row = getDb().prepare("SELECT * FROM test_results WHERE id = ?").get(info.lastInsertRowid) as TestResultRow;
   return toTestResult(row);
 }
@@ -2777,12 +2991,14 @@ export interface ListTestResultsOptions {
   status?: TestResultStatus;
   project?: string;
   area?: string;
+  team?: string;
   limit?: number;
 }
 
 export function listTestResults(opts: ListTestResultsOptions = {}): TestResult[] {
   if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) validateProject(opts.project);
   if (opts.area !== undefined && opts.area !== AREA_WILDCARD) validateArea(opts.area);
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
   validateTestResultStatus(opts.status);
   if (opts.by_agent !== undefined) validateName(opts.by_agent);
   const where: string[] = [];
@@ -2807,6 +3023,10 @@ export function listTestResults(opts: ListTestResultsOptions = {}): TestResult[]
     where.push("area = ?");
     params.push(opts.area);
   }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    where.push("team = ?");
+    params.push(opts.team);
+  }
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
   const rows = getDb()
     .prepare(`SELECT * FROM test_results${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT ?`)
@@ -2822,6 +3042,7 @@ export interface Memory {
   content: string;
   project: string | null;
   area: string | null;
+  team: string | null;
   task_id: number | null;
   thread_id: string | null;
   pinned: boolean;
@@ -2838,6 +3059,7 @@ interface MemoryRow {
   content: string;
   project: string | null;
   area: string | null;
+  team: string | null;
   task_id: number | null;
   thread_id: string | null;
   pinned: number;
@@ -2860,6 +3082,7 @@ export interface RememberOptions {
   agent?: string | null;
   project?: string | null;
   area?: string | null;
+  team?: string | null;
   task_id?: number | null;
   thread_id?: string | null;
   pinned?: boolean;
@@ -2871,6 +3094,7 @@ export function remember(opts: RememberOptions): Memory {
   validateMemoryKind(opts.kind);
   validateProject(opts.project);
   validateArea(opts.area);
+  validateTeam(opts.team);
   const byAgent = requireAgent(opts.by_agent);
   if (opts.agent !== undefined && opts.agent !== null) validateName(opts.agent);
   if (opts.content.trim().length === 0) {
@@ -2888,11 +3112,12 @@ export function remember(opts: RememberOptions): Memory {
   const ts = now();
   const project = opts.project !== undefined ? opts.project : byAgent.project;
   const area = opts.area !== undefined ? opts.area : byAgent.area;
+  const team = opts.team !== undefined ? opts.team : byAgent.team;
   const info = getDb()
     .prepare(
       `INSERT INTO memories
-         (by_agent, agent, kind, content, project, area, task_id, thread_id, pinned, supersedes_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (by_agent, agent, kind, content, project, area, team, task_id, thread_id, pinned, supersedes_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.by_agent,
@@ -2901,6 +3126,7 @@ export function remember(opts: RememberOptions): Memory {
       opts.content,
       project,
       area,
+      team,
       opts.task_id ?? null,
       opts.thread_id ?? null,
       opts.pinned === true ? 1 : 0,
@@ -2916,6 +3142,7 @@ export function remember(opts: RememberOptions): Memory {
 export interface ListMemoriesOptions {
   project?: string;
   area?: string;
+  team?: string;
   agent?: string;
   kind?: MemoryKind;
   task_id?: number;
@@ -2937,6 +3164,11 @@ export function listMemories(opts: ListMemoriesOptions = {}): Memory[] {
     validateArea(opts.area);
     where.push("(area = ? OR area IS NULL)");
     params.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    validateTeam(opts.team);
+    where.push("team = ?");
+    params.push(opts.team);
   }
   if (opts.agent !== undefined) {
     validateName(opts.agent);
@@ -2989,6 +3221,7 @@ export function pinMemory(id: number, pinned: boolean): Memory {
 export interface SessionBriefOptions {
   project?: string;
   area?: string;
+  team?: string;
   agent?: string;
   limit?: number;
 }
@@ -2996,6 +3229,7 @@ export interface SessionBriefOptions {
 export interface SessionBrief {
   project: string | null;
   area: string | null;
+  team: string | null;
   agent: string | null;
   active_agents: AgentDirectoryEntry[];
   open_tasks: Task[];
@@ -3025,7 +3259,7 @@ export interface ProjectBoard {
 export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   if (opts.agent !== undefined) validateName(opts.agent);
   const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
-  const scope = { project: opts.project, area: opts.area };
+  const scope = { project: opts.project, area: opts.area, team: opts.team };
   const activeAgents = directory(scope).filter((agent) => agent.presence !== "stale");
   const tasks = listTasks({ ...scope, include_terminal: false, limit: 500 });
   const openTasks = tasks.filter((task) => task.state === "open").slice(0, limit);
@@ -3045,6 +3279,7 @@ export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   return {
     project: opts.project ?? null,
     area: opts.area ?? null,
+    team: opts.team ?? null,
     agent: opts.agent ?? null,
     active_agents: activeAgents.slice(0, limit),
     open_tasks: openTasks,
@@ -3060,7 +3295,7 @@ export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
 
 export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
-  const scope = { project: opts.project, area: opts.area };
+  const scope = { project: opts.project, area: opts.area, team: opts.team };
   const agents = directory(scope).slice(0, limit);
   const tasks = listTasks({ ...scope, include_terminal: false, limit: 500 });
   const openTasks = tasks.filter((task) => task.state === "open").slice(0, limit);
@@ -3082,6 +3317,7 @@ export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
         edit_scope: task.edit_scope,
         project: task.project,
         area: task.area,
+        team: task.team,
         exclude_task_id: task.id,
       }),
     }))
@@ -3109,6 +3345,15 @@ export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
     pinned_handoffs: pinnedHandoffs,
     suggested_next_actions: suggested,
   };
+}
+
+export interface TeamBoardOptions extends SessionBriefOptions {
+  team: string;
+}
+
+export function teamBoard(opts: TeamBoardOptions): ProjectBoard {
+  validateTeam(opts.team);
+  return projectBoard({ ...opts, team: opts.team });
 }
 
 export interface FinalReport {

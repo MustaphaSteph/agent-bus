@@ -140,7 +140,7 @@ The bus picks the agent with that capability that has the most recent
 **Failure modes**: `UNKNOWN_AGENT` if no registered agent has the
 capability, or the best candidate is stale.
 
-## 4. Broadcast to a team
+## 4. Broadcast to a channel or scoped team
 
 **When**: an event is relevant to multiple agents (CI failed, PR landed,
 new task available).
@@ -163,6 +163,19 @@ name so they know the source.
 
 **Failure modes**: channel with no subscribers → `send_channel` returns
 an empty array (silent no-op).
+
+When agents are registered with the same neutral `team`, use direct team
+routing instead of managing channel subscriptions:
+
+```js
+register({ name: "pm", project: "movie-app", area: "*", team: "ios-ui" })
+send_team({ from: "pm", team: "ios-ui", message: "sync on navigation" })
+ask_team({ from: "pm", team: "ios-ui", capability: "design", question: "which layout should we build?" })
+team_board({ team: "ios-ui", project: "movie-app" })
+```
+
+Team scope is only routing metadata. The agent prompt and task fields
+still decide behavior, roles, and permissions.
 
 ## 5. At-least-once delivery
 
@@ -379,7 +392,8 @@ agent-bus team init-folder --project app-two --area app
 
 Each folder is isolated by project even though it lives under the same
 parent. The helper writes only neutral project/area scope; your agent
-prompt or team convention decides roles, tasks, and behavior.
+prompt or team convention decides roles, tasks, and behavior. Add
+`team` at registration time when several workgroups share that project.
 
 MCP sessions do this automatically. Read commands and routing default to
 the current project and area:
@@ -398,6 +412,7 @@ list_tasks({ project: "*" })
 list_tasks({ area: "*" })   // all areas in current project
 recent({ project: "*" })
 ask_best({ from: "coordinator", capability: "security", question: "...", project: "*", area: "*" })
+ask_team({ from: "coordinator", team: "*", capability: "review", question: "any reviewer anywhere?" })
 ```
 
 CLI commands derive the project from your shell cwd:

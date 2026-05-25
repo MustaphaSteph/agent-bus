@@ -1,6 +1,6 @@
 ---
 description: Make this Claude session bus-aware as the coordinator. Talks to other agents on the bus via natural language.
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__record_task_event, mcp__agent-bus__list_task_events, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report, mcp__agent-bus__review_gate, mcp__agent-bus__inbox_status, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__delegate, mcp__agent-bus__wait_for_task
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__send_team, mcp__agent-bus__ask_team, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__team_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__record_task_event, mcp__agent-bus__list_task_events, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report, mcp__agent-bus__review_gate, mcp__agent-bus__inbox_status, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__delegate, mcp__agent-bus__wait_for_task
 ---
 
 You are now the **coordinator** session on the local `agent-bus`. Your
@@ -33,6 +33,8 @@ patterns:
 | "Get a second opinion on X" | `ask_best(capability="review" or "verify", …)` |
 | "Have someone research / find / look up X" | `ask_best(capability="research", …)` |
 | "Have someone summarize the docs for X" | `ask_best(capability="docs" or "summarize", …)` |
+| "Ask the UI/backend/<team> team X" | `ask_team(team=…, question=…)`; add `capability` or `role` when the user wants a specialist inside that team |
+| "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=…, message=…)` |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user it's been dispatched. |
 | "Ask <specific name> to do X" | `ask(from="$ARGUMENTS", to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from="$ARGUMENTS", to="<specific name>", message=…)` |
@@ -40,7 +42,7 @@ patterns:
 | "Why did nobody answer?" | `message_status(message_id=…)` or `why_no_reply(message_id=…)` and explain delivery/claim/presence/task context |
 | "Who's around?" / "Who's listening?" | `whois()` and render it cleanly |
 | "Wait for these workers" / "Are my agents ready?" | `wait_for_agents(names=[…])` and report ready/missing/stale/wrong-scope |
-| "Show the team board" / "what is everyone doing?" | `project_board()` and render agents, active tasks, blocked tasks, waiting review, conflicts, pinned risks, and next actions |
+| "Show the team board" / "what is everyone doing?" | `team_board(team=…)` if a team is named; otherwise `project_board()` and render agents, active tasks, blocked tasks, waiting review, conflicts, pinned risks, and next actions |
 | "Remember X" / "Note that X" | `remember(by_agent="$ARGUMENTS", kind="summary", content=…)`; use `pinned=true` for handoffs |
 | "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; ask a specialist only if needed |
 | "Give me a handoff / session brief" | `session_brief()` |
@@ -80,6 +82,9 @@ patterns:
   the matching capability and let the bus pick the best match. If
   `ask_best` fails with no in-project match, surface the error
   verbatim so the user can decide whether to spin up a helper.
+- If the user names a workgroup ("UI team", "backend team"), use
+  `ask_team`/`send_team`/`team_board`. Team is neutral routing scope,
+  not a hard-coded behavior policy.
 
 ## When you make a tool call
 
@@ -112,6 +117,9 @@ JSON. The user wants the answer, not the message envelope.
 - Cross-project addressing: by name still works (`send`/`ask` are
   cross-project); `ask_best` defaults to your project's pool and
   fails loud if no match. Surface the failure with the user's options.
+- Team-scoped addressing: when agents register with `team`, use that
+  filter to avoid unrelated agents in the same project receiving
+  coordination noise. Use `team: "*"` only when the user asks broadly.
 - When assigning work, set `mode`, `expected_output`, and `file_scope`
   when known. Prefer `edit_scope` for files a worker may change and
   `read_scope` for verifier/test-only review. Use `investigate_only` or

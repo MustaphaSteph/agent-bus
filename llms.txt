@@ -7,14 +7,14 @@ everything needed to participate.
 
 ## What you can do
 
-You have 53 MCP tools, all prefixed with the server name `agent-bus` in
+You have 56 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
 2. Send fire-and-forget messages or synchronous questions to named agents.
 3. Read your inbox (optionally blocking until a message arrives).
 4. Acknowledge messages for at-least-once delivery.
-5. Subscribe to channels and broadcast to teams.
+5. Subscribe to channels, broadcast to subscribers, or message a scoped team.
 6. Route questions by capability when you don't know who to ask.
 7. Reconstruct conversation threads.
 8. Inspect inbox/message status without consuming messages.
@@ -45,6 +45,9 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
    defaults to the repo cwd-derived project and optional `.agent-bus.json`
    area. Use `project: "*"` / `area: "*"` only when you really want
    broader routing/listing.
+8. **Team is optional workgroup scope.** Use `team` when several groups
+   share one project/area and should mostly route among themselves. It
+   is not a hard-coded workflow.
 
 ## Tool reference
 
@@ -58,6 +61,7 @@ Input:
 - `replace?: boolean` — take over an actively-held name
 - `project?: string | null` — MCP default is repo cwd; null is global
 - `area?: string | null` — MCP default from `.agent-bus.json`; null is no area
+- `team?: string | null` — optional workgroup scope
 - `role?: string | null` — pm, worker, verifier, reviewer, listener, etc.
 - `routing_weight?: number` — higher preferred by `ask_best`
 - `status?: string` — idle, working, blocked, waiting_review, or sleeping
@@ -158,12 +162,13 @@ Input:
 - `thread_id?: string`
 - `project?: string` — default asker's project; `"*"` searches globally
 - `area?: string` — default asker's area; `"*"` searches every area
+- `team?: string` — default asker's team; `"*"` searches every team
 - `role?: string` — optional role filter
 
 Picks the most-recently-active agent with that capability in the selected
-project/area, preferring higher `routing_weight`. Refuses matches stale
+project/area/team, preferring higher `routing_weight`. Refuses matches stale
 beyond 5 minutes. If no in-scope match exists, fails with a hint to pass
-`project: "*"` or `area: "*"` for broader search.
+`project: "*"`, `area: "*"`, or `team: "*"` for broader search.
 
 Errors: `UNKNOWN_AGENT` (no match or stale), plus everything `ask` can throw.
 
@@ -235,6 +240,38 @@ Input:
 Returns `Message[]` — one row per recipient (sender excluded). Could be
 empty if no subscribers.
 
+### send_team
+
+Fan out to active members of a team without channel subscriptions.
+
+Input:
+- `from: string`
+- `team?: string` — default sender's team
+- `message: string`
+- `thread_id?: string`
+- `project?: string` — default sender/session project, `"*"` for all
+- `area?: string` — default sender/session area, `"*"` for all
+- `include_self?: boolean`
+
+Returns `Message[]`.
+
+### ask_team
+
+Ask one best active member inside a team.
+
+Input:
+- `from: string`
+- `team?: string` — default sender's team
+- `question: string`
+- `timeout_s?: number`
+- `thread_id?: string`
+- `project?: string`
+- `area?: string`
+- `capability?: string`
+- `role?: string`
+
+Returns one reply `Message`.
+
 ### subscribers
 
 List the agents on a channel.
@@ -261,6 +298,7 @@ List every registered agent.
 Input:
 - `project?: string` — default current project in MCP; `"*"` means all
 - `area?: string` — default current area in MCP; `"*"` means all
+- `team?: string` — optional team filter; `"*"` means all
 
 Returns `Agent[]` sorted by `last_seen` DESC.
 
@@ -276,6 +314,7 @@ Input:
 - `names: string[]`
 - `project?: string` — concrete project or `"*"` for any
 - `area?: string` — concrete area or `"*"` for any
+- `team?: string` — concrete team or `"*"` for any
 - `timeout_s?: number` — default 60, max 110
 
 Returns `{ ready, missing, stale, wrong_scope }`. Use this before a PM
@@ -294,6 +333,7 @@ Input:
 - `limit?: number` — default 50, max 500
 - `project?: string` — concrete project or `"*"` for all
 - `area?: string` — concrete area or `"*"` for all
+- `team?: string` — concrete team or `"*"` for all
 
 Returns `Message[]`.
 
@@ -311,6 +351,7 @@ Input:
 - `blocked_on_task_id?: number` — soft dependency
 - `project?: string | null` — default requester agent's project
 - `area?: string | null` — default requester agent's area
+- `team?: string | null` — default requester agent's team
 - `required_capability?: string | null` — only matching agents can claim
 - `mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only"`
 - `expected_output?: string | null`
@@ -435,6 +476,7 @@ Input:
 - `thread_id?: string`
 - `project?: string | null`
 - `area?: string | null`
+- `team?: string | null`
 - `required_capability?: string | null`
 - `deadline_at?: number | null`
 - `checkin_at?: number | null`
@@ -454,6 +496,7 @@ Input:
 - `agent: string`
 - `project?: string`
 - `area?: string`
+- `team?: string`
 
 Claims the best open task in scope that matches the agent's capabilities.
 
@@ -495,9 +538,16 @@ pinned risks, pinned handoffs, and suggested next actions.
 - `edit_scope?: string[]`
 - `project?: string`
 - `area?: string`
+- `team?: string`
 - `exclude_task_id?: number`
 
 `project_board` input:
+- `project?: string`
+- `area?: string`
+- `team?: string`
+
+`team_board` input:
+- `team: string`
 - `project?: string`
 - `area?: string`
 
@@ -529,6 +579,7 @@ Record and list explicit build/lint/test evidence for `final_report`.
 - `output_summary?: string | null`
 - `project?: string | null`
 - `area?: string | null`
+- `team?: string | null`
 
 `list_test_results` input:
 - `task_id?: number`
@@ -536,6 +587,7 @@ Record and list explicit build/lint/test evidence for `final_report`.
 - `status?: "passed" | "failed" | "skipped"`
 - `project?: string`
 - `area?: string`
+- `team?: string`
 - `limit?: number`
 
 ### record_task_event / list_task_events / task_result / cancel_task
@@ -620,6 +672,7 @@ Returns `Task`.
   channel: string | null    // set on channel fan-outs
   project: string | null
   area: string | null
+  team: string | null
   priority: "low" | "normal" | "high" | "urgent"
 }
 ```
@@ -728,6 +781,15 @@ subscribe({ agent: "me", channel: "alerts" })
 send_channel({ from: "ci", channel: "alerts", message: "deploy failed" })
 ```
 
+### Scoped team coordination
+
+```
+register({ name: "pm", project: "movie-app", area: "*", team: "ios-ui" })
+send_team({ from: "pm", team: "ios-ui", message: "sync on navigation" })
+ask_team({ from: "pm", team: "ios-ui", capability: "design", question: "which detail layout should we implement first?" })
+team_board({ team: "ios-ui", project: "movie-app" })
+```
+
 ### Continue a thread
 
 When you receive a message, take its `thread_id` and pass it back:
@@ -770,9 +832,10 @@ stale.
 If you are running inside a repo, your MCP server usually registers you
 with that repo-derived project automatically. If `.agent-bus.json`
 defines path areas, sessions under matching folders also register with
-that area. Reads, tasks, and `ask_best` default to that scope. Use
-`project: "*"` or `area: "*"` only for intentional broader views or
-capability routing.
+that area. If you register with `team`, reads, tasks, team boards, and
+capability routing can also stay inside that workgroup. Use
+`project: "*"`, `area: "*"`, or `team: "*"` only for intentional
+broader views or capability routing.
 
 ## Limits and caps
 
@@ -780,8 +843,8 @@ capability routing.
 - Message body: no cap on the bus; recipients may see truncation around
   1 MB depending on the MCP client.
 - Agent names: 1-64 chars, `[a-zA-Z0-9_.-]`.
-- Project and area names: 1-64 chars, `[a-zA-Z0-9_.-]`; `"*"` means all
-  values for that filter dimension.
+- Project, area, and team names: 1-64 chars, `[a-zA-Z0-9_.-]`; `"*"`
+  means all values for that filter dimension.
 - Channel names: 1-64 chars, `[a-zA-Z0-9_.:#-]`.
 - `ack` claim window: passed by caller in `claim_s` (no fixed maximum at
   the MCP layer, but the Zod schema caps at 3600 s = 1 hour).

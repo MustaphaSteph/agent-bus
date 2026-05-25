@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.11.0
+  - agent-bus-mcp >= 0.12.0
 ---
 
 # agent-bus
@@ -10,10 +10,10 @@ requires:
 Turn your Claude / Codex / Cursor / Gemini sessions on the same machine
 into a local agent team. Each session registers a name, then you can
 send messages, ask blocking questions, delegate tasks, broadcast to
-channels, route work by capability/role, track agent status, record
-decisions and memories, record task progress, generate session briefs,
-and produce merge-readiness reports — all through one SQLite file at
-`~/.agent-bus/bus.db`.
+channels, message scoped teams, route work by capability/role, track
+agent status, record decisions and memories, record task progress,
+generate session briefs, and produce merge-readiness reports — all
+through one SQLite file at `~/.agent-bus/bus.db`.
 
 This skill is the **coordinator playbook**: when the user speaks
 naturally, you translate their intent into agent-bus tool calls.
@@ -59,6 +59,8 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Get a second opinion on X" | `ask_best(capability="review" or "verify", …)` |
 | "Have someone research / find / look up X" | `ask_best(capability="research", …)` |
 | "Have someone summarize the docs for X" | `ask_best(capability="docs" or "summarize", …)` |
+| "Ask the UI team / backend team / <team> team X" | `ask_team(team=<team>, question=…)`; add `capability` or `role` if the user wants a specialist inside that team |
+| "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=<team>, message=…)` |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
 | "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
@@ -66,7 +68,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Why did nobody answer?" | `message_status(message_id=…)` or `why_no_reply(message_id=…)`; summarize delivery, claim, recipient presence, related task, and next actions |
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
 | "Wait for these workers" / "Are my agents ready?" | `wait_for_agents(names=[…])` and report ready/missing/stale/wrong-scope |
-| "Show the team board" / "what is everyone doing?" | `project_board()` rendered with status, active work, review queue, conflicts, pinned risks, handoffs, and next actions |
+| "Show the team board" / "what is everyone doing?" | `team_board(team=…)` when a team is named; otherwise `project_board()` rendered with status, active work, review queue, conflicts, pinned risks, handoffs, and next actions |
 | "Remember X" / "Note that X" | `remember(by_agent=<your name>, kind="summary", content=…)`; use `pinned=true` for handoffs |
 | "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; use `ask_best(capability="memory", …)` only if needed |
 | "Give me a handoff / session brief" | `session_brief()` |
@@ -110,6 +112,9 @@ The user speaks normally. You pick the tool. Common patterns:
 - **Area / project** — by default, routing and reads stay in the current
   repo-derived project and `.agent-bus.json` area. Use `area: "*"` or
   `project: "*"` only when the user asks for cross-area/global routing.
+- **Team** — if agents are registered with `team`, prefer `ask_team`,
+  `send_team`, or `team_board` when the user names that workgroup. Use
+  `team: "*"` only when the user wants cross-team routing.
 
 ## How to talk while calling tools
 
@@ -125,23 +130,30 @@ Not:
 When a reply lands, render it in plain English for the user. Don't
 dump JSON. The user wants the answer, not the message envelope.
 
-## Project and area addressing
+## Project, area, and team addressing
 
 By name still works (`send` / `ask` are direct addressed). `ask_best`,
 `directory`, `recent`, and task reads default to the current
-project/area. If the user asks broadly ("any reviewer anywhere"), pass
-`project: "*"` and/or `area: "*"` intentionally.
+project/area/team. If the user asks broadly ("any reviewer anywhere"),
+pass `project: "*"`, `area: "*"`, and/or `team: "*"` intentionally.
 
 For multi-folder repos, use areas to prevent accidental chatter. Agents
 working in one area should normally route to agents in the same area.
 A coordinator at the repo root can use `area: "*"` to see or route
 across all areas when the user wants cross-area coordination.
 
+Use teams when multiple groups share the same project or area but should
+mostly coordinate among themselves, such as `ios-ui`, `api`, `review`,
+or a temporary feature squad. Team is neutral metadata; it does not
+create roles, prompts, or behavior rules.
+
 ## Manager workflow defaults
 
 - Use `project_board()` as the task board: show `idle`, `working`,
   `blocked`, `waiting_review`, `sleeping`, active tasks, review queue,
   scope conflicts, pinned risks, handoffs, and suggested next actions.
+- Use `team_board(team=…)` when the user is managing one workgroup
+  inside a broader project.
 - When creating tasks, set `mode` conservatively:
   `investigate_only` for analysis, `propose_patch` for patch sketches,
   `edit_files` only when edits are intended, and `test_only` for
@@ -199,6 +211,11 @@ creates only neutral project/area scope. Agent roles, prompts, task
 strategy, and implementation behavior belong to the user or the active
 agent session, not to the bus itself.
 
+When users want several teams inside one project folder, have each
+session register with the same project/area and a chosen `team`, for
+example `team: "ios-ui"` or `team: "api"`. The bus will route and board
+within that scope when tools receive the team filter.
+
 ## Hard rules
 
 - Do not auto-poll the inbox between user turns. Only check inbox when
@@ -222,11 +239,12 @@ agent session, not to the bus itself.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 53 MCP tools with input/output shapes
+- `references/tools.md` — the 56 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
-  rare tool (e.g. `subscribe`, `send_channel`, `assign_task`,
-  `record_decision`, `record_task_event`, `task_result`,
-  `record_test_result`, `remember`, `session_brief`, `review_gate`).
+  rare tool (e.g. `subscribe`, `send_channel`, `send_team`,
+  `ask_team`, `team_board`, `assign_task`, `record_decision`,
+  `record_task_event`, `task_result`, `record_test_result`,
+  `remember`, `session_brief`, `review_gate`).
 - `references/patterns.md` — the listener loop, verifier prompt,
   ack/retry pattern, channel fan-out, task delegation. Load when the
   user asks "set up a listener", "make this reliable", "broadcast

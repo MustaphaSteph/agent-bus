@@ -14,6 +14,7 @@ register({
   replace?: boolean,           // take over an actively-held name
   project?: string | null,      // MCP default is derived from cwd; null is global
   area?: string | null,         // MCP default from .agent-bus.json; null is no area
+  team?: string | null,         // optional workgroup inside the project/area
   role?: string | null,         // pm, worker, verifier, reviewer, listener, ...
   routing_weight?: number,      // higher wins when ask_best candidates tie
   status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
@@ -30,7 +31,7 @@ within last 60s and `replace` not passed).
 register({ name: "worker-a", capabilities: ["tests", "review"] })
 // → { name: "worker-a", capabilities: ["tests","review"],
 //     registered_at: ..., last_seen: ..., paused: false,
-//     project: "agent-bus", area: "area-a" }
+//     project: "agent-bus", area: "area-a", team: null }
 ```
 
 ## send
@@ -169,15 +170,16 @@ ask_best({
   thread_id?: string,
   project?: string,             // default asker's project; "*" searches globally
   area?: string,                // default asker's area; "*" searches every area
+  team?: string,                // default asker's team; "*" searches every team
   role?: string,                // optional role filter
 }) → Message                   // the reply
 ```
 
 Picks the candidate with the most recent `last_seen` in the selected
-project and area, preferring higher `routing_weight` first. Refuses
+project, area, and team, preferring higher `routing_weight` first. Refuses
 matches where the candidate hasn't been seen in 5 minutes. If no
 in-scope match exists, it fails with a hint to pass
-`project: "*"` and/or `area: "*"` for a broader search.
+`project: "*"`, `area: "*"`, and/or `team: "*"` for a broader search.
 
 **Errors**: `UNKNOWN_AGENT` (no registered agent has the capability, or
 the best match is stale), plus everything `ask` can throw.
@@ -289,6 +291,40 @@ send_channel({ from: "alice", channel: "alerts",
                message: "deploy starting" })
 ```
 
+## send_team / ask_team
+
+Address the active members of a named team without managing a channel
+subscription list. A team is neutral scope metadata; it does not impose
+roles or behavior.
+
+```ts
+send_team({
+  from: string,
+  team?: string,                // default sender's team
+  message: string,
+  thread_id?: string,
+  project?: string,             // default sender/session project
+  area?: string,                // default sender/session area
+  include_self?: boolean,
+}) → Message[]
+
+ask_team({
+  from: string,
+  team?: string,                // default sender's team
+  question: string,
+  timeout_s?: number,
+  thread_id?: string,
+  project?: string,
+  area?: string,
+  capability?: string,
+  role?: string,
+}) → Message
+```
+
+`send_team` fans out to active, non-paused, non-stale agents in the
+selected team. `ask_team` picks the best active team member using the
+same routing order as `ask_best` and can narrow by capability or role.
+
 ## subscribers
 
 List the agents subscribed to a channel.
@@ -319,7 +355,7 @@ Useful for reconstructing a multi-message exchange.
 List every registered agent with capabilities and last-seen.
 
 ```ts
-whois({ project?: string, area?: string }) → Agent[]   // "*" = all
+whois({ project?: string, area?: string, team?: string }) → Agent[]   // "*" = all
 ```
 
 ## directory
@@ -327,7 +363,7 @@ whois({ project?: string, area?: string }) → Agent[]   // "*" = all
 List agents with derived status and active task metadata.
 
 ```ts
-directory({ project?: string, area?: string }) → AgentDirectoryEntry[]
+directory({ project?: string, area?: string, team?: string }) → AgentDirectoryEntry[]
 ```
 
 ## wait_for_agents
@@ -340,6 +376,7 @@ wait_for_agents({
   names: string[],
   project?: string,            // concrete project or "*" for any
   area?: string,               // concrete area or "*" for any
+  team?: string,               // concrete team or "*" for any
   timeout_s?: number,          // default 60, max 110
 }) → {
   ready: AgentDirectoryEntry[],
@@ -349,8 +386,10 @@ wait_for_agents({
     name: string,
     project: string | null,
     area: string | null,
+    team: string | null,
     expected_project: string | null,
     expected_area: string | null,
+    expected_team: string | null,
   }>,
 }
 ```
@@ -375,7 +414,7 @@ Read the most recent messages on the bus, regardless of who sent them or
 who they're for. Doesn't flip status.
 
 ```ts
-recent({ limit?: number, project?: string, area?: string }) → Message[]    // default 50, max 500
+recent({ limit?: number, project?: string, area?: string, team?: string }) → Message[]    // default 50, max 500
 ```
 
 Useful when you want to catch up on what's been happening. A concrete
@@ -398,6 +437,7 @@ create_task({
   blocked_on_task_id?: number, // soft dependency, no auto-unblock
   project?: string | null,      // default requester's project
   area?: string | null,         // default requester's area
+  team?: string | null,         // default requester's team
   required_capability?: string | null,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   expected_output?: string | null,
@@ -473,6 +513,7 @@ delegate({
   blocked_on_task_id?: number,
   project?: string | null,
   area?: string | null,
+  team?: string | null,
   required_capability?: string | null,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   expected_output?: string | null,
@@ -504,6 +545,7 @@ claim_best_task({
   agent: string,
   project?: string,
   area?: string,
+  team?: string,
 }) -> Task | null
 ```
 
@@ -612,12 +654,14 @@ check_scope_conflicts({
   edit_scope?: string[],
   project?: string | null,
   area?: string | null,
+  team?: string | null,
   exclude_task_id?: number,
 }) -> ScopeConflict[]
 
 project_board({
   project?: string,
   area?: string,
+  team?: string,
   limit?: number,
 }) -> {
   agents: AgentDirectoryEntry[],
@@ -632,6 +676,13 @@ project_board({
   pinned_handoffs: Memory[],
   suggested_next_actions: string[],
 }
+
+team_board({
+  team: string,
+  project?: string,
+  area?: string,
+  limit?: number,
+}) -> ProjectBoard
 ```
 
 `check_scope_conflicts` compares active edit/propose tasks by
@@ -652,6 +703,7 @@ list_tasks({
   limit?: number,              // default 100, max 500
   project?: string,             // concrete project or "*" for all
   area?: string,                // concrete area or "*" for all
+  team?: string,                // concrete team or "*" for all
   required_capability?: string,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   manager_reviewed?: boolean,
@@ -686,11 +738,13 @@ record_decision({
   implemented?: boolean,
   project?: string | null,
   area?: string | null,
+  team?: string | null,
 }) -> Decision
 
 list_decisions({
   project?: string,
   area?: string,
+  team?: string,
   implemented?: boolean,
   limit?: number,
 }) -> Decision[]
@@ -708,6 +762,7 @@ remember({
   agent?: string | null,
   project?: string | null,
   area?: string | null,
+  team?: string | null,
   task_id?: number | null,
   thread_id?: string | null,
   pinned?: boolean,
@@ -717,6 +772,7 @@ remember({
 list_memories({
   project?: string,
   area?: string,
+  team?: string,
   agent?: string,
   kind?: string,
   task_id?: number,
@@ -732,6 +788,7 @@ unpin_memory({ memory_id: number }) -> Memory
 session_brief({
   project?: string,
   area?: string,
+  team?: string,
   agent?: string,
   limit?: number,
 }) -> {
@@ -772,6 +829,7 @@ list_task_events({
   event_type?: "note" | "phase" | "progress" | "log" | "result" | "cancel",
   project?: string,
   area?: string,
+  team?: string,
   limit?: number,
 }) -> TaskEvent[]
 
@@ -826,6 +884,7 @@ record_test_result({
   output_summary?: string | null,
   project?: string | null,
   area?: string | null,
+  team?: string | null,
 }) -> TestResult
 
 list_test_results({
@@ -834,6 +893,7 @@ list_test_results({
   status?: "passed" | "failed" | "skipped",
   project?: string,
   area?: string,
+  team?: string,
   limit?: number,
 }) -> TestResult[]
 ```
@@ -843,7 +903,7 @@ list_test_results({
 Generate merge-readiness output from tasks.
 
 ```ts
-final_report({ project?: string, area?: string }) -> {
+final_report({ project?: string, area?: string, team?: string }) -> {
   implemented: string[],
   not_implemented: string[],
   known_risks: string[],
@@ -862,7 +922,7 @@ Build a deterministic merge/push gate from `project_board` and
 `final_report`.
 
 ```ts
-review_gate({ project?: string, area?: string }) -> {
+review_gate({ project?: string, area?: string, team?: string }) -> {
   ok: boolean,
   blockers: string[],
   warnings: string[],
@@ -927,4 +987,17 @@ while (true) {
 ```js
 subscribe({ agent: "me", channel: "alerts" })
 send_channel({ from: "ci", channel: "alerts", message: "deploy failed" })
+```
+
+### Message a scoped team
+
+```js
+register({ name: "pm", project: "movie-app", area: "*", team: "ios-ui" })
+send_team({ from: "pm", team: "ios-ui", message: "sync on navigation" })
+const reply = await ask_team({
+  from: "pm",
+  team: "ios-ui",
+  capability: "design",
+  question: "which detail layout should we implement first?"
+})
 ```

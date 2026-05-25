@@ -1,12 +1,13 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 53 MCP tools. All return JSON.
+doesn't cover in detail. There are 56 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
-Use project/area defaults unless the user asks for a broader view.
+Use project/area/team defaults unless the user asks for a broader view.
 `project: "*"` means all projects. `area: "*"` means all areas.
+`team: "*"` means all teams.
 
 ## Identity and Team Board
 
@@ -20,6 +21,7 @@ register({
   replace?: boolean,
   project?: string | null,
   area?: string | null,
+  team?: string | null,
   role?: string | null,
   routing_weight?: number,
   status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
@@ -29,12 +31,13 @@ register({
 
 ### whois / directory
 ```ts
-whois({ project?: string | "*", area?: string | "*" }) -> Agent[]
-directory({ project?: string | "*", area?: string | "*" }) -> AgentDirectoryEntry[]
+whois({ project?: string | "*", area?: string | "*", team?: string | "*" }) -> Agent[]
+directory({ project?: string | "*", area?: string | "*", team?: string | "*" }) -> AgentDirectoryEntry[]
 wait_for_agents({
   names: string[],
   project?: string | "*",
   area?: string | "*",
+  team?: string | "*",
   timeout_s?: number,
 }) -> { ready: AgentDirectoryEntry[], missing: string[], stale: AgentDirectoryEntry[], wrong_scope: unknown[] }
 ```
@@ -113,6 +116,7 @@ ask_best({
   thread_id?: string,
   project?: string | "*",
   area?: string | "*",
+  team?: string | "*",
   role?: string,
   priority?: "low" | "normal" | "high" | "urgent",
 }) -> Message
@@ -131,8 +135,8 @@ message_status({ message_id: number }) -> {
 
 why_no_reply({ message_id: number }) -> same shape
 ```
-`ask_best` defaults to the caller's project/area and refuses stale
-agents. Use wildcards only for deliberate cross-project/cross-area work.
+`ask_best` defaults to the caller's project/area/team and refuses stale
+agents. Use wildcards only for deliberate cross-project/cross-area/team work.
 Use `reply_thread` when continuing a conversation and the recipient is
 obvious from thread history. Use `message_status`/`why_no_reply` before
 guessing that an agent ignored an ask.
@@ -146,11 +150,46 @@ send_channel({ from: string, channel: string, message: string, thread_id?: strin
 subscribers({ channel: string }) -> string[]
 ```
 
+## Teams
+
+Teams are neutral scope metadata for workgroups inside a project/area.
+They do not hard-code roles or behavior.
+
+```ts
+send_team({
+  from: string,
+  team?: string,              // default sender's team
+  message: string,
+  thread_id?: string,
+  project?: string | "*",
+  area?: string | "*",
+  include_self?: boolean,
+}) -> Message[]
+
+ask_team({
+  from: string,
+  team?: string,              // default sender's team
+  question: string,
+  timeout_s?: number,
+  thread_id?: string,
+  project?: string | "*",
+  area?: string | "*",
+  capability?: string,
+  role?: string,
+}) -> Message
+
+team_board({ team: string, project?: string | "*", area?: string | "*", limit?: number }) -> ProjectBoard
+```
+
+Use `send_team` for fan-out to active members of the workgroup.
+Use `ask_team` for one best responder inside that workgroup.
+Use `team_board` when a coordinator wants a board scoped to one team.
+
 ## Discovery
 
 ```ts
 thread({ thread_id: string, limit?: number }) -> Message[]
-recent({ limit?: number, project?: string | "*", area?: string | "*" }) -> Message[]
+recent({ limit?: number, project?: string | "*", area?: string | "*", team?: string | "*" }) -> Message[]
 ```
 
 ## Tasks
@@ -168,6 +207,7 @@ create_task({
   required_capability?: string,
   project?: string | null,
   area?: string | null,
+  team?: string | null,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   expected_output?: string,
   deadline_at?: string,
@@ -213,6 +253,7 @@ delegate({
   thread_id?: string,
   project?: string | null,
   area?: string | null,
+  team?: string | null,
   required_capability?: string | null,
   deadline_at?: number | null,
   checkin_at?: number | null,
@@ -269,6 +310,7 @@ list_tasks({
   limit?: number,
   project?: string | "*",
   area?: string | "*",
+  team?: string | "*",
   required_capability?: string,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   manager_reviewed?: boolean,
@@ -315,12 +357,14 @@ check_scope_conflicts({
   edit_scope?: string[],
   project?: string | "*",
   area?: string | "*",
+  team?: string | "*",
   exclude_task_id?: number,
 }) -> ScopeConflict[]
 
 project_board({
   project?: string | "*",
   area?: string | "*",
+  team?: string | "*",
 }) -> {
   agents: AgentDirectoryEntry[],
   open_tasks: Task[],

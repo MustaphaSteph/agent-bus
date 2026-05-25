@@ -4,6 +4,7 @@ import kleur from "kleur";
 import {
   ack,
   acknowledgeTask,
+  askTeam,
   cancelTask,
   checkScopeConflicts,
   delegate,
@@ -29,6 +30,7 @@ import {
   remember,
   reviewGate,
   send,
+  sendTeam,
   setAgentStatus,
   setPaused,
   sessionBrief,
@@ -39,6 +41,7 @@ import {
   waitForAgents,
   waitForTask,
   taskResult,
+  teamBoard,
   messageStatus,
   whyNoReply,
 } from "../bus.js";
@@ -105,11 +108,12 @@ program
   .description("List registered agents")
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
-  .action((opts: { project?: string; area?: string }) => {
+  .option("--team <name>", "team scope")
+  .action((opts: { project?: string; area?: string; team?: string }) => {
     const scope = resolveScopeOptions(opts.project, opts.area);
     const banner = scopeBanner(scope);
     if (banner) console.log(banner);
-    const agents = directory(scope);
+    const agents = directory({ ...scope, team: opts.team });
     if (agents.length === 0) {
       console.log(kleur.gray("(no agents registered)"));
       return;
@@ -118,10 +122,11 @@ program
       const caps = a.capabilities.length > 0 ? ` [${a.capabilities.join(", ")}]` : "";
       const projectChip = a.project ? ` {${a.project}}` : " {no-project}";
       const areaChip = a.area ? `/${a.area}` : "";
+      const teamChip = a.team ? ` team=${a.team}` : "";
       const role = a.role ? ` role=${a.role}` : "";
       const active = a.active_task_id ? ` task=#${a.active_task_id}` : "";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + role + active)}${paused}  ${kleur.gray(`${a.status}/${a.presence}, seen ${a.age_s}s ago`)}`);
+      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + teamChip + role + active)}${paused}  ${kleur.gray(`${a.status}/${a.presence}, seen ${a.age_s}s ago`)}`);
     }
   });
 
@@ -319,6 +324,53 @@ program
   });
 
 program
+  .command("send-team")
+  .description("Send one message to every active agent in a team")
+  .requiredOption("--from <agent>", "sender agent")
+  .requiredOption("--team <team>", "team name")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .option("--thread <id>", "existing thread id")
+  .option("--include-self", "also send to the sender")
+  .argument("<message>", "message body")
+  .action((message: string, opts: { from: string; team: string; project?: string; area?: string; thread?: string; includeSelf?: boolean }) => {
+    const sent = sendTeam({
+      from: opts.from,
+      team: opts.team,
+      content: message,
+      thread_id: opts.thread,
+      include_self: opts.includeSelf,
+      ...resolveScopeOptions(opts.project, opts.area),
+    });
+    console.log(`${kleur.green("sent")} ${sent.length} team message(s)`);
+    for (const row of sent) console.log(formatMessage(row));
+  });
+
+program
+  .command("ask-team")
+  .description("Ask the best active member of a team")
+  .requiredOption("--from <agent>", "sender agent")
+  .requiredOption("--team <team>", "team name")
+  .option("--capability <name>", "required capability")
+  .option("--role <role>", "required role")
+  .option("--timeout <seconds>", "seconds to wait", "60")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .argument("<question>", "question body")
+  .action(async (question: string, opts: { from: string; team: string; capability?: string; role?: string; timeout: string; project?: string; area?: string }) => {
+    const answer = await askTeam({
+      from: opts.from,
+      team: opts.team,
+      question,
+      capability: opts.capability,
+      role: opts.role,
+      timeout_s: Number(opts.timeout),
+      ...resolveScopeOptions(opts.project, opts.area),
+    });
+    console.log(formatMessage(answer));
+  });
+
+program
   .command("delegate")
   .description("Create a task, assign it, notify the assignee, and require acknowledgement by default")
   .requiredOption("--from <agent>", "coordinator/requester agent")
@@ -342,6 +394,7 @@ program
   .option("--allow-conflicts", "allow overlapping edit scopes")
   .option("--project <name>", "project scope (use all for global)")
   .option("--area <name>", "area scope (use all for global)")
+  .option("--team <name>", "team scope")
   .action((opts: {
     from: string;
     to: string;
@@ -364,6 +417,7 @@ program
     allowConflicts?: boolean;
     project?: string;
     area?: string;
+    team?: string;
   }) => {
     const scope = resolveScopeOptions(opts.project, opts.area);
     const result = delegate({
@@ -388,6 +442,7 @@ program
       allow_conflicts: opts.allowConflicts,
       project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? undefined),
       area: scope.area === AREA_WILDCARD ? null : (scope.area ?? undefined),
+      team: opts.team ?? undefined,
     });
     console.log(`${kleur.green("delegated")} task #${result.task.id} to ${opts.to}`);
     console.log(`state=${result.task.state} pending=${result.pending ? "yes" : "no"} thread=${result.task.thread_id}`);
@@ -860,9 +915,11 @@ program
   .option("-n, --last <count>", "maximum items per section", "20")
   .option("--project <name>", "project scope (use all for global)")
   .option("--area <name>", "area scope (use all for global)")
-  .action((opts: { last: string; project?: string; area?: string }) => {
+  .option("--team <name>", "team scope")
+  .action((opts: { last: string; project?: string; area?: string; team?: string }) => {
     const board = projectBoard({
       ...resolveScopeOptions(opts.project, opts.area),
+      team: opts.team,
       limit: Number(opts.last),
     });
     console.log(kleur.bold("Agents:"));
@@ -883,6 +940,30 @@ program
     console.log(formatList(board.pinned_risks.map((memory) => `#${memory.id} ${memory.content}`)));
     console.log(kleur.bold("Pinned handoffs:"));
     console.log(formatList(board.pinned_handoffs.map((memory) => `#${memory.id} ${memory.content}`)));
+    console.log(kleur.bold("Suggested next actions:"));
+    console.log(formatList(board.suggested_next_actions));
+  });
+
+program
+  .command("team-board")
+  .description("Show the manager board for one team")
+  .requiredOption("--team <team>", "team name")
+  .option("-n, --last <count>", "maximum items per section", "20")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: { team: string; last: string; project?: string; area?: string }) => {
+    const board = teamBoard({
+      ...resolveScopeOptions(opts.project, opts.area),
+      team: opts.team,
+      limit: Number(opts.last),
+    });
+    console.log(kleur.bold(`Team ${opts.team}`));
+    console.log(kleur.bold("Agents:"));
+    console.log(formatList(board.agents.map((agent) => `${agent.name} ${agent.status}/${agent.presence}`)));
+    console.log(kleur.bold("Open tasks:"));
+    console.log(formatList(board.open_tasks.map((task) => `#${task.id} ${task.title}`)));
+    console.log(kleur.bold("Active tasks:"));
+    console.log(formatList(board.active_tasks.map((task) => `#${task.id} ${task.title} held=${task.claimed_by ?? "-"}`)));
     console.log(kleur.bold("Suggested next actions:"));
     console.log(formatList(board.suggested_next_actions));
   });
@@ -949,8 +1030,9 @@ program
   .option("--weight <n>", "routing weight for ask_best", "0")
   .option("--project <name>", "project scope")
   .option("--area <name>", "area scope")
+  .option("--team <name>", "team scope")
   .option("--replace", "take over the name if already held")
-  .action((opts: { name: string; capabilities: string; role?: string; weight: string; project?: string; area?: string; replace?: boolean }) => {
+  .action((opts: { name: string; capabilities: string; role?: string; weight: string; project?: string; area?: string; team?: string; replace?: boolean }) => {
     const caps = opts.capabilities
       .split(",")
       .map((s) => s.trim())
@@ -963,6 +1045,7 @@ program
       routing_weight: Number(opts.weight),
       project: opts.project,
       area: opts.area,
+      team: opts.team,
     });
     console.log(`${kleur.green("registered")} ${a.name}`);
   });
