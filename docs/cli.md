@@ -175,6 +175,19 @@ agent-bus listen --agent worker-a
 agent-bus listen --agent worker-a --claim-s 300 --wait-s 110
 ```
 
+### `agent-bus inbox-status`
+
+Inspect inbox state without consuming messages.
+
+```bash
+agent-bus inbox-status --agent worker-a
+agent-bus inbox-status --agent worker-a --json
+```
+
+The output separates unread, claimed/in-flight, and recent delivered
+messages, so coordinators can see whether an agent has no work, has a
+claimed message, or already consumed the last message.
+
 ### Agent state and reports
 
 ```bash
@@ -191,12 +204,17 @@ agent-bus pin-memory 12
 agent-bus brief --agent coordinator
 agent-bus board
 agent-bus scope-conflicts --files "src/module/**"
+agent-bus delegate --from coordinator --to worker-a --title "Investigate bug" --mode investigate_only --expect "findings and fix options"
 agent-bus ack-task 12 --agent worker-a --response claimed
 agent-bus review-task 12 --reviewer reviewer --approve --notes "tests passed"
 agent-bus handoff 12 --from worker-a --to worker-b --reason "session ending"
 agent-bus task-event 12 --by worker-a --type progress --phase testing --message "Checks are running"
 agent-bus task-event 12 --list
 agent-bus task-result 12
+agent-bus wait-task 12 --wait-s 110
+agent-bus message-status 45
+agent-bus why-no-reply 45
+agent-bus reply-thread t_abc123 --from coordinator --message "continue from here"
 agent-bus cancel-task 12 --agent worker-a --reason "superseded by task 18"
 agent-bus test-result --by reviewer --task 12 --command "npm test" --status passed --summary "60 smoke tests passed"
 agent-bus test-result --list
@@ -213,10 +231,15 @@ recent messages. `board` is the manager view for agents, tasks, review
 queues, pending acknowledgements, scope conflicts, risks, and handoffs.
 `task-event` records progress/phase/log/result notes; `task-result`
 shows one task with its events, test evidence, memories, and thread
-messages. `cancel-task` marks active work canceled and notifies the
-other side.
-`test-result` records explicit build/lint/test evidence for the final
-report. `final-report` summarizes implemented work, gaps, risks, tests,
+messages. `delegate` creates a task, assigns it, notifies the worker,
+and requires acknowledgement by default. `wait-task` waits for task
+activity and reports latest evidence without repeated manual polling.
+`message-status` and `why-no-reply` diagnose delivery, claims, replies,
+recipient presence, and related task context. `reply-thread` continues a
+thread without looking up the exact recipient. `cancel-task` marks
+active work canceled and notifies the other side. `test-result` records
+explicit build/lint/test evidence for the final report. `final-report`
+summarizes implemented work, gaps, risks, tests,
 manual checks, and commit/push/deploy safety. `review-gate` turns the
 board and final report into a deterministic ready/block decision.
 

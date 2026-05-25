@@ -17,10 +17,12 @@ import {
   claimTask,
   claimBestTask,
   createTask,
+  delegate,
   directory,
   finalReport,
   getTask,
   inbox,
+  inboxStatus,
   listTaskEvents,
   listTasks,
   listDecisions,
@@ -35,6 +37,7 @@ import {
   recordDecision,
   remember,
   reply,
+  replyThread,
   send,
   sendChannel,
   sessionBrief,
@@ -46,10 +49,13 @@ import {
   updateTask,
   handoffTask,
   waitForAgents,
+  waitForTask,
   listTestResults,
+  messageStatus,
   reviewGate,
   taskResult,
   whois,
+  whyNoReply,
   sleepAgent,
   wakeAgent,
   setAgentStatus,
@@ -201,6 +207,12 @@ const CreateTaskInput = z.object({
   allow_conflicts: z.boolean().optional(),
 });
 
+const DelegateInput = CreateTaskInput.omit({ requested_by: true }).extend({
+  from: z.string().min(1),
+  to_agent: z.string().min(1),
+  allow_pending_agent: z.boolean().optional(),
+});
+
 const ClaimTaskInput = z.object({
   agent: z.string().min(1),
   task_id: z.number().int().positive(),
@@ -269,6 +281,28 @@ const ListTaskEventsInput = z.object({
 const TaskResultInput = z.object({
   task_id: z.number().int().positive(),
   limit: z.number().int().positive().max(500).optional(),
+});
+
+const WaitForTaskInput = z.object({
+  task_id: z.number().int().positive(),
+  wait_s: z.number().int().nonnegative().max(110).optional(),
+  since_updated_at: z.number().int().positive().optional(),
+  limit: z.number().int().positive().max(500).optional(),
+});
+
+const InboxStatusInput = z.object({
+  agent: z.string().min(1),
+  limit: z.number().int().positive().max(100).optional(),
+});
+
+const MessageStatusInput = z.object({
+  message_id: z.number().int().positive(),
+});
+
+const ReplyThreadInput = z.object({
+  from: z.string().min(1),
+  thread_id: z.string().min(1),
+  message: z.string(),
 });
 
 const CancelTaskInput = z.object({
@@ -507,6 +541,19 @@ const TOOLS = [
     },
   },
   {
+    name: "inbox_status",
+    description:
+      "Inspect an agent inbox without consuming messages. Shows unread, claimed/in-flight, recent delivered messages, and a clear summary.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Registered agent name" },
+        limit: { type: "number", description: "Maximum rows per section (default 20, cap 100)" },
+      },
+      required: ["agent"],
+    },
+  },
+  {
     name: "ack",
     description:
       "Acknowledge a message you successfully processed (used with inbox claim_s). " +
@@ -577,6 +624,44 @@ const TOOLS = [
         answer: { type: "string" },
       },
       required: ["from", "ask_id", "answer"],
+    },
+  },
+  {
+    name: "reply_thread",
+    description:
+      "Continue an existing thread without remembering the exact recipient. Sends to the last other participant in the thread.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Your agent name" },
+        thread_id: { type: "string" },
+        message: { type: "string" },
+      },
+      required: ["from", "thread_id", "message"],
+    },
+  },
+  {
+    name: "message_status",
+    description:
+      "Diagnose one message: delivery/claim state, reply, recipient presence, related task, and suggested next actions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message_id: { type: "number" },
+      },
+      required: ["message_id"],
+    },
+  },
+  {
+    name: "why_no_reply",
+    description:
+      "Explain why an ask/message has no reply yet, including recipient presence, claim state, and related task context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message_id: { type: "number" },
+      },
+      required: ["message_id"],
     },
   },
   {
@@ -733,6 +818,39 @@ const TOOLS = [
         allow_conflicts: { type: "boolean" },
       },
       required: ["requested_by", "title"],
+    },
+  },
+  {
+    name: "delegate",
+    description:
+      "Create a task, assign it to an agent, require acknowledgement by default, notify the assignee, and record a delegation event. Use for long-running work instead of ask.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Coordinator/requester agent name" },
+        to_agent: { type: "string", description: "Assignee agent name" },
+        title: { type: "string", description: "1-200 chars" },
+        description: { type: "string" },
+        thread_id: { type: "string" },
+        priority: { type: "number" },
+        cwd: { type: "string" },
+        blocked_on_task_id: { type: "number" },
+        project: { type: ["string", "null"], description: "Optional project scope; defaults to requester/session" },
+        area: { type: ["string", "null"], description: "Optional area scope; defaults to requester/session" },
+        required_capability: { type: ["string", "null"] },
+        mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
+        expected_output: { type: ["string", "null"] },
+        deadline_at: { type: ["number", "null"] },
+        checkin_at: { type: ["number", "null"] },
+        file_scope: { type: "array", items: { type: "string" } },
+        edit_scope: { type: "array", items: { type: "string" } },
+        read_scope: { type: "array", items: { type: "string" } },
+        ack_required: { type: "boolean", description: "Default true" },
+        review_required: { type: "boolean" },
+        allow_pending_agent: { type: "boolean" },
+        allow_conflicts: { type: "boolean" },
+      },
+      required: ["from", "to_agent", "title"],
     },
   },
   {
@@ -1006,6 +1124,21 @@ const TOOLS = [
     },
   },
   {
+    name: "wait_for_task",
+    description:
+      "Wait up to 110s for a task update/event/message/test result, then return task_result plus holder, latest activity, timeout flag, and next actions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        task_id: { type: "number" },
+        wait_s: { type: "number", description: "Seconds to wait, max 110" },
+        since_updated_at: { type: "number", description: "Only return when activity is newer than this ms epoch" },
+        limit: { type: "number", description: "Maximum related rows per section" },
+      },
+      required: ["task_id"],
+    },
+  },
+  {
     name: "cancel_task",
     description:
       "Cancel a non-terminal task, record a cancel event, notify the other side, and run task.canceled hooks.",
@@ -1258,6 +1391,8 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "inbox":
       return inbox(InboxInput.parse(raw));
+    case "inbox_status":
+      return inboxStatus(InboxStatusInput.parse(raw));
     case "ack":
       return ack(AckInput.parse(raw));
     case "ask":
@@ -1272,6 +1407,12 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "reply":
       return reply(ReplyInput.parse(raw));
+    case "reply_thread":
+      return replyThread(ReplyThreadInput.parse(raw));
+    case "message_status":
+      return messageStatus(MessageStatusInput.parse(raw));
+    case "why_no_reply":
+      return whyNoReply(MessageStatusInput.parse(raw).message_id);
     case "subscribe":
       return subscribe(SubscribeInput.parse(raw));
     case "unsubscribe": {
@@ -1326,6 +1467,14 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     case "create_task": {
       const input = CreateTaskInput.parse(raw);
       return createTask({
+        ...input,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+      });
+    }
+    case "delegate": {
+      const input = DelegateInput.parse(raw);
+      return delegate({
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
@@ -1398,6 +1547,10 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     case "task_result": {
       const input = TaskResultInput.parse(raw);
       return taskResult(input.task_id, input.limit);
+    }
+    case "wait_for_task": {
+      const input = WaitForTaskInput.parse(raw);
+      return await waitForTask(input);
     }
     case "cancel_task":
       return cancelTask(CancelTaskInput.parse(raw));

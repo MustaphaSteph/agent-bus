@@ -278,44 +278,44 @@ SQLite rows.
 **When**: one session wants another session to implement, verify, or
 investigate something, and a plain message is too hard to track.
 
-**How**: create a task, optionally send the assignee its thread, then let
-workers claim and update state.
+**How**: use `delegate` when the coordinator already knows the assignee.
+It creates the task, assigns it, notifies the worker, requires
+acknowledgement by default, and records the delegation event.
 
 ```js
-const task = create_task({
-  requested_by: "orchestrator",
+const result = delegate({
+  from: "orchestrator",
+  to_agent: "verifier",
   title: "Verify the current diff",
   description: "Run the smoke tests and report findings first.",
   priority: 10,
   cwd: "/Users/air/Documents/Projects/agent-bus",
-})
-
-send({
-  from: "orchestrator",
-  to: "verifier",
-  message: `Please claim task #${task.id} and verify it.`,
-  thread_id: task.thread_id,
+  mode: "test_only",
+  expected_output: "Findings, risks, and test evidence.",
+  read_scope: ["**/*"],
 })
 ```
 
 The verifier:
 
 ```js
-claim_task({ agent: "verifier", task_id: task.id })
-update_task({ agent: "verifier", task_id: task.id, state: "working" })
+acknowledge_task({ agent: "verifier", task_id: result.task.id, response: "claimed" })
+update_task({ agent: "verifier", task_id: result.task.id, state: "working" })
 // ...run review/tests...
+record_test_result({ by_agent: "verifier", task_id: result.task.id, command: "npm test", status: "passed" })
 update_task({
   agent: "verifier",
-  task_id: task.id,
+  task_id: result.task.id,
   state: "completed",
   result: "No findings. npm test passed.",
 })
 ```
 
-Use `list_tasks` or `agent-bus tasks --watch` to see pending and active
-work. Active tasks can show `stale: true` if their holder has not
-heartbeated recently; release them explicitly instead of relying on
-automatic requeue.
+Use `wait_for_task` when blocking for progress is useful, and
+`task_result` before review/handoff. Use `list_tasks` or
+`agent-bus tasks --watch` to see pending and active work. Active tasks
+can show `stale: true` if their holder has not heartbeated recently;
+release them explicitly instead of relying on automatic requeue.
 
 **Failure modes**:
 

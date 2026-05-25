@@ -6,10 +6,12 @@ import {
   acknowledgeTask,
   cancelTask,
   checkScopeConflicts,
+  delegate,
   directory,
   finalReport,
   handoffTask,
   inbox,
+  inboxStatus,
   listDecisions,
   listMemories,
   listTaskEvents,
@@ -19,6 +21,7 @@ import {
   projectBoard,
   PROJECT_WILDCARD,
   recentMessages,
+  replyThread,
   register,
   recordDecision,
   recordTaskEvent,
@@ -34,7 +37,10 @@ import {
   wakeAgent,
   whois,
   waitForAgents,
+  waitForTask,
   taskResult,
+  messageStatus,
+  whyNoReply,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
 import { packageVersion } from "../util/package-info.js";
@@ -255,6 +261,27 @@ program
   });
 
 program
+  .command("inbox-status")
+  .description("Show unread, claimed/in-flight, and recent delivered inbox messages without consuming them")
+  .requiredOption("--agent <name>", "agent inbox to inspect")
+  .option("-n, --last <count>", "maximum rows per section", "20")
+  .option("--json", "print raw JSON")
+  .action((opts: { agent: string; last: string; json?: boolean }) => {
+    const status = inboxStatus({ agent: opts.agent, limit: Number(opts.last) });
+    if (opts.json === true) {
+      console.log(JSON.stringify(status, null, 2));
+      return;
+    }
+    console.log(status.summary);
+    console.log(kleur.bold("Unread:"));
+    console.log(formatList(status.unread.map((message) => `#${message.id} ${message.from_agent}: ${message.content}`)));
+    console.log(kleur.bold("In flight:"));
+    console.log(formatList(status.in_flight.map((message) => `#${message.id} claimed_by=${message.claimed_by ?? "-"} until=${message.claim_deadline ?? "-"}`)));
+    console.log(kleur.bold("Delivered recent:"));
+    console.log(formatList(status.delivered_recent.map((message) => `#${message.id} [${message.status}] ${message.from_agent}: ${message.content}`)));
+  });
+
+program
   .command("tasks")
   .description("List tasks or watch task changes")
   .option("--state <state>", "filter by task state")
@@ -289,6 +316,83 @@ program
     register({ name: opts.from, capabilities: ["human"], replace: true });
     const m = send({ from: opts.from, to: opts.to, content: message });
     console.log(formatMessage(m));
+  });
+
+program
+  .command("delegate")
+  .description("Create a task, assign it, notify the assignee, and require acknowledgement by default")
+  .requiredOption("--from <agent>", "coordinator/requester agent")
+  .requiredOption("--to <agent>", "assignee agent")
+  .requiredOption("--title <text>", "task title")
+  .option("--description <text>", "task description")
+  .option("--mode <mode>", "investigate_only, propose_patch, edit_files, or test_only")
+  .option("--expect <text>", "expected output")
+  .option("--priority <n>", "task priority", "0")
+  .option("--scope <list>", "comma-separated file scope")
+  .option("--edit-scope <list>", "comma-separated edit scope")
+  .option("--read-scope <list>", "comma-separated read scope")
+  .option("--capability <name>", "required capability")
+  .option("--deadline <ms>", "deadline as ms epoch")
+  .option("--checkin <ms>", "check-in time as ms epoch")
+  .option("--cwd <path>", "working directory")
+  .option("--thread <id>", "existing thread id")
+  .option("--no-ack", "do not require acknowledgement")
+  .option("--review", "require approved review before completion")
+  .option("--allow-pending-agent", "reserve for an agent that is not registered yet")
+  .option("--allow-conflicts", "allow overlapping edit scopes")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: {
+    from: string;
+    to: string;
+    title: string;
+    description?: string;
+    mode?: string;
+    expect?: string;
+    priority: string;
+    scope?: string;
+    editScope?: string;
+    readScope?: string;
+    capability?: string;
+    deadline?: string;
+    checkin?: string;
+    cwd?: string;
+    thread?: string;
+    ack?: boolean;
+    review?: boolean;
+    allowPendingAgent?: boolean;
+    allowConflicts?: boolean;
+    project?: string;
+    area?: string;
+  }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area);
+    const result = delegate({
+      from: opts.from,
+      to_agent: opts.to,
+      title: opts.title,
+      description: opts.description,
+      mode: opts.mode as never,
+      expected_output: opts.expect ?? null,
+      priority: Number(opts.priority),
+      file_scope: opts.scope ? splitList(opts.scope) : undefined,
+      edit_scope: opts.editScope ? splitList(opts.editScope) : undefined,
+      read_scope: opts.readScope ? splitList(opts.readScope) : undefined,
+      required_capability: opts.capability ?? null,
+      deadline_at: opts.deadline ? Number(opts.deadline) : null,
+      checkin_at: opts.checkin ? Number(opts.checkin) : null,
+      cwd: opts.cwd,
+      thread_id: opts.thread,
+      ack_required: opts.ack !== false,
+      review_required: opts.review === true,
+      allow_pending_agent: opts.allowPendingAgent,
+      allow_conflicts: opts.allowConflicts,
+      project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? undefined),
+      area: scope.area === AREA_WILDCARD ? null : (scope.area ?? undefined),
+    });
+    console.log(`${kleur.green("delegated")} task #${result.task.id} to ${opts.to}`);
+    console.log(`state=${result.task.state} pending=${result.pending ? "yes" : "no"} thread=${result.task.thread_id}`);
+    console.log(kleur.bold("Next:"));
+    console.log(formatList(result.suggested_next_actions));
   });
 
 program
@@ -415,6 +519,76 @@ program
     console.log(formatList(result.memories.map((row) => `#${row.id} [${row.kind}] ${row.content}`)));
     console.log(kleur.bold("Messages:"));
     console.log(formatList(result.messages.map((row) => `#${row.id} ${row.from_agent} -> ${row.to_agent}: ${row.content}`)));
+  });
+
+program
+  .command("wait-task <task-id>")
+  .description("Wait for a task update/event/message/test result and print latest status")
+  .option("--wait-s <seconds>", "seconds to wait, max 110", "110")
+  .option("--since <ms>", "activity must be newer than this ms epoch")
+  .option("-n, --last <count>", "maximum related rows per section", "50")
+  .option("--json", "print raw JSON")
+  .action(async (taskId: string, opts: { waitS: string; since?: string; last: string; json?: boolean }) => {
+    const result = await waitForTask({
+      task_id: Number(taskId),
+      wait_s: Number(opts.waitS),
+      since_updated_at: opts.since ? Number(opts.since) : undefined,
+      limit: Number(opts.last),
+    });
+    if (opts.json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(kleur.bold(`#${result.task.id} ${result.task.title}`));
+    console.log(`state=${result.task.state} holder=${result.task.claimed_by ?? "-"} timed_out=${result.timed_out ? "yes" : "no"}`);
+    console.log(`latest_event=${result.latest_event ? `#${result.latest_event.id} ${result.latest_event.message}` : "-"}`);
+    console.log(`latest_message=${result.latest_message ? `#${result.latest_message.id} ${result.latest_message.from_agent}: ${result.latest_message.content}` : "-"}`);
+    console.log(kleur.bold("Next:"));
+    console.log(formatList(result.suggested_next_actions));
+  });
+
+program
+  .command("message-status <message-id>")
+  .description("Diagnose one message delivery/claim/reply state")
+  .option("--json", "print raw JSON")
+  .action((messageId: string, opts: { json?: boolean }) => {
+    const result = messageStatus({ message_id: Number(messageId) });
+    if (opts.json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(formatMessage(result.message));
+    console.log(kleur.bold("Diagnostics:"));
+    console.log(formatList(result.diagnostics));
+    console.log(kleur.bold("Next:"));
+    console.log(formatList(result.suggested_next_actions));
+  });
+
+program
+  .command("why-no-reply <message-id>")
+  .description("Explain why a message or ask has no reply yet")
+  .option("--json", "print raw JSON")
+  .action((messageId: string, opts: { json?: boolean }) => {
+    const result = whyNoReply(Number(messageId));
+    if (opts.json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(formatMessage(result.message));
+    console.log(kleur.bold("Diagnostics:"));
+    console.log(formatList(result.diagnostics));
+    console.log(kleur.bold("Next:"));
+    console.log(formatList(result.suggested_next_actions));
+  });
+
+program
+  .command("reply-thread <thread-id>")
+  .description("Send a message to the last other participant in a thread")
+  .requiredOption("--from <agent>", "sender agent")
+  .requiredOption("--message <text>", "message body")
+  .action((threadId: string, opts: { from: string; message: string }) => {
+    const message = replyThread({ from: opts.from, thread_id: threadId, message: opts.message });
+    console.log(formatMessage(message));
   });
 
 program
@@ -850,6 +1024,13 @@ program.parseAsync(process.argv).catch((err) => {
 
 function formatList(values: string[]): string {
   return values.length === 0 ? "  - none" : values.map((value) => `  - ${value}`).join("\n");
+}
+
+function splitList(value: string): string[] {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function parseJsonObject(value: string, label: string): Record<string, unknown> {

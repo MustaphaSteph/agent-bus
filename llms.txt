@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 47 MCP tools, all prefixed with the server name `agent-bus` in
+You have 53 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -17,12 +17,13 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 5. Subscribe to channels and broadcast to teams.
 6. Route questions by capability when you don't know who to ask.
 7. Reconstruct conversation threads.
-8. Create, claim, update, release, list, inspect, cancel, and review-gate tasks.
-9. Record task progress/phase events and fetch task result bundles.
-9. Scope reads and routing to the current project, or opt into global.
-10. Discover other agents.
-11. Store structured memories and generate session briefs for handoffs.
-12. Wait for expected rosters, reserve tasks for not-yet-registered
+8. Inspect inbox/message status without consuming messages.
+9. Create, delegate, wait on, claim, update, release, list, inspect, cancel, and review-gate tasks.
+10. Record task progress/phase events and fetch task result bundles.
+11. Scope reads and routing to the current project, or opt into global.
+12. Discover other agents.
+13. Store structured memories and generate session briefs for handoffs.
+14. Wait for expected rosters, reserve tasks for not-yet-registered
     workers, split edit scope from read scope, and record test evidence.
 
 ## Core rules
@@ -114,7 +115,18 @@ Input:
 
 Returns the updated `Message` (now `delivered`).
 
-Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
+Errors: `MESSAGE_NOT_FOUND`, `INVALID_INPUT`.
+
+### inbox_status
+
+Inspect inbox state without consuming messages.
+
+Input:
+- `agent: string`
+- `limit?: number` — default 20, max 100 per section
+
+Returns unread messages, claimed/in-flight messages, recent delivered
+messages, the last message, next claim deadline, and a human summary.
 
 ### ask
 
@@ -167,6 +179,28 @@ Input:
 Returns the reply `Message`. The reply inherits the ask's `thread_id`.
 
 Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
+
+### reply_thread
+
+Continue a thread without remembering the recipient.
+
+Input:
+- `from: string`
+- `thread_id: string`
+- `message: string`
+
+Returns a sent `Message` addressed to the last other participant.
+
+### message_status / why_no_reply
+
+Diagnose one message's delivery, claim, reply, recipient presence, and
+related task context.
+
+Input:
+- `message_id: number`
+
+Returns `{ message, reply, recipient, related_task, diagnostics,
+suggested_next_actions }`.
 
 ### subscribe
 
@@ -383,6 +417,37 @@ Input:
 Assigns an open task to an agent. With `allow_pending_agent`, the task
 can be reserved for a worker that has not registered yet.
 
+### delegate
+
+Create a task, assign it, notify the assignee, require acknowledgement
+by default, and record a delegation event. Prefer this for long-running
+work instead of `ask`.
+
+Input:
+- `from: string`
+- `to_agent: string`
+- `title: string`
+- `description?: string`
+- `mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only"`
+- `expected_output?: string | null`
+- `priority?: number`
+- `cwd?: string`
+- `thread_id?: string`
+- `project?: string | null`
+- `area?: string | null`
+- `required_capability?: string | null`
+- `deadline_at?: number | null`
+- `checkin_at?: number | null`
+- `file_scope?: string[]`
+- `edit_scope?: string[]`
+- `read_scope?: string[]`
+- `ack_required?: boolean`
+- `review_required?: boolean`
+- `allow_pending_agent?: boolean`
+- `allow_conflicts?: boolean`
+
+Returns `{ task, event, assigned, pending, suggested_next_actions }`.
+
 ### claim_best_task
 
 Input:
@@ -490,6 +555,10 @@ returns the task, task events, test results, memories, and thread
 messages. Use `cancel_task({ agent, task_id, reason })` for superseded
 or intentionally stopped work so the board does not show abandoned
 active tasks.
+
+Use `wait_for_task({ task_id, wait_s })` when you need to block for task
+activity. It returns the same evidence bundle plus `timed_out`, holder,
+latest event/message/test result, and suggested next actions.
 
 ### final_report
 

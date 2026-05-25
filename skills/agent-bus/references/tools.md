@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 47 MCP tools. All return JSON.
+doesn't cover in detail. There are 53 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -62,7 +62,7 @@ send({
 }) -> Message
 ```
 
-### inbox / ack
+### inbox / inbox_status / ack
 ```ts
 inbox({
   agent: string,
@@ -73,14 +73,28 @@ inbox({
   limit?: number,
 }) -> Message[]
 
+inbox_status({
+  agent: string,
+  limit?: number,
+}) -> {
+  unread: Message[],
+  in_flight: Message[],
+  delivered_recent: Message[],
+  last_message: Message | null,
+  next_claim_deadline: number | null,
+  summary: string,
+}
+
 ack({ agent: string, message_id: number }) -> Message
 ```
 Use `wait_s: 110` for listener loops. Use `claim_s` for work that must
 not be lost; skipped ack means redelivery after the claim expires.
+Use `inbox_status` when you need to inspect unread/claimed/recent
+delivery state without consuming anything.
 
 ## Request / Response
 
-### ask / ask_best / reply
+### ask / ask_best / reply / reply_thread
 ```ts
 ask({
   from: string,
@@ -104,9 +118,24 @@ ask_best({
 }) -> Message
 
 reply({ from: string, ask_id: number, answer: string }) -> Message
+reply_thread({ from: string, thread_id: string, message: string }) -> Message
+
+message_status({ message_id: number }) -> {
+  message: Message,
+  reply: Message | null,
+  recipient: AgentDirectoryEntry | null,
+  related_task: Task | null,
+  diagnostics: string[],
+  suggested_next_actions: string[],
+}
+
+why_no_reply({ message_id: number }) -> same shape
 ```
 `ask_best` defaults to the caller's project/area and refuses stale
 agents. Use wildcards only for deliberate cross-project/cross-area work.
+Use `reply_thread` when continuing a conversation and the recipient is
+obvious from thread history. Use `message_status`/`why_no_reply` before
+guessing that an agent ignored an ask.
 
 ## Channels
 
@@ -169,6 +198,36 @@ claim_best_task({
 Use `assign_task` when the manager chooses the worker. Use
 `claim_best_task` when a worker asks for its next best task. Use
 `allow_pending_agent` to reserve work before a worker registers.
+
+### delegate
+```ts
+delegate({
+  from: string,
+  to_agent: string,
+  title: string,
+  description?: string,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string | null,
+  priority?: number,
+  cwd?: string,
+  thread_id?: string,
+  project?: string | null,
+  area?: string | null,
+  required_capability?: string | null,
+  deadline_at?: number | null,
+  checkin_at?: number | null,
+  edit_scope?: string[],
+  read_scope?: string[],
+  file_scope?: string[],
+  ack_required?: boolean,
+  review_required?: boolean,
+  allow_pending_agent?: boolean,
+  allow_conflicts?: boolean,
+}) -> { task: Task, event: TaskEvent, assigned: boolean, pending: boolean, suggested_next_actions: string[] }
+```
+Use `delegate` as the default long-work primitive. It creates the task,
+assigns it, sends the inbox notification, requires acknowledgement by
+default, and records the delegation event.
 
 ### update_task / release_task / list_tasks / get_task
 ```ts
@@ -339,6 +398,20 @@ task_result({ task_id: number, limit?: number }) -> {
   test_results: TestResult[],
   memories: Memory[],
   messages: Message[],
+}
+
+wait_for_task({
+  task_id: number,
+  wait_s?: number,
+  since_updated_at?: number,
+  limit?: number,
+}) -> TaskResult & {
+  timed_out: boolean,
+  holder: AgentDirectoryEntry | null,
+  latest_event: TaskEvent | null,
+  latest_message: Message | null,
+  latest_test_result: TestResult | null,
+  suggested_next_actions: string[],
 }
 
 cancel_task({

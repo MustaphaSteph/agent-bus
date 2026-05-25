@@ -4,6 +4,8 @@ export type BusErrorCode =
   | "ASK_TIMEOUT"
   | "ASK_CYCLE"
   | "ASK_NOT_FOUND"
+  | "MESSAGE_NOT_FOUND"
+  | "THREAD_NOT_FOUND"
   | "INVALID_INPUT"
   | "TASK_NOT_FOUND"
   | "TASK_INVALID_TRANSITION"

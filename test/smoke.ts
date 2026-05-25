@@ -15,12 +15,14 @@ const {
   claimBestTask,
   checkScopeConflicts,
   createTask,
+  delegate,
   directory,
   finalReport,
   getTask,
   ask,
   askBest,
   inbox,
+  inboxStatus,
   listTasks,
   listTaskEvents,
   listTestResults,
@@ -37,6 +39,7 @@ const {
   remember,
   releaseTask,
   reply,
+  replyThread,
   send,
   sendChannel,
   sleepAgent,
@@ -55,6 +58,9 @@ const {
   handoffTask,
   reviewGate,
   taskResult,
+  waitForTask,
+  messageStatus,
+  whyNoReply,
 } = await import("../src/bus.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
@@ -322,6 +328,53 @@ await test("ack: expired claim redelivers the message", async () => {
     second.find((m) => m.id === target.id),
     "expired claim should make message visible again",
   );
+});
+
+await test("inbox_status reports unread, claimed, and delivered without consuming", async () => {
+  const unread = send({ from: "alice", to: "bob", content: "status-unread" });
+  let status = inboxStatus({ agent: "bob" });
+  assert.ok(status.unread.some((m) => m.id === unread.id));
+  assert.ok(status.summary.includes("unread"));
+
+  const claimed = send({ from: "alice", to: "bob", content: "status-claimed" });
+  const claimedRows = await inbox({ agent: "bob", claim_s: 60 });
+  const claimedRow = claimedRows.find((m) => m.id === claimed.id);
+  assert.ok(claimedRow);
+  status = inboxStatus({ agent: "bob" });
+  assert.ok(status.in_flight.some((m) => m.id === claimed.id));
+
+  const acked = ack({ agent: "bob", message_id: claimed.id });
+  status = inboxStatus({ agent: "bob" });
+  assert.ok(status.delivered_recent.some((m) => m.id === acked.id));
+});
+
+await test("message_status and why_no_reply explain unanswered asks", async () => {
+  const askMessage = send({ from: "alice", to: "bob", content: "need answer", kind: "ask" });
+  let status = messageStatus({ message_id: askMessage.id });
+  assert.equal(status.message.id, askMessage.id);
+  assert.equal(status.reply, null);
+  assert.ok(status.diagnostics.some((line) => line.includes("no reply")));
+
+  const why = whyNoReply(askMessage.id);
+  assert.ok(why.suggested_next_actions.length > 0);
+
+  const pending = await inbox({ agent: "bob" });
+  const target = pending.find((m) => m.id === askMessage.id);
+  assert.ok(target);
+  const answered = reply({ from: "bob", ask_id: target.id, answer: "answer" });
+  status = messageStatus({ message_id: askMessage.id });
+  assert.equal(status.reply?.id, answered.id);
+});
+
+await test("reply_thread continues with the last other participant", async () => {
+  const tid = "t_reply_thread_test";
+  send({ from: "alice", to: "bob", content: "first", thread_id: tid });
+  send({ from: "bob", to: "alice", content: "second", thread_id: tid });
+  const sent = replyThread({ from: "alice", thread_id: tid, message: "third" });
+  assert.equal(sent.to_agent, "bob");
+  assert.equal(sent.thread_id, tid);
+  const rows = await inbox({ agent: "bob" });
+  assert.ok(rows.some((m) => m.id === sent.id));
 });
 
 await test("subscribe + send_channel fans out to subscribers", () => {
@@ -771,6 +824,47 @@ await test("tasks: assignment notification and acknowledgement receipt", async (
   assert.ok(acked.acknowledged_at !== null);
   const receipts = await inbox({ agent: "ack-pm" });
   assert.ok(receipts.some((msg) => msg.content.includes("acknowledged task")));
+});
+
+await test("delegate creates assigned task, event, notification, and ack requirement", async () => {
+  register({ name: "delegate-pm", project: "delegatep", replace: true });
+  register({ name: "delegate-worker", project: "delegatep", replace: true });
+  const result = delegate({
+    from: "delegate-pm",
+    to_agent: "delegate-worker",
+    title: "delegated task",
+    description: "exercise high-level primitive",
+    mode: "investigate_only",
+    expected_output: "short report",
+    edit_scope: ["src/bus.ts"],
+  });
+  assert.equal(result.assigned, true);
+  assert.equal(result.pending, false);
+  assert.equal(result.task.claimed_by, "delegate-worker");
+  assert.equal(result.task.ack_required, true);
+  assert.equal(result.event.phase, "delegated");
+  const notices = await inbox({ agent: "delegate-worker" });
+  assert.ok(notices.some((msg) => msg.content.includes("assigned task")));
+});
+
+await test("wait_for_task returns when task activity arrives", async () => {
+  register({ name: "wait-pm", project: "waitp", replace: true });
+  register({ name: "wait-worker", project: "waitp", replace: true });
+  const task = createTask({ requested_by: "wait-pm", title: "wait task" });
+  claimTask({ agent: "wait-worker", task_id: task.id });
+  setTimeout(() => {
+    recordTaskEvent({
+      by_agent: "wait-worker",
+      task_id: task.id,
+      event_type: "progress",
+      message: "progress after wait started",
+      phase: "working",
+    });
+  }, 100);
+  const result = await waitForTask({ task_id: task.id, wait_s: 2, since_updated_at: Date.now(), limit: 20 });
+  assert.equal(result.timed_out, false);
+  assert.equal(result.latest_event?.message, "progress after wait started");
+  assert.equal(result.holder?.name, "wait-worker");
 });
 
 await test("tasks: review gate requires approval before completion", () => {

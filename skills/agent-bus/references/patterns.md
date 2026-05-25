@@ -92,28 +92,26 @@ subscriber sees it in their normal `inbox` with `m.channel` set.
 
 ## 6. Track work as tasks
 
-For multi-step delegated work where state, ownership, or review matters:
+For multi-step delegated work where state, ownership, or review matters,
+use `delegate` when the assignee is known:
 
 ```
-const task = create_task({
-  requested_by: <coordinator>,
+const result = delegate({
+  from: <coordinator>,
+  to_agent: <assignee>,
   title: "review the auth refresh logic",
   description: "src/auth/refresh.ts lines 40-80, race conditions",
   priority: 10,
   cwd: "/abs/path/to/repo",
   mode: "investigate_only",
   expected_output: "Summary / Files inspected / Findings / Suggested fix / Risks / Test plan / Confidence",
-  file_scope: ["src/auth/**", "test/auth/**"],
-})
-
-// optionally send the assignee a heads-up referencing the task
-send({
-  from: <coordinator>,
-  to: <assignee>,
-  message: `Please claim task #${task.id}`,
-  thread_id: task.thread_id,
+  read_scope: ["src/auth/**", "test/auth/**"],
 })
 ```
+
+Use `create_task` plus `claim_best_task` when workers should self-select
+from a queue. Use `wait_for_task` for long-running progress waits and
+`task_result` before review or handoff.
 
 Worker side:
 ```

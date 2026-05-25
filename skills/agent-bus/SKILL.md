@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.10.0
+  - agent-bus-mcp >= 0.11.0
 ---
 
 # agent-bus
@@ -62,7 +62,8 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
 | "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
-| "What did <name> say?" / "Did anyone reply?" | `inbox(agent=<your name>)`, then summarize |
+| "What did <name> say?" / "Did anyone reply?" | `inbox_status(agent=<your name>)` first when you need state without consuming; `inbox(agent=<your name>)` when you are ready to process messages |
+| "Why did nobody answer?" | `message_status(message_id=…)` or `why_no_reply(message_id=…)`; summarize delivery, claim, recipient presence, related task, and next actions |
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
 | "Wait for these workers" / "Are my agents ready?" | `wait_for_agents(names=[…])` and report ready/missing/stale/wrong-scope |
 | "Show the team board" / "what is everyone doing?" | `project_board()` rendered with status, active work, review queue, conflicts, pinned risks, handoffs, and next actions |
@@ -71,9 +72,10 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render |
 | "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigned and `review_required` for implementation work |
-| "Assign this to <agent>" | `create_task(...)` then `assign_task(task_id=…, to_agent=…)`; if the worker is not registered yet, use `allow_pending_agent=true`; expect `acknowledge_task(response="claimed")` from the worker |
+| "Delegate this to <agent>" / "Assign this to <agent>" | Prefer `delegate(from=<your name>, to_agent=…, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; if the task already exists, use `assign_task(task_id=…, to_agent=…)`; use `allow_pending_agent=true` when the worker is not registered yet |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
 | "Did <agent> accept the task?" | `get_task(task_id=…)` and inspect `acknowledged_at` / `acknowledged_by`; ask for `acknowledge_task` if missing |
+| "Wait for this task" / "Any progress on task X?" | `wait_for_task(task_id=…, wait_s=110)` when you can block, otherwise `task_result(task_id=…)` |
 | "Review / approve this task" | `submit_review(reviewer=<your name>, task_id=…, approved=…)`; required reviews gate completion |
 | "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
@@ -93,6 +95,9 @@ The user speaks normally. You pick the tool. Common patterns:
 - **`send` (fire-and-forget)** — when the user wants to delegate and
   keep working. Tell them it's dispatched; offer to check the inbox
   on demand.
+- **`delegate` (tracked long work)** — when ownership, progress,
+  acknowledgement, review, file scope, or final evidence matters. Use it
+  instead of `ask` for work that can outlive one 110s timeout.
 
 ## When to choose a specific name vs ask_best
 
@@ -173,6 +178,8 @@ across all areas when the user wants cross-area coordination.
   these rows.
 - Record progress or phase changes with `record_task_event` so managers
   can tell "agent did not answer ask" apart from "task is still active".
+- Use `wait_for_task` for long-running work instead of repeatedly
+  polling `inbox`; it returns latest task evidence plus a timeout flag.
 - Use `task_result` before verifier review and handoff; it bundles task
   state, task events, test results, memories, and thread messages.
 - Use `cancel_task` when work is superseded or intentionally stopped.
@@ -215,7 +222,7 @@ agent session, not to the bus itself.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 47 MCP tools with input/output shapes
+- `references/tools.md` — the 53 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `assign_task`,
   `record_decision`, `record_task_event`, `task_result`,

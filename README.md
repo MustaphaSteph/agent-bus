@@ -209,7 +209,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 5. Verify
 
 ```bash
-agent-bus --version                # 0.10.0
+agent-bus --version                # 0.11.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -345,14 +345,15 @@ Your job:
 - create tasks with clear mode, expected_output, and file_scope
 - use edit_scope for files a worker may change, and read_scope for verifier/test-only review
 - set ack_required for assigned work and review_required for implementation tasks
-- assign tasks to area workers; use allow_pending_agent when the worker session has not registered yet
+- use delegate for long work that needs ownership/progress tracking; use allow_pending_agent when the worker session has not registered yet
 - check project_board and scope conflicts before overlapping edits
 - use ask_best when no exact agent is named
 - create review/test-only tasks only when the user wants independent review
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
 - record progress and phase changes with record_task_event
-- use task_result before verification or handoff
+- use wait_for_task for long-running work and task_result before verification or handoff
+- use inbox_status/message_status/why_no_reply to diagnose delivery before assuming an agent ignored a message
 - record build/lint/test evidence with record_test_result
 - use session_brief at start and review_gate/final_report before commit/push
 - cancel superseded work with cancel_task instead of leaving it active
@@ -428,7 +429,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **47 MCP tools** — direct messages, synchronous ask/reply, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
+- **53 MCP tools** — direct messages, synchronous ask/reply, thread replies, non-consuming inbox diagnostics, message/reply diagnostics, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, one-call delegation, task waiting, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all` on other read commands.

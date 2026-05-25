@@ -91,6 +91,27 @@ inbox({ agent: "alpha", wait_s: 110 })
 inbox({ agent: "alpha", wait_s: 110, claim_s: 300 })
 ```
 
+## inbox_status
+
+Inspect an inbox without consuming messages. Use this when a coordinator
+needs to distinguish "nothing unread" from "claimed/in flight" or "last
+message already delivered".
+
+```ts
+inbox_status({
+  agent: string,
+  limit?: number,              // default 20, max 100 per section
+}) -> {
+  agent: string,
+  unread: Message[],
+  in_flight: Message[],
+  delivered_recent: Message[],
+  last_message: Message | null,
+  next_claim_deadline: number | null,
+  summary: string,
+}
+```
+
 ## ack
 
 Acknowledge a claimed message. Flips status to `delivered` and clears
@@ -103,7 +124,7 @@ ack({
 }) → Message
 ```
 
-**Errors**: `ASK_NOT_FOUND` (id doesn't exist), `INVALID_INPUT` (wrong
+**Errors**: `MESSAGE_NOT_FOUND` (id doesn't exist), `INVALID_INPUT` (wrong
 agent for that message).
 
 ```js
@@ -182,6 +203,38 @@ reply({
 
 ```js
 reply({ from: "beta", ask_id: 42, answer: "4" })
+```
+
+## reply_thread
+
+Continue an existing thread without remembering the exact recipient. It
+sends to the last other participant in the thread.
+
+```ts
+reply_thread({
+  from: string,
+  thread_id: string,
+  message: string,
+}) -> Message
+```
+
+## message_status / why_no_reply
+
+Diagnose delivery, claim, reply, recipient presence, and related task
+context for a single message. `why_no_reply` is the same diagnostic view
+with ask/no-reply wording for coordinators.
+
+```ts
+message_status({ message_id: number }) -> {
+  message: Message,
+  reply: Message | null,
+  recipient: AgentDirectoryEntry | null,
+  related_task: Task | null,
+  diagnostics: string[],
+  suggested_next_actions: string[],
+}
+
+why_no_reply({ message_id: number }) -> same shape
 ```
 
 ## subscribe
@@ -400,6 +453,46 @@ not registered yet, pass `allow_pending_agent: true`; the task stays
 open with `pending_assignee` and the assignee is notified when it
 registers. Claiming, assignment, and conflict checks use `edit_scope`
 by default for edit/propose tasks.
+
+## delegate
+
+High-level long-work primitive: create a task, assign it, require
+acknowledgement by default, notify the assignee, and record a delegation
+event. Use it instead of `ask` when the work can take longer than one
+tool timeout.
+
+```ts
+delegate({
+  from: string,
+  to_agent: string,
+  title: string,
+  description?: string,
+  thread_id?: string,
+  priority?: number,
+  cwd?: string,
+  blocked_on_task_id?: number,
+  project?: string | null,
+  area?: string | null,
+  required_capability?: string | null,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string | null,
+  deadline_at?: number | null,
+  checkin_at?: number | null,
+  file_scope?: string[],
+  edit_scope?: string[],
+  read_scope?: string[],
+  ack_required?: boolean,      // default true
+  review_required?: boolean,
+  allow_pending_agent?: boolean,
+  allow_conflicts?: boolean,
+}) -> {
+  task: Task,
+  event: TaskEvent,
+  assigned: boolean,
+  pending: boolean,
+  suggested_next_actions: string[],
+}
+```
 
 ## claim_best_task
 
@@ -688,6 +781,20 @@ task_result({ task_id: number, limit?: number }) -> {
   test_results: TestResult[],
   memories: Memory[],
   messages: Message[],
+}
+
+wait_for_task({
+  task_id: number,
+  wait_s?: number,             // default/max 110
+  since_updated_at?: number,   // ms epoch; defaults to current task updated_at
+  limit?: number,
+}) -> TaskResult & {
+  timed_out: boolean,
+  holder: AgentDirectoryEntry | null,
+  latest_event: TaskEvent | null,
+  latest_message: Message | null,
+  latest_test_result: TestResult | null,
+  suggested_next_actions: string[],
 }
 
 cancel_task({

@@ -143,6 +143,14 @@ function toMessage(row: MessageRow): Message {
   };
 }
 
+function getMessageRow(id: number): MessageRow {
+  const row = getDb()
+    .prepare("SELECT * FROM messages WHERE id = ?")
+    .get(id) as MessageRow | undefined;
+  if (!row) throw new BusError("MESSAGE_NOT_FOUND", `no message with id ${id}`);
+  return row;
+}
+
 function validateScopeName(kind: "project" | "area" | "role", value: string | null | undefined): void {
   if (value === null || value === undefined) return;
   if (typeof value !== "string" || value.length === 0 || value.length > 64) {
@@ -635,12 +643,7 @@ export function ack(opts: AckOptions): Message {
   requireAgent(opts.agent);
 
   const db = getDb();
-  const row = db
-    .prepare("SELECT * FROM messages WHERE id = ?")
-    .get(opts.message_id) as MessageRow | undefined;
-  if (!row) {
-    throw new BusError("ASK_NOT_FOUND", `no message with id ${opts.message_id}`);
-  }
+  const row = getMessageRow(opts.message_id);
   if (row.to_agent !== opts.agent) {
     throw new BusError(
       "INVALID_INPUT",
@@ -659,6 +662,83 @@ export function ack(opts: AckOptions): Message {
     .prepare("SELECT * FROM messages WHERE id = ?")
     .get(opts.message_id) as MessageRow;
   return toMessage(updated);
+}
+
+export interface InboxStatusOptions {
+  agent: string;
+  limit?: number;
+}
+
+export interface InboxStatus {
+  agent: string;
+  unread: Message[];
+  in_flight: Message[];
+  delivered_recent: Message[];
+  last_message: Message | null;
+  next_claim_deadline: number | null;
+  summary: string;
+}
+
+export function inboxStatus(opts: InboxStatusOptions): InboxStatus {
+  validateName(opts.agent);
+  requireAgent(opts.agent);
+  heartbeat(opts.agent);
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const ts = now();
+  const unread = getDb()
+    .prepare(
+      `SELECT * FROM messages
+        WHERE to_agent = ?
+          AND status = 'pending'
+          AND (claim_deadline IS NULL OR claim_deadline < ?)
+        ORDER BY id ASC
+        LIMIT ?`,
+    )
+    .all(opts.agent, ts, limit) as MessageRow[];
+  const inFlight = getDb()
+    .prepare(
+      `SELECT * FROM messages
+        WHERE to_agent = ?
+          AND status = 'pending'
+          AND claim_deadline IS NOT NULL
+          AND claim_deadline >= ?
+        ORDER BY claim_deadline ASC, id ASC
+        LIMIT ?`,
+    )
+    .all(opts.agent, ts, limit) as MessageRow[];
+  const delivered = getDb()
+    .prepare(
+      `SELECT * FROM messages
+        WHERE to_agent = ?
+          AND status IN ('delivered','answered')
+        ORDER BY id DESC
+        LIMIT ?`,
+    )
+    .all(opts.agent, limit) as MessageRow[];
+  const last = getDb()
+    .prepare("SELECT * FROM messages WHERE to_agent = ? ORDER BY id DESC LIMIT 1")
+    .get(opts.agent) as MessageRow | undefined;
+  const nextClaim = inFlight.reduce<number | null>(
+    (best, row) => row.claim_deadline !== null && (best === null || row.claim_deadline < best) ? row.claim_deadline : best,
+    null,
+  );
+  const summary =
+    unread.length > 0
+      ? `${unread.length} unread message(s)`
+      : inFlight.length > 0
+        ? `no unread messages; ${inFlight.length} message(s) currently claimed/in-flight`
+        : last
+          ? `no unread messages; last message #${last.id} was ${last.status}`
+          : "no messages for this agent";
+  return {
+    agent: opts.agent,
+    unread: unread.map(toMessage),
+    in_flight: inFlight.map(toMessage),
+    delivered_recent: delivered.reverse().map(toMessage),
+    last_message: last ? toMessage(last) : null,
+    next_claim_deadline: nextClaim,
+    summary,
+  };
 }
 
 export interface AskOptions {
@@ -763,6 +843,114 @@ export function reply(opts: ReplyOptions): Message {
   ).run(now(), askRow.id);
 
   return replyMsg;
+}
+
+export interface ReplyThreadOptions {
+  from: string;
+  thread_id: string;
+  message: string;
+}
+
+export function replyThread(opts: ReplyThreadOptions): Message {
+  validateName(opts.from);
+  requireAgent(opts.from);
+  if (typeof opts.thread_id !== "string" || opts.thread_id.length === 0) {
+    throw new BusError("INVALID_INPUT", "thread_id is required");
+  }
+  if (typeof opts.message !== "string") {
+    throw new BusError("INVALID_INPUT", "message must be a string");
+  }
+  const rows = threadMessages(opts.thread_id, 500);
+  if (rows.length === 0) {
+    throw new BusError("THREAD_NOT_FOUND", `no messages in thread '${opts.thread_id}'`);
+  }
+  const target = [...rows]
+    .reverse()
+    .find((message) => message.from_agent !== opts.from && message.to_agent === opts.from)?.from_agent
+    ?? [...rows].reverse().find((message) => message.from_agent !== opts.from)?.from_agent;
+  if (!target) {
+    throw new BusError("UNKNOWN_AGENT", `could not infer another participant in thread '${opts.thread_id}'`);
+  }
+  return send({
+    from: opts.from,
+    to: target,
+    content: opts.message,
+    thread_id: opts.thread_id,
+  });
+}
+
+export interface MessageStatusOptions {
+  message_id: number;
+}
+
+export interface MessageStatusResult {
+  message: Message;
+  reply: Message | null;
+  recipient: AgentDirectoryEntry | null;
+  related_task: Task | null;
+  diagnostics: string[];
+  suggested_next_actions: string[];
+}
+
+export function messageStatus(opts: MessageStatusOptions): MessageStatusResult {
+  const message = toMessage(getMessageRow(opts.message_id));
+  const replyRow = getDb()
+    .prepare("SELECT * FROM messages WHERE reply_to = ? AND kind = 'reply' ORDER BY id ASC LIMIT 1")
+    .get(message.id) as MessageRow | undefined;
+  const recipient = directory({ project: PROJECT_WILDCARD, area: AREA_WILDCARD })
+    .find((agent) => agent.name === message.to_agent) ?? null;
+  const taskRow = getDb()
+    .prepare("SELECT * FROM tasks WHERE thread_id = ? ORDER BY updated_at DESC LIMIT 1")
+    .get(message.thread_id) as TaskRow | undefined;
+  const relatedTask = taskRow ? toTask(taskRow, lastSeenMap()) : null;
+  const diagnostics: string[] = [];
+  const suggested: string[] = [];
+  const ts = now();
+  if (message.kind === "ask" && !replyRow) {
+    diagnostics.push("ask has no reply yet");
+    suggested.push(`check inbox_status for ${message.to_agent}`);
+  }
+  if (message.status === "pending" && message.claim_deadline !== null && message.claim_deadline >= ts) {
+    diagnostics.push(`message is claimed by ${message.claimed_by ?? "unknown"} until ${message.claim_deadline}`);
+    suggested.push("wait for the claim to expire, or inspect the claiming session");
+  } else if (message.status === "pending") {
+    diagnostics.push("message is unread or claim has expired");
+    suggested.push(`ask ${message.to_agent} to check inbox`);
+  }
+  if (message.status === "delivered" && message.kind === "ask" && !replyRow) {
+    diagnostics.push("ask was delivered but not answered");
+  }
+  if (message.status === "answered") diagnostics.push("ask was answered");
+  if (recipient === null) {
+    diagnostics.push(`recipient ${message.to_agent} is not registered`);
+    suggested.push("check directory or register/start the recipient agent");
+  } else {
+    diagnostics.push(`recipient is ${recipient.status}/${recipient.presence}, seen ${recipient.age_s}s ago`);
+    if (recipient.paused) suggested.push(`resume ${recipient.name}`);
+    if (recipient.presence === "stale") suggested.push(`start or wake ${recipient.name}, or reassign related work`);
+  }
+  if (relatedTask) {
+    diagnostics.push(`thread is linked to task #${relatedTask.id} (${relatedTask.state})`);
+    suggested.push(`check task_result for task #${relatedTask.id}`);
+  }
+  if (suggested.length === 0) suggested.push("read the thread for context");
+  return {
+    message,
+    reply: replyRow ? toMessage(replyRow) : null,
+    recipient,
+    related_task: relatedTask,
+    diagnostics,
+    suggested_next_actions: [...new Set(suggested)],
+  };
+}
+
+export function whyNoReply(messageId: number): MessageStatusResult {
+  const result = messageStatus({ message_id: messageId });
+  if (result.reply !== null) return result;
+  if (result.message.kind !== "ask") {
+    result.diagnostics.push("message is not an ask; no reply is expected by protocol");
+  }
+  return result;
 }
 
 export interface AskBestOptions {
@@ -1927,6 +2115,61 @@ export function assignTask(opts: AssignTaskOptions): Task {
   return task;
 }
 
+export interface DelegateOptions extends Omit<CreateTaskOptions, "requested_by"> {
+  from: string;
+  to_agent: string;
+  allow_pending_agent?: boolean;
+}
+
+export interface DelegateResult {
+  task: Task;
+  event: TaskEvent;
+  assigned: boolean;
+  pending: boolean;
+  suggested_next_actions: string[];
+}
+
+export function delegate(opts: DelegateOptions): DelegateResult {
+  validateName(opts.from);
+  validateName(opts.to_agent);
+  const task = createTask({
+    ...opts,
+    requested_by: opts.from,
+    ack_required: opts.ack_required ?? true,
+  });
+  const assigned = assignTask({
+    task_id: task.id,
+    to_agent: opts.to_agent,
+    allow_conflicts: opts.allow_conflicts,
+    allow_pending_agent: opts.allow_pending_agent,
+  });
+  const event = recordTaskEvent({
+    by_agent: opts.from,
+    task_id: assigned.id,
+    event_type: "progress",
+    phase: "delegated",
+    message: `Delegated to ${opts.to_agent}`,
+    metadata: {
+      to_agent: opts.to_agent,
+      pending: assigned.pending_assignee !== null,
+    },
+  });
+  return {
+    task: assigned,
+    event,
+    assigned: assigned.claimed_by === opts.to_agent,
+    pending: assigned.pending_assignee === opts.to_agent,
+    suggested_next_actions: [
+      assigned.pending_assignee === opts.to_agent
+        ? `start or register ${opts.to_agent}; pending assignment is reserved`
+        : `wait_for_task ${assigned.id} or watch project_board`,
+      assigned.ack_required && assigned.acknowledged_at === null
+        ? `wait for ${opts.to_agent} to acknowledge task #${assigned.id}`
+        : `track task #${assigned.id}`,
+    ],
+  };
+}
+
 export interface ClaimBestTaskOptions {
   agent: string;
   project?: string;
@@ -2230,6 +2473,79 @@ export function taskResult(taskId: number, limit = 100): TaskResult {
     test_results: listTestResults({ task_id: taskId, limit: bounded }),
     memories: listMemories({ task_id: taskId, limit: bounded }),
     messages: threadMessages(task.thread_id, bounded),
+  };
+}
+
+export interface WaitForTaskOptions {
+  task_id: number;
+  wait_s?: number;
+  since_updated_at?: number;
+  limit?: number;
+}
+
+export interface WaitForTaskResult extends TaskResult {
+  timed_out: boolean;
+  holder: AgentDirectoryEntry | null;
+  latest_event: TaskEvent | null;
+  latest_message: Message | null;
+  latest_test_result: TestResult | null;
+  suggested_next_actions: string[];
+}
+
+export async function waitForTask(opts: WaitForTaskOptions): Promise<WaitForTaskResult> {
+  const waitMs = Math.min(Math.max(opts.wait_s ?? 110, 0), MAX_INBOX_WAIT_S) * 1000;
+  const startTask = getTask(opts.task_id);
+  const since = opts.since_updated_at ?? startTask.updated_at;
+  const deadline = now() + waitMs;
+  let timedOut = false;
+
+  while (true) {
+    const current = getTask(opts.task_id);
+    const result = taskResult(opts.task_id, opts.limit ?? 50);
+    const latestEvent = result.events.at(-1) ?? null;
+    const latestMessage = result.messages.at(-1) ?? null;
+    const latestTestResult = result.test_results.at(-1) ?? null;
+    const hasActivity =
+      current.updated_at > since ||
+      (latestEvent !== null && latestEvent.created_at > since) ||
+      (latestMessage !== null && latestMessage.created_at > since) ||
+      (latestTestResult !== null && latestTestResult.created_at > since) ||
+      TERMINAL_TASK_STATES.includes(current.state);
+    if (hasActivity || waitMs === 0) {
+      return decorateWaitForTask(result, timedOut);
+    }
+    if (now() >= deadline) {
+      timedOut = true;
+      return decorateWaitForTask(result, timedOut);
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+}
+
+function decorateWaitForTask(result: TaskResult, timedOut: boolean): WaitForTaskResult {
+  const holder = result.task.claimed_by
+    ? directory({ project: PROJECT_WILDCARD, area: AREA_WILDCARD }).find((agent) => agent.name === result.task.claimed_by) ?? null
+    : null;
+  const latestEvent = result.events.at(-1) ?? null;
+  const latestMessage = result.messages.at(-1) ?? null;
+  const latestTestResult = result.test_results.at(-1) ?? null;
+  const suggested: string[] = [];
+  if (timedOut) suggested.push("No task update before timeout; check holder presence or project_board.");
+  if (result.task.pending_assignee) suggested.push(`Start/register ${result.task.pending_assignee}; assignment is pending.`);
+  if (result.task.ack_required && result.task.acknowledged_at === null) suggested.push("Task still needs acknowledgement.");
+  if (result.task.state === "blocked") suggested.push("Resolve blocker or reassign/release the task.");
+  if (result.task.stale === true) suggested.push("Holder appears stale; consider handoff_task or release_task.");
+  if (result.task.review_required && result.task.review_state !== "approved") suggested.push("Task requires approved review before completion.");
+  if (TERMINAL_TASK_STATES.includes(result.task.state)) suggested.push("Task is terminal; inspect task_result/final_report.");
+  if (suggested.length === 0) suggested.push("Continue waiting or inspect latest task events.");
+  return {
+    ...result,
+    timed_out: timedOut,
+    holder,
+    latest_event: latestEvent,
+    latest_message: latestMessage,
+    latest_test_result: latestTestResult,
+    suggested_next_actions: suggested,
   };
 }
 

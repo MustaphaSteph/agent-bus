@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.10.0
+  version: 0.11.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 47 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 53 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
@@ -200,6 +200,27 @@ paths:
         '400':
           $ref: '#/components/responses/BusError'
 
+  /tools/inbox_status:
+    post:
+      tags: [Direct messaging]
+      summary: Inspect inbox state without consuming messages
+      operationId: inbox_status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboxStatusRequest'
+      responses:
+        '200':
+          description: Unread, in-flight, delivered-recent, and summary state.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BusError'
+
   /tools/ask:
     post:
       tags: [Request / response]
@@ -300,6 +321,69 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/reply_thread:
+    post:
+      tags: [Request / response]
+      summary: Continue an existing thread
+      operationId: reply_thread
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplyThreadRequest'
+      responses:
+        '200':
+          description: The sent message.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/message_status:
+    post:
+      tags: [Request / response]
+      summary: Diagnose one message
+      operationId: message_status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageStatusRequest'
+      responses:
+        '200':
+          description: Message delivery/reply diagnostics.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/why_no_reply:
+    post:
+      tags: [Request / response]
+      summary: Explain why a message has no reply yet
+      operationId: why_no_reply
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageStatusRequest'
+      responses:
+        '200':
+          description: Message delivery/reply diagnostics.
+          content:
+            application/json:
+              schema:
+                type: object
         '400':
           $ref: '#/components/responses/BusError'
 
@@ -562,6 +646,27 @@ paths:
         '400':
           $ref: '#/components/responses/BusError'
 
+  /tools/delegate:
+    post:
+      tags: [Tasks]
+      summary: Create, assign, notify, and require acknowledgement for long work
+      operationId: delegate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DelegateRequest'
+      responses:
+        '200':
+          description: Delegation result.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BusError'
+
   /tools/claim_task:
     post:
       tags: [Tasks]
@@ -800,6 +905,27 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskResult'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/wait_for_task:
+    post:
+      tags: [Tasks]
+      summary: Wait for task activity
+      operationId: wait_for_task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaitForTaskRequest'
+      responses:
+        '200':
+          description: Task result plus latest activity and timeout flag.
+          content:
+            application/json:
+              schema:
+                type: object
         '400':
           $ref: '#/components/responses/BusError'
 
@@ -1158,10 +1284,14 @@ components:
                 - ASK_TIMEOUT
                 - ASK_CYCLE
                 - ASK_NOT_FOUND
+                - MESSAGE_NOT_FOUND
+                - THREAD_NOT_FOUND
                 - TASK_NOT_FOUND
                 - TASK_INVALID_TRANSITION
                 - TASK_NOT_CLAIMABLE
                 - TASK_FORBIDDEN
+                - TASK_SCOPE_CONFLICT
+                - TASK_REVIEW_REQUIRED
                 - INTERNAL
             message:
               type: string
@@ -1242,6 +1372,18 @@ components:
           minimum: 1
           maximum: 500
 
+    InboxStatusRequest:
+      type: object
+      required: [agent]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+
     AckRequest:
       type: object
       required: [agent, message_id]
@@ -1309,6 +1451,27 @@ components:
           format: int64
         answer:
           type: string
+
+    ReplyThreadRequest:
+      type: object
+      required: [from, thread_id, message]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        message:
+          type: string
+
+    MessageStatusRequest:
+      type: object
+      required: [message_id]
+      additionalProperties: false
+      properties:
+        message_id:
+          type: integer
+          format: int64
 
     ChannelMembership:
       type: object
@@ -1403,6 +1566,40 @@ components:
           type: [string, 'null']
         session_id:
           type: [string, 'null']
+
+    DelegateRequest:
+      type: object
+      required: [from, to_agent, title]
+      additionalProperties: true
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        to_agent:
+          $ref: '#/components/schemas/AgentName'
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        mode:
+          type: string
+          enum: [investigate_only, propose_patch, edit_files, test_only]
+        expected_output:
+          type: [string, 'null']
+        edit_scope:
+          type: array
+          items: { type: string }
+        read_scope:
+          type: array
+          items: { type: string }
+        file_scope:
+          type: array
+          items: { type: string }
+        allow_pending_agent:
+          type: boolean
+        allow_conflicts:
+          type: boolean
 
     ClaimTaskRequest:
       type: object
@@ -1570,6 +1767,26 @@ components:
       additionalProperties: false
       properties:
         task_id:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+
+    WaitForTaskRequest:
+      type: object
+      required: [task_id]
+      additionalProperties: false
+      properties:
+        task_id:
+          type: integer
+          format: int64
+        wait_s:
+          type: integer
+          minimum: 0
+          maximum: 110
+        since_updated_at:
           type: integer
           format: int64
         limit:

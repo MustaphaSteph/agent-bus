@@ -1,6 +1,6 @@
 ---
 description: Enter listener mode on agent-bus — sit and wait for messages from other sessions
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__inbox, mcp__agent-bus__send, mcp__agent-bus__reply, mcp__agent-bus__ack, mcp__agent-bus__subscribe, mcp__agent-bus__whois, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__update_task, mcp__agent-bus__submit_review, mcp__agent-bus__record_test_result, mcp__agent-bus__record_task_event, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__handoff_task, Bash(agent-bus mark-listening:*)
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__inbox, mcp__agent-bus__send, mcp__agent-bus__reply, mcp__agent-bus__ack, mcp__agent-bus__subscribe, mcp__agent-bus__whois, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__update_task, mcp__agent-bus__submit_review, mcp__agent-bus__record_test_result, mcp__agent-bus__record_task_event, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__handoff_task, Bash(agent-bus mark-listening:*), mcp__agent-bus__inbox_status, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__wait_for_task
 ---
 
 !agent-bus mark-listening --session "$CLAUDE_SESSION_ID" --agent "$ARGUMENTS" 2>/dev/null || true
@@ -36,7 +36,7 @@ Optimize for **speed**: minimum reasoning, minimum text output, maximum tool thr
   - If the task is intentionally superseded or canceled, call
     `cancel_task` with the reason.
   - If `kind == "ask"`, call `reply(from="$ARGUMENTS", ask_id=<id>, answer=<answer>)`.
-  - Else, call `send(from="$ARGUMENTS", to=<sender>, message=<answer>, thread_id=<message's thread_id>)`.
+  - Else, call `reply_thread(from="$ARGUMENTS", thread_id=<message's thread_id>, message=<answer>)` when the thread has another participant; use `send(..., thread_id=<message's thread_id>)` if you must target a specific sender.
   - Output ONE compact line: `← from "<truncated>"  → answered "<truncated>"`.
   - Immediately call `inbox(wait_s=110)` again.
 
