@@ -31,7 +31,7 @@ npm link
 ### Verify
 
 ```bash
-agent-bus --version                # 0.12.1
+agent-bus --version                # 0.13.0
 which agent-bus-mcp          # full path to the MCP server bin
 ```
 

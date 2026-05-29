@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.12.1
+  - agent-bus-mcp >= 0.13.0
 ---
 
 # agent-bus
@@ -76,6 +76,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigned and `review_required` for implementation work |
 | "Delegate this to <agent>" / "Assign this to <agent>" | Prefer `delegate(from=<your name>, to_agent=…, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; if the task already exists, use `assign_task(task_id=…, to_agent=…)`; use `allow_pending_agent=true` when the worker is not registered yet |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
+| "Show the Kanban board" / "show done tasks" | If using CLI, run `agent-bus kanban` / `agent-bus done`; with MCP, use `list_tasks()` filtered by state and render the same columns |
 | "Did <agent> accept the task?" | `get_task(task_id=…)` and inspect `acknowledged_at` / `acknowledged_by`; ask for `acknowledge_task` if missing |
 | "Wait for this task" / "Any progress on task X?" | `wait_for_task(task_id=…, wait_s=110)` when you can block, otherwise `task_result(task_id=…)` |
 | "Review / approve this task" | `submit_review(reviewer=<your name>, task_id=…, approved=…)`; required reviews gate completion |

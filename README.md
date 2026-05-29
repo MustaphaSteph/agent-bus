@@ -155,7 +155,7 @@ npm i -g @agent-bus-connect/cli
 
 That puts two binaries on your PATH:
 
-- `agent-bus` — the CLI (`watch`, `whois`, `log`, `tasks`, `inject`, …)
+- `agent-bus` — the CLI (`watch`, `whois`, `log`, `tasks`, `kanban`, `done`, `inject`, …)
 - `agent-bus-mcp` — the MCP stdio server that Claude Code / Codex spawn
 
 The npm package lives under the `@agent-bus-connect` scope; the project,
@@ -210,7 +210,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 5. Verify
 
 ```bash
-agent-bus --version                # 0.12.1
+agent-bus --version                # 0.13.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -257,8 +257,8 @@ agent-bus watch
 `watch` defaults to the current repo-derived project and, when
 configured, the current subfolder area; it hides old `{no-project}`
 traffic by default so demos stay focused. Use `agent-bus watch --global`
-when you want the whole local bus. `log`, `whois`, and `tasks` use
-`--project all --area all` for global views.
+when you want the whole local bus. `log`, `whois`, `tasks`, `kanban`,
+and `done` use `--project all --area all --team all` for global views.
 
 Record durable context when a session is about to hand off work:
 
@@ -434,6 +434,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; agents can also register a neutral `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
+- **Terminal project management views** — `agent-bus kanban` groups tasks by state, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 

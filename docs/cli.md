@@ -101,6 +101,40 @@ agent-bus tasks --manager-reviewed
 Rows show id, priority, state, title, requester, holder, and abbreviated
 thread id. Stale active tasks are highlighted red.
 
+### `agent-bus kanban`
+
+Group tasks into workflow columns.
+
+```bash
+agent-bus kanban --project actionvoice-ai --team vorec-cli-plugin
+agent-bus kanban --team ui-design --all       # include completed/failed/canceled
+agent-bus kanban --team ui-design --done      # only terminal columns
+agent-bus kanban --team ui-design --compact   # shorter rows
+agent-bus kanban --team ui-design --watch     # refresh in place
+```
+
+Columns are `Open`, `Claimed`, `Working`, `Blocked`, `Waiting Review`,
+and, with `--all` or `--done`, `Completed`, `Failed`, and `Canceled`.
+
+### `agent-bus done`
+
+Show finished task history without the active board noise.
+
+```bash
+agent-bus done --project actionvoice-ai --team vorec-cli-plugin
+agent-bus done --team ui-design --state completed
+agent-bus done --team ui-design --state failed
+```
+
+### `agent-bus task`
+
+Readable task detail alias for `task-result`.
+
+```bash
+agent-bus task 6
+agent-bus task 6 --json
+```
+
 ## Area config
 
 Put `.agent-bus.json` in a repo root when one project has multiple lanes.
@@ -223,6 +257,8 @@ agent-bus pin-memory 12
 agent-bus brief --agent coordinator
 agent-bus board
 agent-bus team-board --team ios-ui
+agent-bus kanban --team ios-ui --watch
+agent-bus done --team ios-ui
 agent-bus scope-conflicts --files "src/module/**"
 agent-bus delegate --from coordinator --to worker-a --title "Investigate bug" --mode investigate_only --expect "findings and fix options"
 agent-bus ack-task 12 --agent worker-a --response claimed
@@ -250,11 +286,13 @@ startup/handoff context from agents, tasks, decisions, memories, and
 recent messages. `board` is the manager view for agents, tasks, review
 queues, pending acknowledgements, scope conflicts, risks, and handoffs.
 `team-board` is the same manager board scoped to one workgroup.
-`task-event` records progress/phase/log/result notes; `task-result`
-shows one task with its events, test evidence, memories, and thread
-messages. `delegate` creates a task, assigns it, notifies the worker,
-and requires acknowledgement by default. `wait-task` waits for task
-activity and reports latest evidence without repeated manual polling.
+`kanban` groups tasks into state columns and `done` shows terminal task
+history. `task-event` records progress/phase/log/result notes; `task`
+and `task-result` show one task with its events, test evidence,
+memories, and thread messages. `delegate` creates a task, assigns it,
+notifies the worker, and requires acknowledgement by default.
+`wait-task` waits for task activity and reports latest evidence without
+repeated manual polling.
 `message-status` and `why-no-reply` diagnose delivery, claims, replies,
 recipient presence, and related task context. `reply-thread` continues a
 thread without looking up the exact recipient. `cancel-task` marks
