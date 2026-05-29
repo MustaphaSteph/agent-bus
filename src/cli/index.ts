@@ -42,6 +42,7 @@ import {
   waitForTask,
   taskResult,
   teamBoard,
+  TEAM_WILDCARD,
   messageStatus,
   whyNoReply,
 } from "../bus.js";
@@ -68,6 +69,10 @@ program
   .name("agent-bus")
   .description("Local message bus for Claude Code, Codex and other MCP agents.")
   .version(packageVersion());
+
+function normalizeTeamOption(value: string | undefined): string | undefined {
+  return value === "all" ? TEAM_WILDCARD : value;
+}
 
 program
   .command("watch")
@@ -251,13 +256,16 @@ program
   .command("listen")
   .description("Long-running local inbox listener")
   .requiredOption("--agent <name>", "agent name")
+  .option("--team <name>", "only receive messages for this team (use 'all' for every team)")
   .option("--claim-s <seconds>", "claim window before redelivery", "300")
   .option("--wait-s <seconds>", "blocking inbox wait per poll", "110")
-  .action(async (opts: { agent: string; claimS: string; waitS: string }) => {
-    console.log(kleur.bold(`listening as ${opts.agent}`));
+  .action(async (opts: { agent: string; team?: string; claimS: string; waitS: string }) => {
+    const team = normalizeTeamOption(opts.team);
+    console.log(kleur.bold(`listening as ${opts.agent}${team ? ` team=${team}` : ""}`));
     for (;;) {
       const messages = await inbox({
         agent: opts.agent,
+        team,
         wait_s: Number(opts.waitS),
         claim_s: Number(opts.claimS),
       });
@@ -272,10 +280,11 @@ program
   .command("inbox-status")
   .description("Show unread, claimed/in-flight, and recent delivered inbox messages without consuming them")
   .requiredOption("--agent <name>", "agent inbox to inspect")
+  .option("--team <name>", "only inspect messages for this team (use 'all' for every team)")
   .option("-n, --last <count>", "maximum rows per section", "20")
   .option("--json", "print raw JSON")
-  .action((opts: { agent: string; last: string; json?: boolean }) => {
-    const status = inboxStatus({ agent: opts.agent, limit: Number(opts.last) });
+  .action((opts: { agent: string; team?: string; last: string; json?: boolean }) => {
+    const status = inboxStatus({ agent: opts.agent, team: normalizeTeamOption(opts.team), limit: Number(opts.last) });
     if (opts.json === true) {
       console.log(JSON.stringify(status, null, 2));
       return;
@@ -1109,9 +1118,10 @@ program
   .command("poll-inbox")
   .description("Used by the Claude Code Stop hook — emits a block-decision when messages are pending or session is in listener mode")
   .requiredOption("--agent <name>", "the agent name to poll for")
+  .option("--team <name>", "only poll messages for this team (use 'all' for every team)")
   .option("--session <id>", "Claude Code session id (enables listener-mode auto-resume)")
-  .action(async (opts: { agent: string; session?: string }) => {
-    await pollInbox(opts.agent, opts.session);
+  .action(async (opts: { agent: string; team?: string; session?: string }) => {
+    await pollInbox(opts.agent, opts.session, normalizeTeamOption(opts.team));
   });
 
 program

@@ -98,6 +98,7 @@ Input:
 - `agent: string` — your name
 - `wait_s?: number` — block up to N seconds for first arrival (max 110)
 - `claim_s?: number` — at-least-once: claim returned rows for N seconds, require `ack`
+- `team?: string` — optional team filter; concrete team reads only that team's messages, `*` means all teams
 - `since_id?: number` — only return id > this
 - `limit?: number` — default 50, max 500
 - `mark_delivered?: boolean` — default true (ignored when claim_s set)
@@ -127,6 +128,7 @@ Inspect inbox state without consuming messages.
 
 Input:
 - `agent: string`
+- `team?: string` — optional team filter; concrete team inspects only that team's rows, `*` means all teams
 - `limit?: number` — default 20, max 100 per section
 
 Returns unread messages, claimed/in-flight messages, recent delivered
@@ -739,7 +741,7 @@ You sit waiting for messages.
 
 ```
 1. register({ name: "me", replace: true })
-2. inbox({ agent: "me", wait_s: 110 })   ← blocks
+2. inbox({ agent: "me", team: "frontend", wait_s: 110 })   ← blocks; omit team only when intentionally reading all personal messages
 3. For each returned message:
      - if kind=="ask": reply({ from: "me", ask_id: m.id, answer: ... })
      - else: send({ from: "me", to: m.from_agent, message: ..., thread_id: m.thread_id })

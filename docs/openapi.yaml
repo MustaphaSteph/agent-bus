@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.12.0
+  version: 0.14.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 56 tools over an MCP stdio server. This OpenAPI
@@ -157,6 +157,8 @@ paths:
       summary: Read pending messages
       description: |
         Returns messages addressed to the caller with `status='pending'`.
+        Pass `team` to read only messages scoped to that team; omit it
+        or pass `*` to read all teams for the agent.
 
         - Without `wait_s`: returns immediately (may be empty).
         - With `wait_s`: blocks up to that many seconds (max 110) for
@@ -1470,6 +1472,9 @@ components:
       properties:
         agent:
           $ref: '#/components/schemas/AgentName'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+          description: Optional team filter. Concrete team reads only that team's messages; `*` means all teams.
         wait_s:
           type: integer
           minimum: 1
@@ -1499,6 +1504,9 @@ components:
       properties:
         agent:
           $ref: '#/components/schemas/AgentName'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+          description: Optional team filter. Concrete team inspects only that team's rows; `*` means all teams.
         limit:
           type: integer
           minimum: 1

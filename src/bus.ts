@@ -582,6 +582,7 @@ export function send(opts: SendOptions): Message {
 
 export interface InboxOptions {
   agent: string;
+  team?: string;
   since_id?: number;
   mark_delivered?: boolean;
   limit?: number;
@@ -591,6 +592,7 @@ export interface InboxOptions {
 
 export async function inbox(opts: InboxOptions): Promise<Message[]> {
   validateName(opts.agent);
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
   const agent = requireAgent(opts.agent);
   heartbeat(opts.agent);
   if (agent.paused) return [];
@@ -614,14 +616,23 @@ function readInbox(opts: InboxOptions): Message[] {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
   const since = opts.since_id ?? 0;
   const ts = now();
+  const teamFilter = opts.team !== undefined && opts.team !== TEAM_WILDCARD ? opts.team : null;
+  const where = [
+    "to_agent = ?",
+    "id > ?",
+    "status = 'pending'",
+    "(claim_deadline IS NULL OR claim_deadline < ?)",
+  ];
+  const params: unknown[] = [opts.agent, since, ts];
+  if (teamFilter !== null) {
+    where.push("team = ?");
+    params.push(teamFilter);
+  }
 
   const rows = db
     .prepare(
       `SELECT * FROM messages
-         WHERE to_agent = ?
-           AND id > ?
-           AND status = 'pending'
-           AND (claim_deadline IS NULL OR claim_deadline < ?)
+         WHERE ${where.join("\n           AND ")}
          ORDER BY CASE priority
            WHEN 'urgent' THEN 3
            WHEN 'high' THEN 2
@@ -630,7 +641,7 @@ function readInbox(opts: InboxOptions): Message[] {
          END DESC, id ASC
          LIMIT ?`,
     )
-    .all(opts.agent, since, ts, limit) as MessageRow[];
+    .all(...params, limit) as MessageRow[];
 
   if (rows.length === 0) return [];
 
@@ -696,6 +707,7 @@ export function ack(opts: AckOptions): Message {
 
 export interface InboxStatusOptions {
   agent: string;
+  team?: string;
   limit?: number;
 }
 
@@ -711,20 +723,27 @@ export interface InboxStatus {
 
 export function inboxStatus(opts: InboxStatusOptions): InboxStatus {
   validateName(opts.agent);
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
   requireAgent(opts.agent);
   heartbeat(opts.agent);
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
   const ts = now();
+  const teamFilter = opts.team !== undefined && opts.team !== TEAM_WILDCARD ? opts.team : null;
+  const teamWhere = teamFilter === null ? "" : " AND team = ?";
+  const unreadParams = teamFilter === null ? [opts.agent, ts, limit] : [opts.agent, ts, teamFilter, limit];
+  const deliveredParams = teamFilter === null ? [opts.agent, limit] : [opts.agent, teamFilter, limit];
+  const lastParams = teamFilter === null ? [opts.agent] : [opts.agent, teamFilter];
   const unread = getDb()
     .prepare(
       `SELECT * FROM messages
         WHERE to_agent = ?
           AND status = 'pending'
           AND (claim_deadline IS NULL OR claim_deadline < ?)
+          ${teamWhere}
         ORDER BY id ASC
         LIMIT ?`,
     )
-    .all(opts.agent, ts, limit) as MessageRow[];
+    .all(...unreadParams) as MessageRow[];
   const inFlight = getDb()
     .prepare(
       `SELECT * FROM messages
@@ -732,22 +751,24 @@ export function inboxStatus(opts: InboxStatusOptions): InboxStatus {
           AND status = 'pending'
           AND claim_deadline IS NOT NULL
           AND claim_deadline >= ?
+          ${teamWhere}
         ORDER BY claim_deadline ASC, id ASC
         LIMIT ?`,
     )
-    .all(opts.agent, ts, limit) as MessageRow[];
+    .all(...unreadParams) as MessageRow[];
   const delivered = getDb()
     .prepare(
       `SELECT * FROM messages
         WHERE to_agent = ?
           AND status IN ('delivered','answered')
+          ${teamWhere}
         ORDER BY id DESC
         LIMIT ?`,
     )
-    .all(opts.agent, limit) as MessageRow[];
+    .all(...deliveredParams) as MessageRow[];
   const last = getDb()
-    .prepare("SELECT * FROM messages WHERE to_agent = ? ORDER BY id DESC LIMIT 1")
-    .get(opts.agent) as MessageRow | undefined;
+    .prepare(`SELECT * FROM messages WHERE to_agent = ?${teamWhere} ORDER BY id DESC LIMIT 1`)
+    .get(...lastParams) as MessageRow | undefined;
   const nextClaim = inFlight.reduce<number | null>(
     (best, row) => row.claim_deadline !== null && (best === null || row.claim_deadline < best) ? row.claim_deadline : best,
     null,

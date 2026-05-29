@@ -210,7 +210,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 5. Verify
 
 ```bash
-agent-bus --version                # 0.13.0
+agent-bus --version                # 0.14.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -369,9 +369,11 @@ Start workers in Claude Code, Codex, or another MCP-capable tool:
 
 ```text
 Register yourself as <worker-name> with role worker, area <area>,
-capabilities <capability-list>, replace true. Listen for
-assigned tasks. Only edit files inside the task file_scope. Reply with
-Summary, Files changed, Risks, and Tests.
+team <team>, capabilities <capability-list>, replace true. Listen only
+to team <team> with inbox(agent="<worker-name>", team="<team>",
+wait_s=110, claim_s=300) and inbox_status(agent="<worker-name>",
+team="<team>"). Work assigned tasks. Only edit files inside the task
+file_scope. Reply with Summary, Files changed, Risks, and Tests.
 ```
 
 ```text

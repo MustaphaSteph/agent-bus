@@ -351,6 +351,31 @@ await test("inbox_status reports unread, claimed, and delivered without consumin
   assert.ok(status.delivered_recent.some((m) => m.id === acked.id));
 });
 
+await test("inbox and inbox_status can filter by team", async () => {
+  register({ name: "team-inbox-pm", capabilities: ["coord"], project: "teaminboxproj", team: "alpha", replace: true });
+  register({ name: "team-inbox-alpha", capabilities: ["worker"], project: "teaminboxproj", team: "alpha", replace: true });
+  register({ name: "team-inbox-beta", capabilities: ["worker"], project: "teaminboxproj", team: "beta", replace: true });
+
+  const alpha = sendTeam({ from: "team-inbox-pm", team: "alpha", project: "teaminboxproj", content: "alpha team note" });
+  assert.equal(alpha.length, 1);
+  const betaDirect = send({ from: "team-inbox-beta", to: "team-inbox-alpha", content: "beta direct note" });
+
+  let status = inboxStatus({ agent: "team-inbox-alpha", team: "alpha" });
+  assert.ok(status.unread.some((m) => m.content === "alpha team note"));
+  assert.ok(!status.unread.some((m) => m.id === betaDirect.id));
+
+  const alphaRows = await inbox({ agent: "team-inbox-alpha", team: "alpha" });
+  assert.equal(alphaRows.length, 1);
+  assert.equal(alphaRows[0]?.content, "alpha team note");
+
+  status = inboxStatus({ agent: "team-inbox-alpha", team: "beta" });
+  assert.ok(status.unread.some((m) => m.id === betaDirect.id));
+
+  const betaRows = await inbox({ agent: "team-inbox-alpha", team: "beta" });
+  assert.equal(betaRows.length, 1);
+  assert.equal(betaRows[0]?.content, "beta direct note");
+});
+
 await test("message_status and why_no_reply explain unanswered asks", async () => {
   const askMessage = send({ from: "alice", to: "bob", content: "need answer", kind: "ask" });
   let status = messageStatus({ message_id: askMessage.id });

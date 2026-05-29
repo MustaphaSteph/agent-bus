@@ -2,10 +2,10 @@ import { inbox } from "../bus.js";
 import { BusError } from "../util/errors.js";
 import { readListenerMarker } from "./listener-marker.js";
 
-export async function pollInbox(agentName: string, sessionId?: string): Promise<void> {
+export async function pollInbox(agentName: string, sessionId?: string, team?: string): Promise<void> {
   let messages;
   try {
-    messages = await inbox({ agent: agentName, mark_delivered: false });
+    messages = await inbox({ agent: agentName, team, mark_delivered: false });
   } catch (err) {
     if (err instanceof BusError && err.code === "UNKNOWN_AGENT") {
       process.exit(0);
@@ -24,8 +24,8 @@ export async function pollInbox(agentName: string, sessionId?: string): Promise<
     const payload = {
       decision: "block",
       reason:
-        `You have ${messages.length} unread message(s) on the agent-bus. ` +
-        `Call the 'inbox' tool to read them in full, then respond with 'send' or 'reply'.\n\n${summary}`,
+        `You have ${messages.length} unread message(s) on the agent-bus${team ? ` for team '${team}'` : ""}. ` +
+        `Call the 'inbox' tool${team ? ` with team="${team}"` : ""} to read them in full, then respond with 'send' or 'reply'.\n\n${summary}`,
     };
     process.stdout.write(JSON.stringify(payload));
     process.exit(0);
@@ -38,7 +38,7 @@ export async function pollInbox(agentName: string, sessionId?: string): Promise<
         decision: "block",
         reason:
           `You are in listener mode as '${agentName}'. The inbox is currently empty. ` +
-          `Immediately call the 'inbox' tool with agent="${agentName}" and wait_s=110 to keep listening. ` +
+          `Immediately call the 'inbox' tool with agent="${agentName}"${team ? `, team="${team}"` : ""}, and wait_s=110 to keep listening. ` +
           `Do not narrate this step — just call the tool.`,
       };
       process.stdout.write(JSON.stringify(payload));

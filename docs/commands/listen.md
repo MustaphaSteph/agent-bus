@@ -15,6 +15,11 @@ Optimize for **speed**: minimum reasoning, minimum text output, maximum tool thr
 2. Output ONE line: `listening as $ARGUMENTS`.
 3. Immediately call `inbox` with `agent="$ARGUMENTS"` and `wait_s=110`. Do not say anything before this call.
 
+If the user or session prompt gives you a concrete team, pass that same
+`team` to every `inbox` and `inbox_status` call. Omit `team` only when
+the user explicitly wants this listener to process every personal inbox
+message across teams.
+
 ## Loop (after every inbox call)
 
 - **Empty array returned** → immediately call `inbox(wait_s=110)` again. Zero text output. Zero reasoning. Just call the tool.

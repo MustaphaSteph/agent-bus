@@ -35,6 +35,7 @@ patterns:
 | "Have someone summarize the docs for X" | `ask_best(capability="docs" or "summarize", …)` |
 | "Ask the UI/backend/<team> team X" | `ask_team(team=…, question=…)`; add `capability` or `role` when the user wants a specialist inside that team |
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=…, message=…)` |
+| "Listen only to this team" / "check this team inbox" | `inbox_status(agent="$ARGUMENTS", team=…)` for diagnostics; `inbox(agent="$ARGUMENTS", team=…, wait_s=110)` only when intentionally processing |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user it's been dispatched. |
 | "Ask <specific name> to do X" | `ask(from="$ARGUMENTS", to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from="$ARGUMENTS", to="<specific name>", message=…)` |

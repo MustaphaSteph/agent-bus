@@ -115,6 +115,7 @@ const SendInput = z.object({
 
 const InboxInput = z.object({
   agent: z.string().min(1),
+  team: TeamFilterField,
   since_id: z.number().int().nonnegative().optional(),
   mark_delivered: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
@@ -326,6 +327,7 @@ const WaitForTaskInput = z.object({
 
 const InboxStatusInput = z.object({
   agent: z.string().min(1),
+  team: TeamFilterField,
   limit: z.number().int().positive().max(100).optional(),
 });
 
@@ -575,6 +577,11 @@ const TOOLS = [
       type: "object",
       properties: {
         agent: { type: "string", description: "Your registered agent name" },
+        team: {
+          type: "string",
+          description:
+            "Optional team filter. Pass a concrete team to read only that team's messages; pass '*' for all teams.",
+        },
         since_id: { type: "number", description: "Only return messages with id > this" },
         mark_delivered: {
           type: "boolean",
@@ -603,6 +610,11 @@ const TOOLS = [
       type: "object",
       properties: {
         agent: { type: "string", description: "Registered agent name" },
+        team: {
+          type: "string",
+          description:
+            "Optional team filter. Pass a concrete team to inspect only that team's inbox rows; pass '*' for all teams.",
+        },
         limit: { type: "number", description: "Maximum rows per section (default 20, cap 100)" },
       },
       required: ["agent"],

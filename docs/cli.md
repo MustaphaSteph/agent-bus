@@ -226,6 +226,7 @@ messages, prints them, and acks after printing.
 ```bash
 agent-bus listen --agent worker-a
 agent-bus listen --agent worker-a --claim-s 300 --wait-s 110
+agent-bus listen --agent worker-a --team frontend
 ```
 
 ### `agent-bus inbox-status`
@@ -234,6 +235,7 @@ Inspect inbox state without consuming messages.
 
 ```bash
 agent-bus inbox-status --agent worker-a
+agent-bus inbox-status --agent worker-a --team frontend
 agent-bus inbox-status --agent worker-a --json
 ```
 
@@ -391,6 +393,7 @@ Otherwise exits 0 silently.
 
 ```bash
 agent-bus poll-inbox --agent alpha --session "$CLAUDE_SESSION_ID"
+agent-bus poll-inbox --agent alpha --team frontend --session "$CLAUDE_SESSION_ID"
 ```
 
 ## Environment variables

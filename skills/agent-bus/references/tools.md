@@ -69,6 +69,7 @@ send({
 ```ts
 inbox({
   agent: string,
+  team?: string,         // concrete team only; "*" means all teams
   wait_s?: number,       // max 110
   claim_s?: number,      // at-least-once mode; ack after processing
   since_id?: number,
@@ -78,6 +79,7 @@ inbox({
 
 inbox_status({
   agent: string,
+  team?: string,
   limit?: number,
 }) -> {
   unread: Message[],
@@ -92,6 +94,9 @@ ack({ agent: string, message_id: number }) -> Message
 ```
 Use `wait_s: 110` for listener loops. Use `claim_s` for work that must
 not be lost; skipped ack means redelivery after the claim expires.
+In team workflows, pass your concrete `team` to `inbox` and
+`inbox_status` so unrelated direct or cross-team messages stay queued
+until you intentionally read all teams.
 Use `inbox_status` when you need to inspect unread/claimed/recent
 delivery state without consuming anything.
 

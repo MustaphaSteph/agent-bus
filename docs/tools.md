@@ -63,6 +63,7 @@ Read pending messages addressed to you.
 ```ts
 inbox({
   agent: string,
+  team?: string,               // concrete team only; "*" means all teams
   wait_s?: number,             // block up to N seconds for first arrival (max 110)
   claim_s?: number,            // at-least-once mode: keep pending, require ack
   since_id?: number,           // only return messages with id > this
@@ -88,6 +89,9 @@ expires, the message becomes visible again.
 // Listener pattern
 inbox({ agent: "alpha", wait_s: 110 })
 
+// Team-only listener pattern
+inbox({ agent: "alpha", team: "frontend", wait_s: 110 })
+
 // At-least-once
 inbox({ agent: "alpha", wait_s: 110, claim_s: 300 })
 ```
@@ -101,6 +105,7 @@ message already delivered".
 ```ts
 inbox_status({
   agent: string,
+  team?: string,               // concrete team only; "*" means all teams
   limit?: number,              // default 20, max 100 per section
 }) -> {
   agent: string,

@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.13.0
+  - agent-bus-mcp >= 0.14.0
 ---
 
 # agent-bus
@@ -61,6 +61,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Have someone summarize the docs for X" | `ask_best(capability="docs" or "summarize", …)` |
 | "Ask the UI team / backend team / <team> team X" | `ask_team(team=<team>, question=…)`; add `capability` or `role` if the user wants a specialist inside that team |
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=<team>, message=…)` |
+| "Listen only to my team" / "keep checking this team" | `inbox(agent=<your name>, team=<team>, wait_s=110, claim_s=300)`; use `inbox_status(agent=<your name>, team=<team>)` for non-consuming checks |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
 | "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
