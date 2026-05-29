@@ -295,6 +295,11 @@ investigate something, and a plain message is too hard to track.
 It creates the task, assigns it, notifies the worker, requires
 acknowledgement by default, and records the delegation event.
 
+Plain `send`, `send_team`, `ask`, and `ask_team` calls are messages only.
+They do not create tasks and will not appear on `project_board`,
+`team_board`, `kanban`, or `done`. If the user expects board tracking,
+create a task with `delegate` or `create_task` + `assign_task`.
+
 ```js
 const result = delegate({
   from: "orchestrator",

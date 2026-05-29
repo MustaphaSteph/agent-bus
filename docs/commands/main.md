@@ -79,6 +79,11 @@ patterns:
   later or when they ask.
 - Use `delegate` for long work with ownership, acknowledgement,
   progress, review, file scope, or evidence tracking.
+- Board-visible work must be a task. `send`, `send_team`, `ask`, and
+  `ask_team` are messages only; they do not create `open_tasks` or
+  `active_tasks` on `project_board` / `team_board`. If the user expects
+  work to appear on a board, use `delegate` for each known worker or
+  `create_task` + `assign_task`.
 
 ## Choosing between specific name and ask_best
 

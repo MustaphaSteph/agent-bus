@@ -107,6 +107,10 @@ Input:
 
 Returns `Message[]`.
 
+Important: `send_team` is chat fan-out only. It does not create a task
+and will not appear under `open_tasks` or `active_tasks` on
+`team_board`. For board-visible work, create/assign/delegate tasks.
+
 Behavior:
 - No `wait_s`: snapshot, return what's pending.
 - With `wait_s`: block until first message or timeout.
@@ -794,6 +798,11 @@ ask_team({ from: "pm", team: "ios-ui", capability: "design", question: "which de
 team_board({ team: "ios-ui", project: "movie-app" })
 ```
 
+Use `send_team` for announcements and lightweight discussion. If you
+want each worker's assignment to show on the team board, use
+`delegate` once per worker or `create_task` plus `assign_task`; messages
+alone do not become board tasks.
+
 ### Continue a thread
 
 When you receive a message, take its `thread_id` and pass it back:
@@ -807,7 +816,9 @@ send({ from: "me", to: m.from_agent, message: "...", thread_id: m.thread_id })
 ### Delegate and track a task
 
 Use this when work may take longer than one `ask` timeout or needs visible
-state.
+state. If the user expects work to show on `project_board`,
+`team_board`, `kanban`, or `done`, it must be represented as a task;
+plain `send` / `send_team` messages are not enough.
 
 ```
 const task = create_task({

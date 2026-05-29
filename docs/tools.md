@@ -330,6 +330,11 @@ ask_team({
 selected team. `ask_team` picks the best active team member using the
 same routing order as `ask_best` and can narrow by capability or role.
 
+These tools are message routing only. They do not create tasks and will
+not show up as `open_tasks` or `active_tasks` on `project_board` /
+`team_board`. For board-visible assignments, use `delegate` for each
+known worker or `create_task` plus `assign_task`.
+
 ## subscribers
 
 List the agents subscribed to a channel.
