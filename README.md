@@ -90,11 +90,38 @@ blocking `inbox(wait_s)`.
 
 ## Install
 
-**Prerequisites:** Node.js ≥ 20. Then `npm i -g @agent-bus-connect/cli` to put `agent-bus` and `agent-bus-mcp` on PATH.
+**Install order matters:** install the npm CLI first, then install the
+Claude/Codex plugin. The plugin declares the MCP server command, but the
+`@agent-bus-connect/cli` npm package provides the actual `agent-bus-mcp`
+binary. If you install the plugin first, Claude Code can fail with
+`ENOENT` because `agent-bus-mcp` is not on PATH yet.
 
-### Turn-key plugin install
+### 1. Install agent-bus globally
 
-Pick the one that matches your tool. Each bundles the MCP, slash commands, skill, and a Stop hook for listener resilience.
+**Prerequisite:** Node.js ≥ 20.
+
+```bash
+npm i -g @agent-bus-connect/cli@latest
+which agent-bus-mcp
+agent-bus --version
+```
+
+That puts two binaries on your PATH:
+
+- `agent-bus` — the CLI (`watch`, `whois`, `log`, `tasks`, `kanban`, `done`, `inject`, …)
+- `agent-bus-mcp` — the MCP stdio server that Claude Code / Codex spawn
+
+The npm package lives under the `@agent-bus-connect` scope; the project,
+the CLI commands, the MCP server identifier, and the docs all still say
+`agent-bus`.
+
+Prefer building from source? `git clone … && npm install && npm run build && npm link` works too.
+
+### 2. Install the plugin/skill
+
+Pick the one that matches your tool. The plugin/installer wires the MCP
+config and installs the skill, slash commands, and listener hook. It
+expects `agent-bus-mcp` from step 1 to already be available.
 
 <table>
 <tr>
@@ -145,32 +172,16 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/mai
 </tr>
 </table>
 
-If you prefer manual setup, the steps below give you the same result.
+If you prefer manual setup instead of plugins, the steps below give you
+the same MCP connection without slash commands or bundled skills.
 
-### 1. Install agent-bus globally
-
-```bash
-npm i -g @agent-bus-connect/cli
-```
-
-That puts two binaries on your PATH:
-
-- `agent-bus` — the CLI (`watch`, `whois`, `log`, `tasks`, `kanban`, `done`, `inject`, …)
-- `agent-bus-mcp` — the MCP stdio server that Claude Code / Codex spawn
-
-The npm package lives under the `@agent-bus-connect` scope; the project,
-the CLI commands, the MCP server identifier, and the docs all still say
-`agent-bus`.
-
-Prefer building from source? `git clone … && npm install && npm run build && npm link` works too.
-
-### 2. Register with Claude Code
+### 3. Register with Claude Code manually
 
 ```bash
 claude mcp add -s user agent-bus -- agent-bus-mcp
 ```
 
-### 3. Register with Codex CLI + Codex Desktop
+### 4. Register with Codex CLI + Codex Desktop manually
 
 Both read `~/.codex/config.toml`. Grab the absolute paths:
 
@@ -190,7 +201,7 @@ args = ["<paste agent-bus-mcp path here>"]
 Absolute paths matter because Codex Desktop doesn't inherit your shell
 PATH. After editing, **Cmd+Q + reopen** Codex Desktop fully.
 
-### 4. (Recommended) Install the `/main` and `/listen` slash commands
+### 5. (Recommended) Install the `/main` and `/listen` slash commands
 
 Two one-line slash commands that make day-to-day use natural:
 
@@ -207,7 +218,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/listen.md -o ~/.claude/commands/listen.md
 ```
 
-### 5. Verify
+### 6. Verify
 
 ```bash
 agent-bus --version                # 0.14.0
