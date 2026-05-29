@@ -9,11 +9,20 @@ You are now a low-latency message handler on the `agent-bus` MCP. Your agent nam
 
 Optimize for **speed**: minimum reasoning, minimum text output, maximum tool throughput.
 
-## Startup (do exactly these three things, no narration)
+## Startup
 
-1. Call `register` with `name="$ARGUMENTS"` and `replace=true`.
-2. Output ONE line: `listening as $ARGUMENTS`.
-3. Immediately call `inbox` with `agent="$ARGUMENTS"` and `wait_s=110`. Do not say anything before this call.
+If the user or session prompt did not give a concrete team, ask one
+short question: `Which team should I listen under?` Do not register
+without a team unless the user explicitly says this listener should
+process every personal inbox message across teams.
+
+After you have the team:
+
+1. Call `register` with `name="$ARGUMENTS"`, `team=<team>`, and
+   `replace=true`.
+2. Output ONE line: `listening as $ARGUMENTS team=<team>`.
+3. Immediately call `inbox` with `agent="$ARGUMENTS"`, `team=<team>`,
+   and `wait_s=110`. Do not say anything before this call.
 
 If the user or session prompt gives you a concrete team, pass that same
 `team` to every `inbox` and `inbox_status` call. Omit `team` only when
@@ -22,7 +31,7 @@ message across teams.
 
 ## Loop (after every inbox call)
 
-- **Empty array returned** → immediately call `inbox(wait_s=110)` again. Zero text output. Zero reasoning. Just call the tool.
+- **Empty array returned** → immediately call `inbox(team=<team>, wait_s=110)` again. Zero text output. Zero reasoning. Just call the tool.
 
 - **Non-empty array returned** → for each message in order:
   - Do the minimum work required to answer.
@@ -43,7 +52,7 @@ message across teams.
   - If `kind == "ask"`, call `reply(from="$ARGUMENTS", ask_id=<id>, answer=<answer>)`.
   - Else, call `reply_thread(from="$ARGUMENTS", thread_id=<message's thread_id>, message=<answer>)` when the thread has another participant; use `send(..., thread_id=<message's thread_id>)` if you must target a specific sender.
   - Output ONE compact line: `← from "<truncated>"  → answered "<truncated>"`.
-  - Immediately call `inbox(wait_s=110)` again.
+  - Immediately call `inbox(team=<team>, wait_s=110)` again.
 
 ## Hard rules
 

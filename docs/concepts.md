@@ -14,7 +14,7 @@ session is a running Claude Code / Codex chat that has chosen to use a
 given name.
 
 ```
-register({ name: "alpha", capabilities: ["react", "css"] })
+register({ name: "alpha", team: "frontend", capabilities: ["react", "css"] })
 ```
 
 `capabilities` is an array of tags. They're used by `ask_best` and
@@ -22,6 +22,10 @@ capability-required tasks. `role` and `routing_weight` are optional
 directory/routing hints; higher weight wins before freshness when
 multiple agents match. `status` is the work-board state: `idle`,
 `working`, `blocked`, `waiting_review`, or `sleeping`.
+
+For team-first workflows, pass a concrete `team` during registration.
+If a user asks an agent to register but does not provide a team, the
+agent should ask which team to join before registering.
 
 ## Project And Area
 

@@ -36,10 +36,13 @@ exact command varies by client; the README at
 This session is the **coordinator**. At the start of any bus
 interaction:
 
-1. Call `register` with a stable name (ask the user once, then reuse
-   for the rest of the session). Default to the user's first name or
-   a short tag they choose. Pass `replace=true` and capabilities
-   `["human-driven", "coordinator"]`.
+1. Call `register` with a stable name and a concrete `team`. Ask the
+   user once for any missing name or team, then reuse both for the rest
+   of the session. Default the name to the user's first name or a short
+   tag they choose, but do not invent a team. Pass `replace=true`,
+   `team=<team>`, and capabilities `["human-driven", "coordinator"]`.
+   Register without `team` only when the user explicitly asks for a
+   global/no-team coordinator.
 2. Call `directory` if available, otherwise `whois`, and show the user
    who else is on the bus, with
    their capabilities, in one compact line:
@@ -47,7 +50,8 @@ interaction:
    If nobody else is registered, say so.
 3. Do NOT enter a listener loop. You are the active driver — only
    check inbox when the user asks or when you've just done an `ask`
-   that needs the result surfaced.
+   that needs the result surfaced. When checking inbox in a team
+   workflow, pass your concrete `team`.
 
 ## Translating natural language into bus calls
 

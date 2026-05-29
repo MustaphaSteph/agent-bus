@@ -14,7 +14,7 @@ Use agent-bus.
 Register yourself as `<agent-name>` with capabilities:
 `<capability-1>`, `<capability-2>`, `<capability-3>`.
 
-Use `replace: true`.
+Register under team `<team-name>`. Use `replace: true`.
 
 Treat this repo as project `<project-name>`.
 After registering, check your inbox.
@@ -28,7 +28,7 @@ Use agent-bus.
 Register yourself as `<reviewer-name>` with capabilities:
 `review`, `architecture`, `verification`.
 
-Use `replace: true`.
+Register under team `<team-name>`. Use `replace: true`.
 
 Treat this repo as project `<project-name>`.
 After registering, check your inbox.
@@ -46,14 +46,15 @@ Use agent-bus.
 Register yourself as `<listener-name>` with capabilities:
 `<capability-1>`, `<capability-2>`.
 
-Use `replace: true`.
+Register under team `<team-name>`. Use `replace: true`.
 
 Then keep listening indefinitely:
 
-1. Call inbox with wait_s=110.
+1. Call inbox with team="<team-name>" and wait_s=110.
 2. If messages arrive, process them and reply on the same thread.
-3. After replying, call inbox again with wait_s=110.
-4. If inbox returns empty after timeout, immediately call inbox again.
+3. After replying, call inbox again with team="<team-name>" and wait_s=110.
+4. If inbox returns empty after timeout, immediately call inbox again
+   with team="<team-name>".
 5. Keep repeating this loop until I explicitly tell you to stop.
 ```
 
@@ -77,11 +78,12 @@ Use agent-bus.
 Register yourself as `<reviewer-name>` with capabilities:
 `tests`, `verification`, `regression`, `review`.
 
-Use `replace: true`.
+Register under team `<team-name>`. Use `replace: true`.
 
 Your role is to verify work from other agents. Check your inbox, inspect
 the actual project files, run relevant tests, report findings through
-agent-bus on the same thread, then keep listening with inbox(wait_s=110).
+agent-bus on the same thread, then keep listening with
+inbox(team="<team-name>", wait_s=110).
 ```
 
 ## Use one session as coordinator for an existing project
@@ -92,7 +94,8 @@ template:
 ```text
 You are <coordinator-name> for this repo. Use agent-bus as the coordination layer.
 
-Register as <coordinator-name> with role pm, area "*", capabilities
+Register as <coordinator-name> with role pm, area "*", team <team>,
+capabilities
 ["planning","coordination"], replace true.
 
 Your job:
@@ -117,9 +120,9 @@ Area worker:
 Use agent-bus.
 
 Register yourself as <worker-name> with role worker, area <area>,
-capabilities <capability-list>, replace true.
+team <team>, capabilities <capability-list>, replace true.
 
-Listen for assigned tasks. Only edit files inside the task file_scope.
+Listen only to team <team>. Only edit files inside the task file_scope.
 Reply with Summary, Files changed, Risks, and Tests.
 ```
 
@@ -129,7 +132,7 @@ Reviewer/tester:
 Use agent-bus.
 
 Register yourself as <reviewer-name> with role reviewer, area "*",
-capabilities <capability-list>, replace true.
+team <team>, capabilities <capability-list>, replace true.
 
 Follow the task mode. For test_only/review tasks, inspect changes, run
 relevant checks, and report bugs and risks without implementation edits
@@ -221,7 +224,7 @@ time. Give each worker a unique name:
 ```text
 Use agent-bus.
 
-1. Register yourself as `<agent-name>` with capabilities:
+1. Register yourself as `<agent-name>` under team `<team-name>` with capabilities:
    `<capability-1>`, `<capability-2>`, `<capability-3>`.
 2. Use `replace: true`.
 3. Treat this repo as project `<project-name>`.
@@ -229,5 +232,6 @@ Use agent-bus.
 5. If asked to work, reply with status updates through the same thread.
 6. If asked to verify, inspect the actual files and run relevant checks
    before replying.
-7. After replying, continue listening for new messages with inbox(wait_s=110).
+7. After replying, continue listening for new team messages with
+   inbox(team="<team-name>", wait_s=110).
 ```

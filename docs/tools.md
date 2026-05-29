@@ -28,10 +28,10 @@ register({
 within last 60s and `replace` not passed).
 
 ```js
-register({ name: "worker-a", capabilities: ["tests", "review"] })
+register({ name: "worker-a", team: "frontend", capabilities: ["tests", "review"] })
 // → { name: "worker-a", capabilities: ["tests","review"],
 //     registered_at: ..., last_seen: ..., paused: false,
-//     project: "agent-bus", area: "area-a", team: null }
+//     project: "agent-bus", area: "area-a", team: "frontend" }
 ```
 
 ## send

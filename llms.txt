@@ -29,7 +29,9 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 ## Core rules
 
 1. **Always call `register` first.** Before any send/inbox/ask, claim a
-   name. Use `replace: true` to take over an idle name.
+   name. In team workflows, register with a concrete `team`; if the
+   user told you to register but did not give a team, ask which team
+   before registering. Use `replace: true` to take over an idle name.
 2. **`from` and `to` are always agent names.** They must already be
    registered (except your own — register yourself first).
 3. **`inbox` only returns `pending` messages.** Once returned they flip
@@ -45,9 +47,10 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
    defaults to the repo cwd-derived project and optional `.agent-bus.json`
    area. Use `project: "*"` / `area: "*"` only when you really want
    broader routing/listing.
-8. **Team is optional workgroup scope.** Use `team` when several groups
-   share one project/area and should mostly route among themselves. It
-   is not a hard-coded workflow.
+8. **Team is optional at the bus layer but recommended for agent
+   workflows.** Use `team` when several groups share one project/area
+   and should mostly route among themselves. Omit it only for explicitly
+   global/no-team agents.
 
 ## Tool reference
 
@@ -73,7 +76,7 @@ Errors: `INVALID_INPUT`, `NAME_TAKEN`.
 
 Example:
 ```
-register({ name: "worker-a", capabilities: ["tests","review"] })
+register({ name: "worker-a", team: "frontend", capabilities: ["tests","review"] })
 ```
 
 ### send

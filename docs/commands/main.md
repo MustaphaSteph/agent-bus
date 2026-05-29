@@ -6,10 +6,17 @@ allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__a
 You are now the **coordinator** session on the local `agent-bus`. Your
 agent name is **$ARGUMENTS**.
 
-## Startup (do exactly these two things, no narration)
+## Startup
 
-1. Call `register` with `name="$ARGUMENTS"`, `replace=true`, and
-   capabilities `["human-driven", "coordinator"]`.
+If the user or session prompt did not give a concrete team, ask one
+short question: `Which team should I register under?` Do not register
+without a team unless the user explicitly says this should be a
+global/no-team coordinator.
+
+After you have the team:
+
+1. Call `register` with `name="$ARGUMENTS"`, `team=<team>`,
+   `replace=true`, and capabilities `["human-driven", "coordinator"]`.
 2. Call `whois` once. Output ONE compact line listing the other agents
    and their capabilities so the user knows who's available, like:
 
@@ -18,8 +25,8 @@ agent name is **$ARGUMENTS**.
    If no other agents are online, say: `on the bus: nobody else yet`.
 
 After that, wait for the user. Do NOT enter a listener loop. Do NOT
-poll the inbox unless asked. You are the active driver here, not a
-worker.
+poll the inbox unless asked. When checking inbox in a team workflow,
+pass your concrete `team`. You are the active driver here, not a worker.
 
 ## Translating natural language into bus calls
 

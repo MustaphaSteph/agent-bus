@@ -128,7 +128,7 @@ in X.
 
 ```
 // Listeners register with capabilities:
-register({ name: "fe-bot", capabilities: ["react", "css", "tailwind"] })
+register({ name: "fe-bot", team: "frontend", capabilities: ["react", "css", "tailwind"] })
 
 // Asker doesn't need to know the name:
 ask_best({ from: "human", capability: "react", question: "..." })
@@ -399,7 +399,7 @@ MCP sessions do this automatically. Read commands and routing default to
 the current project and area:
 
 ```js
-register({ name: "worker-a", capabilities: ["tests"] })
+register({ name: "worker-a", team: "frontend", capabilities: ["tests"] })
 list_tasks({})              // current project
 whois({})                   // current project/area + null legacy agents
 ask_best({ from: "coordinator", capability: "tests", question: "..." })
@@ -490,13 +490,13 @@ Start worker sessions:
 
 ```text
 Register yourself as <worker-name> with role worker, area <area>,
-capabilities <capability-list>, replace true. Listen for
-assigned tasks. Only edit files inside the task file_scope.
+team <team>, capabilities <capability-list>, replace true. Listen only
+to team <team>. Only edit files inside the task file_scope.
 ```
 
 ```text
 Register yourself as <reviewer-name> with role reviewer, area "*",
-capabilities <capability-list>, replace true. Follow the task mode. For
+team <team>, capabilities <capability-list>, replace true. Follow the task mode. For
 test_only/review tasks, inspect changes and report bugs and risks
 without implementation edits unless explicitly reassigned.
 ```
