@@ -47,10 +47,9 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
    defaults to the repo cwd-derived project and optional `.agent-bus.json`
    area. Use `project: "*"` / `area: "*"` only when you really want
    broader routing/listing.
-8. **Team is optional at the bus layer but recommended for agent
-   workflows.** Use `team` when several groups share one project/area
-   and should mostly route among themselves. Omit it only for explicitly
-   global/no-team agents.
+8. **Team is required for agent workflows.** Use a concrete `team` when
+   registering and when reading inboxes. If the user did not give a
+   team, ask which team to join before registering.
 
 ## Tool reference
 
@@ -744,7 +743,7 @@ You sit waiting for messages.
 
 ```
 1. register({ name: "me", replace: true })
-2. inbox({ agent: "me", team: "frontend", wait_s: 110 })   ← blocks; omit team only when intentionally reading all personal messages
+2. inbox({ agent: "me", team: "frontend", wait_s: 110 })   ← blocks on this team only
 3. For each returned message:
      - if kind=="ask": reply({ from: "me", ask_id: m.id, answer: ... })
      - else: send({ from: "me", to: m.from_agent, message: ..., thread_id: m.thread_id })

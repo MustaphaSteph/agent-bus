@@ -41,8 +41,7 @@ interaction:
    of the session. Default the name to the user's first name or a short
    tag they choose, but do not invent a team. Pass `replace=true`,
    `team=<team>`, and capabilities `["human-driven", "coordinator"]`.
-   Register without `team` only when the user explicitly asks for a
-   global/no-team coordinator.
+   Do not register without a team.
 2. Call `directory` if available, otherwise `whois`, and show the user
    who else is on the bus, with
    their capabilities, in one compact line:

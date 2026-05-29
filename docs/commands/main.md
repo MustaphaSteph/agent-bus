@@ -10,8 +10,7 @@ agent name is **$ARGUMENTS**.
 
 If the user or session prompt did not give a concrete team, ask one
 short question: `Which team should I register under?` Do not register
-without a team unless the user explicitly says this should be a
-global/no-team coordinator.
+without a team.
 
 After you have the team:
 

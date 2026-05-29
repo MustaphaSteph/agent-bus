@@ -13,8 +13,7 @@ Optimize for **speed**: minimum reasoning, minimum text output, maximum tool thr
 
 If the user or session prompt did not give a concrete team, ask one
 short question: `Which team should I listen under?` Do not register
-without a team unless the user explicitly says this listener should
-process every personal inbox message across teams.
+without a team.
 
 After you have the team:
 
@@ -25,9 +24,7 @@ After you have the team:
    and `wait_s=110`. Do not say anything before this call.
 
 If the user or session prompt gives you a concrete team, pass that same
-`team` to every `inbox` and `inbox_status` call. Omit `team` only when
-the user explicitly wants this listener to process every personal inbox
-message across teams.
+`team` to every `inbox` and `inbox_status` call.
 
 ## Loop (after every inbox call)
 
