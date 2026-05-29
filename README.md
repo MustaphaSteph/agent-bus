@@ -286,6 +286,13 @@ same app:
 
 ```bash
 agent-bus board
+agent-bus team-board --team frontend
+agent-bus tasks --team frontend
+agent-bus kanban --team frontend
+agent-bus kanban --team frontend --all
+agent-bus kanban --team frontend --watch
+agent-bus done --team frontend
+agent-bus task 12
 agent-bus wait-for-agents --names agent-a,agent-b,reviewer --area all
 agent-bus scope-conflicts --files "package-a/**,shared/**"
 agent-bus ack-task 12 --agent agent-a --response claimed
@@ -295,6 +302,11 @@ agent-bus handoff 12 --from agent-a --to agent-b \
   --reason "agent-a stopping; remaining checks need another session" \
   --memory "Task handoff summary for the next session."
 ```
+
+Use `kanban` for the workflow view: `Open`, `Claimed`, `Working`,
+`Blocked`, `Waiting Review`, and, with `--all`, completed/failed/canceled
+history. Use `done` when you only want finished work, and `task <id>`
+when you need the full evidence bundle for one task.
 
 Optional area config at the repo root:
 
