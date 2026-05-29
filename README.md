@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 6. Verify
 
 ```bash
-agent-bus --version                # 0.14.0
+agent-bus --version                # 0.15.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -376,6 +376,7 @@ Your job:
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
 - record progress and phase changes with record_task_event
+- use send_team only for discussion/FYI; use delegate_team when a team assignment must appear on team-board, kanban, or done views
 - use wait_for_task for long-running work and task_result before verification or handoff
 - use inbox_status/message_status/why_no_reply to diagnose delivery before assuming an agent ignored a message
 - record build/lint/test evidence with record_test_result
@@ -455,7 +456,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **56 MCP tools** — direct messages, synchronous ask/reply, thread replies, non-consuming inbox diagnostics, message/reply diagnostics, team-scoped send/ask/boards, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, one-call delegation, task waiting, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
+- **57 MCP tools** — direct messages, synchronous ask/reply, thread replies, non-consuming inbox diagnostics, message/reply diagnostics, team-scoped send/ask/boards, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, one-call direct and team delegation, task waiting, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; agents can also register a neutral `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.

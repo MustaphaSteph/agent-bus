@@ -263,6 +263,7 @@ agent-bus kanban --team ios-ui --watch
 agent-bus done --team ios-ui
 agent-bus scope-conflicts --files "src/module/**"
 agent-bus delegate --from coordinator --to worker-a --title "Investigate bug" --mode investigate_only --expect "findings and fix options"
+agent-bus delegate-team --from coordinator --team ios-ui --title "Compare detail screen options" --mode investigate_only --expect "one plan per designer"
 agent-bus ack-task 12 --agent worker-a --response claimed
 agent-bus review-task 12 --reviewer reviewer --approve --notes "tests passed"
 agent-bus handoff 12 --from worker-a --to worker-b --reason "session ending"
@@ -293,6 +294,8 @@ history. `task-event` records progress/phase/log/result notes; `task`
 and `task-result` show one task with its events, test evidence,
 memories, and thread messages. `delegate` creates a task, assigns it,
 notifies the worker, and requires acknowledgement by default.
+`delegate-team` creates board-visible tracked tasks for active matching
+members of one team and reports skipped stale/paused/mismatched members.
 `wait-task` waits for task activity and reports latest evidence without
 repeated manual polling.
 `message-status` and `why-no-reply` diagnose delivery, claims, replies,

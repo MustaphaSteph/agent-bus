@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.14.0
+  - agent-bus-mcp >= 0.15.0
 ---
 
 # agent-bus
@@ -79,6 +79,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Catch me up on the bus" | `recent(limit=20)` and render |
 | "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigned and `review_required` for implementation work |
 | "Delegate this to <agent>" / "Assign this to <agent>" | Prefer `delegate(from=<your name>, to_agent=…, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; if the task already exists, use `assign_task(task_id=…, to_agent=…)`; use `allow_pending_agent=true` when the worker is not registered yet |
+| "Delegate this to the <team> team" / "assign this to everyone on <team>" | `delegate_team(from=<your name>, team=<team>, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; add `capability`, `role`, or `max_recipients` when the user wants only matching members |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
 | "Show the Kanban board" / "show done tasks" | If using CLI, run `agent-bus kanban` / `agent-bus done`; with MCP, use `list_tasks()` filtered by state and render the same columns |
 | "Did <agent> accept the task?" | `get_task(task_id=…)` and inspect `acknowledged_at` / `acknowledged_by`; ask for `acknowledge_task` if missing |
@@ -102,14 +103,14 @@ The user speaks normally. You pick the tool. Common patterns:
 - **`send` (fire-and-forget)** — when the user wants to delegate and
   keep working. Tell them it's dispatched; offer to check the inbox
   on demand.
-- **`delegate` (tracked long work)** — when ownership, progress,
+- **`delegate` / `delegate_team` (tracked long work)** — when ownership, progress,
   acknowledgement, review, file scope, or final evidence matters. Use it
   instead of `ask` for work that can outlive one 110s timeout.
 - **Board-visible work must be a task.** `send`, `send_team`, `ask`, and
   `ask_team` are messages only; they do not create `open_tasks` or
   `active_tasks` on `project_board` / `team_board`. If the user expects
-  work to appear on a board, use `delegate` for each known worker or
-  `create_task` + `assign_task`.
+  work to appear on a board, use `delegate_team` for team-wide work,
+  `delegate` for one known worker, or `create_task` + `assign_task`.
 
 ## When to choose a specific name vs ask_best
 
@@ -249,7 +250,7 @@ within that scope when tools receive the team filter.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 56 MCP tools with input/output shapes
+- `references/tools.md` — the 57 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `send_team`,
   `ask_team`, `team_board`, `assign_task`, `record_decision`,

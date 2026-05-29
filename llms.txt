@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 56 MCP tools, all prefixed with the server name `agent-bus` in
+You have 57 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -109,7 +109,7 @@ Returns `Message[]`.
 
 Important: `send_team` is chat fan-out only. It does not create a task
 and will not appear under `open_tasks` or `active_tasks` on
-`team_board`. For board-visible work, create/assign/delegate tasks.
+`team_board`. For board-visible team work, use `delegate_team`.
 
 Behavior:
 - No `wait_s`: snapshot, return what's pending.
@@ -795,13 +795,13 @@ send_channel({ from: "ci", channel: "alerts", message: "deploy failed" })
 register({ name: "pm", project: "movie-app", area: "*", team: "ios-ui" })
 send_team({ from: "pm", team: "ios-ui", message: "sync on navigation" })
 ask_team({ from: "pm", team: "ios-ui", capability: "design", question: "which detail layout should we implement first?" })
+delegate_team({ from: "pm", team: "ios-ui", capability: "design", title: "Compare detail screen options", mode: "investigate_only" })
 team_board({ team: "ios-ui", project: "movie-app" })
 ```
 
 Use `send_team` for announcements and lightweight discussion. If you
 want each worker's assignment to show on the team board, use
-`delegate` once per worker or `create_task` plus `assign_task`; messages
-alone do not become board tasks.
+`delegate_team`; messages alone do not become board tasks.
 
 ### Continue a thread
 

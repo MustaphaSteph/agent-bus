@@ -332,8 +332,7 @@ same routing order as `ask_best` and can narrow by capability or role.
 
 These tools are message routing only. They do not create tasks and will
 not show up as `open_tasks` or `active_tasks` on `project_board` /
-`team_board`. For board-visible assignments, use `delegate` for each
-known worker or `create_task` plus `assign_task`.
+`team_board`. For board-visible team assignments, use `delegate_team`.
 
 ## subscribers
 
@@ -544,6 +543,54 @@ delegate({
   suggested_next_actions: string[],
 }
 ```
+
+## delegate_team
+
+Team long-work primitive: create a board-visible tracked task for each
+active matching member of a team. Use it instead of `send_team` when
+the user expects work to appear on `team_board`, `kanban`, or `done`.
+
+```ts
+delegate_team({
+  from: string,
+  team?: string,                // default sender's team
+  title: string,
+  description?: string,
+  thread_id?: string,           // shared by all created tasks
+  priority?: number,
+  cwd?: string,
+  project?: string | null,
+  area?: string | null,
+  required_capability?: string | null,
+  capability?: string,          // filter recipients by capability
+  role?: string,                // filter recipients by role
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string | null,
+  deadline_at?: number | null,
+  checkin_at?: number | null,
+  file_scope?: string[],
+  edit_scope?: string[],
+  read_scope?: string[],
+  ack_required?: boolean,       // default true
+  review_required?: boolean,
+  allow_conflicts?: boolean,
+  include_self?: boolean,
+  max_recipients?: number,
+}) -> {
+  team: string,
+  thread_id: string,
+  expected_count: number,
+  delegated_count: number,
+  tasks: DelegateResult[],
+  skipped: { name: string, reason: string }[],
+  suggested_next_actions: string[],
+}
+```
+
+`delegate_team` only targets active, non-paused, non-stale registered
+members in a concrete team. It reports skipped members, including
+paused/stale agents, self, capability or role mismatches, and
+`max_recipients` overflow.
 
 ## claim_best_task
 

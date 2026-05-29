@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.14.0
+  version: 0.15.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 56 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 57 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
@@ -712,6 +712,31 @@ paths:
       responses:
         '200':
           description: Delegation result.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/delegate_team:
+    post:
+      tags: [Tasks]
+      summary: Create board-visible tracked tasks for active team members
+      description: |
+        Use this instead of `send_team` when team work should appear on
+        `team_board`, `kanban`, or `done`. It creates one delegated task
+        per active matching team member and reports skipped recipients.
+      operationId: delegate_team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DelegateTeamRequest'
+      responses:
+        '200':
+          description: Team delegation result.
           content:
             application/json:
               schema:
@@ -1759,6 +1784,50 @@ components:
           items: { type: string }
         allow_pending_agent:
           type: boolean
+        allow_conflicts:
+          type: boolean
+
+    DelegateTeamRequest:
+      type: object
+      required: [from, title]
+      additionalProperties: true
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        team:
+          type: string
+          description: Team to delegate to. Defaults to sender team.
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        mode:
+          type: string
+          enum: [investigate_only, propose_patch, edit_files, test_only]
+        expected_output:
+          type: [string, 'null']
+        capability:
+          type: string
+          description: Optional recipient capability filter.
+        role:
+          type: string
+          description: Optional recipient role filter.
+        max_recipients:
+          type: integer
+          minimum: 1
+        include_self:
+          type: boolean
+        edit_scope:
+          type: array
+          items: { type: string }
+        read_scope:
+          type: array
+          items: { type: string }
+        file_scope:
+          type: array
+          items: { type: string }
         allow_conflicts:
           type: boolean
 

@@ -8,6 +8,7 @@ import {
   cancelTask,
   checkScopeConflicts,
   delegate,
+  delegateTeam,
   directory,
   finalReport,
   handoffTask,
@@ -499,6 +500,98 @@ program
     });
     console.log(`${kleur.green("delegated")} task #${result.task.id} to ${opts.to}`);
     console.log(`state=${result.task.state} pending=${result.pending ? "yes" : "no"} thread=${result.task.thread_id}`);
+    console.log(kleur.bold("Next:"));
+    console.log(formatList(result.suggested_next_actions));
+  });
+
+program
+  .command("delegate-team")
+  .description("Create tracked tasks for active members of a team and show skipped recipients")
+  .requiredOption("--from <agent>", "coordinator/requester agent")
+  .requiredOption("--team <name>", "team to delegate to")
+  .requiredOption("--title <text>", "task title")
+  .option("--description <text>", "task description")
+  .option("--mode <mode>", "investigate_only, propose_patch, edit_files, or test_only")
+  .option("--expect <text>", "expected output")
+  .option("--priority <n>", "task priority", "0")
+  .option("--scope <list>", "comma-separated file scope")
+  .option("--edit-scope <list>", "comma-separated edit scope")
+  .option("--read-scope <list>", "comma-separated read scope")
+  .option("--capability <name>", "only delegate to active team members with this capability")
+  .option("--required-capability <name>", "capability required to claim each created task")
+  .option("--role <name>", "only delegate to active team members with this role")
+  .option("--deadline <ms>", "deadline as ms epoch")
+  .option("--checkin <ms>", "check-in time as ms epoch")
+  .option("--cwd <path>", "working directory")
+  .option("--thread <id>", "existing thread id to share across all tasks")
+  .option("--max <n>", "maximum tasks to create", "50")
+  .option("--include-self", "include sender if they are in the target team")
+  .option("--no-ack", "do not require acknowledgement")
+  .option("--review", "require approved review before completion")
+  .option("--allow-conflicts", "allow overlapping edit scopes")
+  .option("--project <name>", "project scope (use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .action((opts: {
+    from: string;
+    team: string;
+    title: string;
+    description?: string;
+    mode?: string;
+    expect?: string;
+    priority: string;
+    scope?: string;
+    editScope?: string;
+    readScope?: string;
+    capability?: string;
+    requiredCapability?: string;
+    role?: string;
+    deadline?: string;
+    checkin?: string;
+    cwd?: string;
+    thread?: string;
+    max: string;
+    includeSelf?: boolean;
+    ack?: boolean;
+    review?: boolean;
+    allowConflicts?: boolean;
+    project?: string;
+    area?: string;
+  }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area);
+    const result = delegateTeam({
+      from: opts.from,
+      team: opts.team,
+      title: opts.title,
+      description: opts.description,
+      mode: opts.mode as never,
+      expected_output: opts.expect ?? null,
+      priority: Number(opts.priority),
+      file_scope: opts.scope ? splitList(opts.scope) : undefined,
+      edit_scope: opts.editScope ? splitList(opts.editScope) : undefined,
+      read_scope: opts.readScope ? splitList(opts.readScope) : undefined,
+      capability: opts.capability,
+      required_capability: opts.requiredCapability ?? null,
+      role: opts.role as never,
+      deadline_at: opts.deadline ? Number(opts.deadline) : null,
+      checkin_at: opts.checkin ? Number(opts.checkin) : null,
+      cwd: opts.cwd,
+      thread_id: opts.thread,
+      max_recipients: Number(opts.max),
+      include_self: opts.includeSelf === true,
+      ack_required: opts.ack !== false,
+      review_required: opts.review === true,
+      allow_conflicts: opts.allowConflicts,
+      project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? undefined),
+      area: scope.area === AREA_WILDCARD ? null : (scope.area ?? undefined),
+    });
+    console.log(`${kleur.green("delegated")} ${result.delegated_count}/${result.expected_count} tracked task(s) to team ${result.team}`);
+    console.log(`thread=${result.thread_id}`);
+    console.log(kleur.bold("Tasks:"));
+    console.log(formatList(result.tasks.map((entry) => `#${entry.task.id} ${entry.task.claimed_by ?? entry.task.pending_assignee ?? "-"} ${entry.task.title}`)));
+    if (result.skipped.length > 0) {
+      console.log(kleur.bold("Skipped:"));
+      console.log(formatList(result.skipped.map((entry) => `${entry.agent} ${entry.reason} ${entry.presence}/${entry.age_s}s`)));
+    }
     console.log(kleur.bold("Next:"));
     console.log(formatList(result.suggested_next_actions));
   });

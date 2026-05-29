@@ -171,6 +171,7 @@ routing instead of managing channel subscriptions:
 register({ name: "pm", project: "movie-app", area: "*", team: "ios-ui" })
 send_team({ from: "pm", team: "ios-ui", message: "sync on navigation" })
 ask_team({ from: "pm", team: "ios-ui", capability: "design", question: "which layout should we build?" })
+delegate_team({ from: "pm", team: "ios-ui", capability: "design", title: "Compare detail screen options", mode: "investigate_only" })
 team_board({ team: "ios-ui", project: "movie-app" })
 ```
 
@@ -298,7 +299,8 @@ acknowledgement by default, and records the delegation event.
 Plain `send`, `send_team`, `ask`, and `ask_team` calls are messages only.
 They do not create tasks and will not appear on `project_board`,
 `team_board`, `kanban`, or `done`. If the user expects board tracking,
-create a task with `delegate` or `create_task` + `assign_task`.
+create a task with `delegate`, `delegate_team`, or `create_task` +
+`assign_task`.
 
 ```js
 const result = delegate({

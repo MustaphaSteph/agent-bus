@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 56 MCP tools. All return JSON.
+doesn't cover in detail. There are 57 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -274,6 +274,39 @@ delegate({
 Use `delegate` as the default long-work primitive. It creates the task,
 assigns it, sends the inbox notification, requires acknowledgement by
 default, and records the delegation event.
+
+### delegate_team
+```ts
+delegate_team({
+  from: string,
+  team?: string,
+  title: string,
+  description?: string,
+  mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  expected_output?: string | null,
+  priority?: number,
+  cwd?: string,
+  thread_id?: string,
+  project?: string | null,
+  area?: string | null,
+  required_capability?: string | null,
+  capability?: string,
+  role?: string,
+  deadline_at?: number | null,
+  checkin_at?: number | null,
+  edit_scope?: string[],
+  read_scope?: string[],
+  file_scope?: string[],
+  ack_required?: boolean,
+  review_required?: boolean,
+  allow_conflicts?: boolean,
+  include_self?: boolean,
+  max_recipients?: number,
+}) -> { team: string, thread_id: string, expected_count: number, delegated_count: number, tasks: DelegateResult[], skipped: { name: string, reason: string }[], suggested_next_actions: string[] }
+```
+Use `delegate_team` when a team assignment must show on
+`team_board`, `kanban`, or `done`. It creates one tracked task per
+active matching team member and reports skipped members.
 
 ### update_task / release_task / list_tasks / get_task
 ```ts

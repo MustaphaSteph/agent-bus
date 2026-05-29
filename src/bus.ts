@@ -1212,7 +1212,29 @@ export interface SendTeamOptions {
   include_self?: boolean;
 }
 
-function teamRecipients(opts: { from: string; team?: string; project?: string; area?: string; include_self?: boolean; capability?: string; role?: AgentRole }): Agent[] {
+interface TeamSelectionOptions {
+  from: string;
+  team?: string;
+  project?: string;
+  area?: string;
+  include_self?: boolean;
+  capability?: string;
+  role?: AgentRole;
+}
+
+interface TeamSelection {
+  team: string;
+  candidates: AgentDirectoryEntry[];
+  recipients: AgentDirectoryEntry[];
+  skipped: Array<{
+    agent: string;
+    reason: "self" | "paused" | "stale" | "capability_mismatch" | "role_mismatch" | "over_limit";
+    presence: AgentDirectoryEntry["presence"];
+    age_s: number;
+  }>;
+}
+
+function selectTeamRecipients(opts: TeamSelectionOptions): TeamSelection {
   validateName(opts.from);
   const sender = requireAgent(opts.from);
   const team = opts.team !== undefined ? opts.team : sender.team;
@@ -1223,16 +1245,32 @@ function teamRecipients(opts: { from: string; team?: string; project?: string; a
   if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) validateProject(opts.project);
   if (opts.area !== undefined && opts.area !== AREA_WILDCARD) validateArea(opts.area);
   validateRole(opts.role);
-  return directory({ project: opts.project ?? sender.project ?? undefined, area: opts.area ?? sender.area ?? undefined, team })
-    .filter((agent) => (opts.include_self === true || agent.name !== opts.from))
-    .filter((agent) => !agent.paused && agent.presence !== "stale")
-    .filter((agent) => opts.capability === undefined || agent.capabilities.includes(opts.capability))
-    .filter((agent) => opts.role === undefined || agent.role === opts.role)
-    .sort((a, b) => {
+  const candidates = directory({ project: opts.project ?? sender.project ?? undefined, area: opts.area ?? sender.area ?? undefined, team });
+  const recipients: AgentDirectoryEntry[] = [];
+  const skipped: TeamSelection["skipped"] = [];
+  for (const agent of candidates) {
+    let reason: TeamSelection["skipped"][number]["reason"] | null = null;
+    if (opts.include_self !== true && agent.name === opts.from) reason = "self";
+    else if (agent.paused) reason = "paused";
+    else if (agent.presence === "stale") reason = "stale";
+    else if (opts.capability !== undefined && !agent.capabilities.includes(opts.capability)) reason = "capability_mismatch";
+    else if (opts.role !== undefined && agent.role !== opts.role) reason = "role_mismatch";
+    if (reason) {
+      skipped.push({ agent: agent.name, reason, presence: agent.presence, age_s: agent.age_s });
+    } else {
+      recipients.push(agent);
+    }
+  }
+  recipients.sort((a, b) => {
       const weightDiff = b.routing_weight - a.routing_weight;
       if (weightDiff !== 0) return weightDiff;
       return b.last_seen - a.last_seen;
-    });
+  });
+  return { team, candidates, recipients, skipped };
+}
+
+function teamRecipients(opts: TeamSelectionOptions): Agent[] {
+  return selectTeamRecipients(opts).recipients;
 }
 
 export function sendTeam(opts: SendTeamOptions): Message[] {
@@ -2372,6 +2410,75 @@ export function delegate(opts: DelegateOptions): DelegateResult {
       assigned.ack_required && assigned.acknowledged_at === null
         ? `wait for ${opts.to_agent} to acknowledge task #${assigned.id}`
         : `track task #${assigned.id}`,
+    ],
+  };
+}
+
+export interface DelegateTeamOptions extends Omit<DelegateOptions, "to_agent" | "allow_pending_agent"> {
+  team?: string;
+  capability?: string;
+  role?: AgentRole;
+  include_self?: boolean;
+  max_recipients?: number;
+}
+
+export interface DelegateTeamResult {
+  team: string;
+  thread_id: string;
+  expected_count: number;
+  delegated_count: number;
+  tasks: DelegateResult[];
+  skipped: TeamSelection["skipped"];
+  suggested_next_actions: string[];
+}
+
+export function delegateTeam(opts: DelegateTeamOptions): DelegateTeamResult {
+  validateName(opts.from);
+  const selection = selectTeamRecipients({
+    ...opts,
+    project: opts.project ?? undefined,
+    area: opts.area ?? undefined,
+  });
+  if (selection.recipients.length === 0) {
+    throw new BusError("UNKNOWN_AGENT", `no active agent in team '${selection.team}' matches the delegation`);
+  }
+  const maxRecipients = Math.trunc(opts.max_recipients ?? 50);
+  if (!Number.isFinite(maxRecipients) || maxRecipients < 1 || maxRecipients > 100) {
+    throw new BusError("INVALID_INPUT", "max_recipients must be between 1 and 100");
+  }
+  const recipients = selection.recipients.slice(0, maxRecipients);
+  const threadId = opts.thread_id ?? newThreadId();
+  const tasks = recipients.map((recipient) =>
+    delegate({
+      ...opts,
+      to_agent: recipient.name,
+      thread_id: threadId,
+      project: opts.project === undefined ? recipient.project : opts.project,
+      area: opts.area === undefined ? recipient.area : opts.area,
+      team: opts.team === undefined ? recipient.team : opts.team,
+      allow_pending_agent: false,
+    }),
+  );
+  const overflow = selection.recipients.slice(maxRecipients).map((agent) => ({
+    agent: agent.name,
+    reason: "over_limit" as const,
+    presence: agent.presence,
+    age_s: agent.age_s,
+  }));
+  const skipped = [...selection.skipped, ...overflow];
+  return {
+    team: selection.team,
+    thread_id: threadId,
+    expected_count: selection.candidates.length,
+    delegated_count: tasks.length,
+    tasks,
+    skipped,
+    suggested_next_actions: [
+      `created ${tasks.length} tracked task(s) on team '${selection.team}'`,
+      skipped.length > 0
+        ? `inspect skipped recipients before assuming full-team coverage: ${skipped.map((s) => `${s.agent}:${s.reason}`).join(", ")}`
+        : "all matching active team members received tracked tasks",
+      `watch team_board(team="${selection.team}") or agent-bus team-board --team ${selection.team}`,
     ],
   };
 }

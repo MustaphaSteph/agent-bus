@@ -19,6 +19,7 @@ import {
   claimBestTask,
   createTask,
   delegate,
+  delegateTeam,
   directory,
   finalReport,
   getTask,
@@ -244,6 +245,14 @@ const DelegateInput = CreateTaskInput.omit({ requested_by: true }).extend({
   from: z.string().min(1),
   to_agent: z.string().min(1),
   allow_pending_agent: z.boolean().optional(),
+});
+
+const DelegateTeamInput = DelegateInput.omit({ to_agent: true, allow_pending_agent: true }).extend({
+  team: TeamFilterField,
+  capability: z.string().min(1).optional(),
+  role: z.string().min(1).max(64).optional(),
+  include_self: z.boolean().optional(),
+  max_recipients: z.number().int().positive().max(100).optional(),
 });
 
 const ClaimTaskInput = z.object({
@@ -966,6 +975,44 @@ const TOOLS = [
     },
   },
   {
+    name: "delegate_team",
+    description:
+      "Create board-visible tracked tasks for active members of a team. " +
+      "Use this instead of send_team when the user expects work to appear on team_board/project_board/Kanban. " +
+      "Returns created tasks plus skipped stale/paused/mismatched recipients.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string", description: "Coordinator/requester agent name" },
+        team: { type: "string", description: "Team to delegate to; defaults to sender team when omitted" },
+        title: { type: "string", description: "1-200 chars" },
+        description: { type: "string" },
+        thread_id: { type: "string", description: "Optional shared thread id for all created tasks" },
+        priority: { type: "number" },
+        cwd: { type: "string" },
+        blocked_on_task_id: { type: "number" },
+        project: { type: ["string", "null"], description: "Optional project scope; defaults to requester/session" },
+        area: { type: ["string", "null"], description: "Optional area scope; defaults to requester/session" },
+        capability: { type: "string", description: "Only delegate to team members with this capability" },
+        role: { type: "string", description: "Only delegate to team members with this role" },
+        include_self: { type: "boolean", description: "Include the sender if they are in the target team" },
+        max_recipients: { type: "number", description: "Safety cap for created tasks; default 50, max 100" },
+        required_capability: { type: ["string", "null"], description: "Capability required later for claiming each task" },
+        mode: { type: "string", enum: ["investigate_only", "propose_patch", "edit_files", "test_only"] },
+        expected_output: { type: ["string", "null"] },
+        deadline_at: { type: ["number", "null"] },
+        checkin_at: { type: ["number", "null"] },
+        file_scope: { type: "array", items: { type: "string" } },
+        edit_scope: { type: "array", items: { type: "string" } },
+        read_scope: { type: "array", items: { type: "string" } },
+        ack_required: { type: "boolean", description: "Default true" },
+        review_required: { type: "boolean" },
+        allow_conflicts: { type: "boolean" },
+      },
+      required: ["from", "title"],
+    },
+  },
+  {
     name: "claim_task",
     description:
       "Atomically claim an 'open' task. Only succeeds if state='open' AND claimed_by IS NULL — " +
@@ -1639,6 +1686,15 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     case "delegate": {
       const input = DelegateInput.parse(raw);
       return delegate({
+        ...input,
+        project: input.project === undefined ? SESSION_SCOPE.project : input.project,
+        area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+        team: input.team,
+      });
+    }
+    case "delegate_team": {
+      const input = DelegateTeamInput.parse(raw);
+      return delegateTeam({
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,

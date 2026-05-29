@@ -16,6 +16,7 @@ const {
   checkScopeConflicts,
   createTask,
   delegate,
+  delegateTeam,
   directory,
   finalReport,
   getTask,
@@ -915,6 +916,44 @@ await test("delegate creates assigned task, event, notification, and ack require
   assert.equal(result.event.phase, "delegated");
   const notices = await inbox({ agent: "delegate-worker" });
   assert.ok(notices.some((msg) => msg.content.includes("assigned task")));
+});
+
+await test("delegate_team creates tracked tasks and reports skipped team members", async () => {
+  register({ name: "delegate-team-pm", project: "delegate-team-p", team: "ui", replace: true });
+  register({ name: "delegate-team-a", project: "delegate-team-p", team: "ui", capabilities: ["design"], replace: true });
+  register({ name: "delegate-team-b", project: "delegate-team-p", team: "ui", capabilities: ["design"], replace: true });
+  register({ name: "delegate-team-other", project: "delegate-team-p", team: "ui", capabilities: ["backend"], replace: true });
+  register({ name: "delegate-team-paused", project: "delegate-team-p", team: "ui", capabilities: ["design"], replace: true });
+  setPaused("delegate-team-paused", true);
+
+  const result = delegateTeam({
+    from: "delegate-team-pm",
+    team: "ui",
+    project: "delegate-team-p",
+    capability: "design",
+    title: "team design plan",
+    description: "produce a tracked plan",
+    mode: "investigate_only",
+    expected_output: "plan",
+  });
+
+  assert.equal(result.team, "ui");
+  assert.equal(result.delegated_count, 2);
+  assert.equal(result.tasks.length, 2);
+  assert.ok(result.tasks.every((entry) => entry.task.thread_id === result.thread_id));
+  assert.deepEqual(result.tasks.map((entry) => entry.task.claimed_by).sort(), ["delegate-team-a", "delegate-team-b"]);
+  assert.ok(result.skipped.some((entry) => entry.agent === "delegate-team-pm" && entry.reason === "self"));
+  assert.ok(result.skipped.some((entry) => entry.agent === "delegate-team-other" && entry.reason === "capability_mismatch"));
+  assert.ok(result.skipped.some((entry) => entry.agent === "delegate-team-paused" && entry.reason === "paused"));
+
+  const board = teamBoard({ project: "delegate-team-p", team: "ui" });
+  const boardIds = board.active_tasks.map((task) => task.id).sort();
+  assert.deepEqual(boardIds, result.tasks.map((entry) => entry.task.id).sort());
+
+  const noticesA = await inbox({ agent: "delegate-team-a", team: "ui" });
+  const noticesB = await inbox({ agent: "delegate-team-b", team: "ui" });
+  assert.ok(noticesA.some((msg) => msg.content.includes("assigned task")));
+  assert.ok(noticesB.some((msg) => msg.content.includes("assigned task")));
 });
 
 await test("wait_for_task returns when task activity arrives", async () => {
