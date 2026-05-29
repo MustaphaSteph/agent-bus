@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 6. Verify
 
 ```bash
-agent-bus --version                # 0.15.0
+agent-bus --version                # 0.16.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -293,6 +293,9 @@ agent-bus kanban --team frontend --all
 agent-bus kanban --team frontend --watch
 agent-bus done --team frontend
 agent-bus task 12
+agent-bus task-start 12 --by agent-a
+agent-bus task-testing 12 --by agent-a --message "running simulator smoke"
+agent-bus task-done 12 --by agent-a --result "implemented and tests passed"
 agent-bus wait-for-agents --names agent-a,agent-b,reviewer --area all
 agent-bus scope-conflicts --files "package-a/**,shared/**"
 agent-bus ack-task 12 --agent agent-a --response claimed
@@ -303,9 +306,11 @@ agent-bus handoff 12 --from agent-a --to agent-b \
   --memory "Task handoff summary for the next session."
 ```
 
-Use `kanban` for the workflow view: `Open`, `Claimed`, `Working`,
-`Blocked`, `Waiting Review`, and, with `--all`, completed/failed/canceled
-history. Use `done` when you only want finished work, and `task <id>`
+Use `kanban` for the workflow view: `Todo`, `Accepted`, `Doing`,
+`Testing`, `Review`, and `Blocked`; pass `--state-columns` for the raw
+task states. `task-start`, `task-testing`, `task-phase`, and
+`task-done` are CLI shortcuts for moving tasks while recording durable
+events. Use `done` when you only want finished work, and `task <id>`
 when you need the full evidence bundle for one task.
 
 Optional area config at the repo root:
@@ -460,7 +465,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; agents can also register a neutral `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
-- **Terminal project management views** — `agent-bus kanban` groups tasks by state, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
+- **Terminal project management views** — `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 

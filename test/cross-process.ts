@@ -47,4 +47,34 @@ assert.equal(unique.size, 5, `expected 5 distinct messages, got ${unique.size}`)
 
 console.log("✓ 5 concurrent writes from separate processes all landed");
 
+await run(["register", "--name", "pm", "--team", "kanban-demo", "--project", "kanban-demo", "--capabilities", "coordination", "--replace"]);
+await run(["register", "--name", "worker", "--team", "kanban-demo", "--project", "kanban-demo", "--capabilities", "implementation", "--replace"]);
+
+const delegated = await run([
+  "delegate",
+  "--from",
+  "pm",
+  "--to",
+  "worker",
+  "--title",
+  "Exercise workflow Kanban",
+  "--project",
+  "kanban-demo",
+]);
+assert.equal(delegated.code, 0, "delegate command should succeed");
+const taskId = delegated.stdout.match(/task #(\d+)/)?.[1];
+assert.ok(taskId, `expected delegated task id in output: ${delegated.stdout}`);
+
+assert.equal((await run(["task-start", taskId, "--by", "worker"])).code, 0);
+assert.equal((await run(["task-testing", taskId, "--by", "worker"])).code, 0);
+const testingBoard = await run(["kanban", "--project", "kanban-demo", "--team", "kanban-demo"]);
+assert.match(testingBoard.stdout, /Testing:/);
+assert.match(testingBoard.stdout, new RegExp(`#${taskId}`));
+
+assert.equal((await run(["task-done", taskId, "--by", "worker", "--result", "workflow verified"])).code, 0);
+const done = await run(["done", "--project", "kanban-demo", "--team", "kanban-demo"]);
+assert.match(done.stdout, new RegExp(`#${taskId}`));
+assert.match(done.stdout, /workflow verified/);
+console.log("✓ task workflow shortcuts update Kanban and done history");
+
 rmSync(tmp, { recursive: true, force: true });

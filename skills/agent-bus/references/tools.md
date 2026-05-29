@@ -465,6 +465,10 @@ record_task_event({
   metadata?: Record<string, unknown>,
 }) -> TaskEvent
 
+Use phases consistently: `planning`, `editing`, `testing`, `review`,
+and `done`. Kanban views derive human lanes from stable state plus
+phase, so do not invent new task states for phases.
+
 list_task_events({
   task_id?: number,
   by_agent?: string,

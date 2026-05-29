@@ -111,10 +111,14 @@ agent-bus kanban --team ui-design --all       # include completed/failed/cancele
 agent-bus kanban --team ui-design --done      # only terminal columns
 agent-bus kanban --team ui-design --compact   # shorter rows
 agent-bus kanban --team ui-design --watch     # refresh in place
+agent-bus kanban --team ui-design --state-columns
 ```
 
-Columns are `Open`, `Claimed`, `Working`, `Blocked`, `Waiting Review`,
-and, with `--all` or `--done`, `Completed`, `Failed`, and `Canceled`.
+Default workflow lanes are `Todo`, `Accepted`, `Doing`, `Testing`,
+`Review`, and `Blocked`. They are derived from task state, `phase`, and
+review fields, so agents keep the stable state machine while humans get
+a natural board. Pass `--state-columns` to show raw task states:
+`Open`, `Claimed`, `Working`, `Blocked`, and `Waiting Review`.
 
 ### `agent-bus done`
 
@@ -129,6 +133,22 @@ agent-bus done --team ui-design --state failed
 ### `agent-bus task`
 
 Readable task detail alias for `task-result`.
+
+### Task Movement Shortcuts
+
+These commands wrap `update_task` and `record_task_event` so agents can
+move work and leave durable evidence with one CLI call.
+
+```bash
+agent-bus task-start 12 --by worker-a
+agent-bus task-phase 12 editing --by worker-a --message "patching parser"
+agent-bus task-testing 12 --by worker-a --message "running npm test"
+agent-bus task-done 12 --by worker-a --result "implemented and verified"
+```
+
+Use phases like `planning`, `editing`, `testing`, `review`, and `done`.
+`testing` appears in the Testing lane; `review` or pending required
+review appears in the Review lane.
 
 ```bash
 agent-bus task 6
@@ -268,6 +288,8 @@ agent-bus ack-task 12 --agent worker-a --response claimed
 agent-bus review-task 12 --reviewer reviewer --approve --notes "tests passed"
 agent-bus handoff 12 --from worker-a --to worker-b --reason "session ending"
 agent-bus task-event 12 --by worker-a --type progress --phase testing --message "Checks are running"
+agent-bus task-testing 12 --by worker-a --message "Checks are running"
+agent-bus task-done 12 --by worker-a --result "implemented and tests passed"
 agent-bus task-event 12 --list
 agent-bus task-result 12
 agent-bus wait-task 12 --wait-s 110
@@ -289,10 +311,12 @@ startup/handoff context from agents, tasks, decisions, memories, and
 recent messages. `board` is the manager view for agents, tasks, review
 queues, pending acknowledgements, scope conflicts, risks, and handoffs.
 `team-board` is the same manager board scoped to one workgroup.
-`kanban` groups tasks into state columns and `done` shows terminal task
-history. `task-event` records progress/phase/log/result notes; `task`
-and `task-result` show one task with its events, test evidence,
-memories, and thread messages. `delegate` creates a task, assigns it,
+`kanban` groups tasks into workflow lanes and `done` shows terminal task
+history. `task-start`, `task-phase`, `task-testing`, and `task-done`
+move tasks while recording event evidence. `task-event` records lower
+level progress/phase/log/result notes; `task` and `task-result` show
+one task with its events, test evidence, memories, and thread messages.
+`delegate` creates a task, assigns it,
 notifies the worker, and requires acknowledgement by default.
 `delegate-team` creates board-visible tracked tasks for active matching
 members of one team and reports skipped stale/paused/mismatched members.

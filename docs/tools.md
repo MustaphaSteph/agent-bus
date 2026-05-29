@@ -920,8 +920,10 @@ cancel_task({
 ```
 
 Use `record_task_event` for phase changes (`planning`, `editing`,
-`testing`, `review`), progress notes, command summaries, and final
-result notes. Use `task_result` before verification or handoff so the
+`testing`, `review`, `done`), progress notes, command summaries, and
+final result notes. The CLI Kanban maps stable task states plus phase
+into human workflow lanes: Todo, Accepted, Doing, Testing, Review, and
+Blocked. Use `task_result` before verification or handoff so the
 reviewer sees task state, events, tests, memories, and thread messages
 together. `cancel_task` marks the task terminal, records a cancel event,
 notifies the other side, and runs `task.canceled` hooks.

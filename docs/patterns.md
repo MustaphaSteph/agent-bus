@@ -485,6 +485,8 @@ Your job:
 - use test_only/review tasks only when the user wants independent review
 - record decisions with record_decision
 - record pinned handoffs with remember(kind="handoff", pinned=true)
+- record phases with record_task_event: planning, editing, testing, review, done
+- use pinned memories for decisions, risks, and handoffs that new sessions need
 - use session_brief at start and final_report before commit/push
 - do not let agents edit outside their file_scope/edit_scope
 - do not push/deploy unless I explicitly approve

@@ -12,6 +12,7 @@ import {
   directory,
   finalReport,
   handoffTask,
+  getTask,
   inbox,
   inboxStatus,
   listDecisions,
@@ -44,6 +45,7 @@ import {
   taskResult,
   teamBoard,
   TEAM_WILDCARD,
+  updateTask,
   messageStatus,
   whyNoReply,
 } from "../bus.js";
@@ -73,6 +75,56 @@ program
 
 function normalizeTeamOption(value: string | undefined): string | undefined {
   return value === "all" ? TEAM_WILDCARD : value;
+}
+
+function phaseImpliesWorking(phase: string): boolean {
+  const normalized = phase.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return ["planning", "editing", "implementation", "testing", "test", "qa", "verification", "verify", "review", "reviewing"].includes(normalized);
+}
+
+function moveTaskPhase(taskId: number, by: string, phase: string, message?: string): void {
+  const task = getTask(taskId);
+  const nextState =
+    phaseImpliesWorking(phase) && (task.state === "claimed" || task.state === "blocked")
+      ? "working"
+      : undefined;
+  updateTask({
+    agent: by,
+    task_id: taskId,
+    state: nextState as never,
+    phase,
+  });
+  const event = recordTaskEvent({
+    by_agent: by,
+    task_id: taskId,
+    event_type: "phase",
+    phase,
+    message: message ?? `phase -> ${phase}`,
+  });
+  console.log(`${kleur.green("moved")} task #${taskId} phase=${phase} event #${event.id}`);
+}
+
+function completeTask(taskId: number, by: string, result: string): void {
+  const task = getTask(taskId);
+  if (task.state === "claimed") {
+    updateTask({ agent: by, task_id: taskId, state: "working", phase: task.phase ?? "finishing" });
+  }
+  const done = updateTask({
+    agent: by,
+    task_id: taskId,
+    state: "completed",
+    phase: "done",
+    result,
+    final_answer: result,
+  });
+  const event = recordTaskEvent({
+    by_agent: by,
+    task_id: taskId,
+    event_type: "result",
+    phase: "done",
+    message: result,
+  });
+  console.log(`${kleur.green("completed")} task #${done.id} event #${event.id}`);
 }
 
 program
@@ -331,17 +383,19 @@ program
   .option("--all", "include completed, failed, and canceled columns")
   .option("--done", "show only completed, failed, and canceled columns")
   .option("--compact", "print shorter task rows")
+  .option("--state-columns", "show raw task state columns instead of workflow lanes")
   .option("--watch", "keep refreshing the board")
   .option("--interval <ms>", "watch refresh interval in ms", "2000")
   .option("-n, --last <count>", "maximum tasks to load", "200")
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
   .option("--team <name>", "team scope (use 'all' for every team)")
-  .action(async (opts: { all?: boolean; done?: boolean; compact?: boolean; watch?: boolean; interval: string; last: string; project?: string; area?: string; team?: string }) => {
+  .action(async (opts: { all?: boolean; done?: boolean; compact?: boolean; stateColumns?: boolean; watch?: boolean; interval: string; last: string; project?: string; area?: string; team?: string }) => {
     await kanban({
       all: opts.all,
       done: opts.done,
       compact: opts.compact,
+      stateColumns: opts.stateColumns,
       watch: opts.watch,
       intervalMs: Number(opts.interval),
       limit: Number(opts.last),
@@ -697,6 +751,43 @@ program
       metadata,
     });
     console.log(`${kleur.green("recorded")} task event #${row.id}`);
+  });
+
+program
+  .command("task-start <task-id>")
+  .description("Move a claimed/blocked task into Doing with a phase note")
+  .requiredOption("--by <agent>", "agent moving the task")
+  .option("--phase <phase>", "phase to set", "working")
+  .option("--message <text>", "event message")
+  .action((taskId: string, opts: { by: string; phase: string; message?: string }) => {
+    moveTaskPhase(Number(taskId), opts.by, opts.phase, opts.message ?? "started work");
+  });
+
+program
+  .command("task-phase <task-id> <phase>")
+  .description("Set task phase and record a phase event")
+  .requiredOption("--by <agent>", "agent moving the task")
+  .option("--message <text>", "event message")
+  .action((taskId: string, phase: string, opts: { by: string; message?: string }) => {
+    moveTaskPhase(Number(taskId), opts.by, phase, opts.message);
+  });
+
+program
+  .command("task-testing <task-id>")
+  .description("Move a task into the Testing Kanban lane")
+  .requiredOption("--by <agent>", "agent moving the task")
+  .option("--message <text>", "event message", "testing started")
+  .action((taskId: string, opts: { by: string; message: string }) => {
+    moveTaskPhase(Number(taskId), opts.by, "testing", opts.message);
+  });
+
+program
+  .command("task-done <task-id>")
+  .description("Complete a task and record final result evidence")
+  .requiredOption("--by <agent>", "agent completing the task")
+  .requiredOption("--result <text>", "final answer or result summary")
+  .action((taskId: string, opts: { by: string; result: string }) => {
+    completeTask(Number(taskId), opts.by, opts.result);
   });
 
 program

@@ -64,6 +64,7 @@ patterns:
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
 | "Put <agent> to sleep" / "wake <agent>" | `sleep_agent` / `wake_agent` |
 | "Record progress / update phase" | `record_task_event(by_agent="$ARGUMENTS", task_id=…, event_type="progress", message=…, phase=…)` |
+| "Move task X to testing / review / done" | Use `update_task` plus `record_task_event`; phases should be `planning`, `editing`, `testing`, `review`, or `done` |
 | "Show what happened on this task" | `task_result(task_id=…)` |
 | "Wait for this task" / "Any progress?" | `wait_for_task(task_id=…, wait_s=110)` when blocking is useful |
 | "Cancel this task" | `cancel_task(agent="$ARGUMENTS", task_id=…, reason=…)` |
@@ -151,6 +152,10 @@ JSON. The user wants the answer, not the message envelope.
 - Record progress/phase/log notes with `record_task_event`; use
   `task_result` before handoff or verification, and `cancel_task` for
   superseded work.
+- Keep task states stable and use phases for workflow lanes:
+  `planning`, `editing`, `testing`, `review`, and `done`. Pin memories
+  for decisions, active risks, and handoffs so new sessions can recover
+  context with `session_brief`.
 - Run `review_gate` before commit/push so active tasks, pending reviews,
   scope conflicts, and unsafe final-report flags block the merge.
 - Helper agents must not deploy, push, or modify shared production

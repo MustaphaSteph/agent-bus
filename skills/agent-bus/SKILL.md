@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.15.0
+  - agent-bus-mcp >= 0.16.0
 ---
 
 # agent-bus
@@ -88,6 +88,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
 | "Record progress / update phase" | `record_task_event(by_agent=<your name>, task_id=…, event_type="progress", message=…, phase=…)` |
+| "Move task X to testing / review / done" | With MCP, use `update_task` plus `record_task_event`; with CLI, use `agent-bus task-testing`, `agent-bus task-phase <id> review`, or `agent-bus task-done` |
 | "Show what happened on this task" | `task_result(task_id=…)` and summarize task, events, test evidence, memories, and thread messages |
 | "Cancel this task" | `cancel_task(agent=<your name>, task_id=…, reason=…)` |
 | "Record that tests passed/failed" | `record_test_result(by_agent=<your name>, command=…, status=…)` |
@@ -201,10 +202,18 @@ create roles, prompts, or behavior rules.
   these rows.
 - Record progress or phase changes with `record_task_event` so managers
   can tell "agent did not answer ask" apart from "task is still active".
+- Use phases consistently: `planning`, `editing`, `testing`, `review`,
+  and `done`. The CLI Kanban maps state plus phase into `Todo`,
+  `Accepted`, `Doing`, `Testing`, `Review`, and `Blocked` lanes. Do not
+  invent new task states for phases; keep the state machine stable.
 - Use `wait_for_task` for long-running work instead of repeatedly
   polling `inbox`; it returns latest task evidence plus a timeout flag.
 - Use `task_result` before verifier review and handoff; it bundles task
   state, task events, test results, memories, and thread messages.
+- Use memory intentionally: `remember(kind="decision")` for settled
+  team choices, `remember(kind="risk", pinned=true)` for active risks,
+  and `remember(kind="handoff", pinned=true)` before a session exits.
+  New sessions should call `session_brief` before taking work.
 - Use `cancel_task` when work is superseded or intentionally stopped.
 - Use `review_gate` and `final_report` before commit/push/deploy
   decisions.

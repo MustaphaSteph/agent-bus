@@ -7,11 +7,13 @@ import { formatTask } from "./tasks.js";
 const TERMINAL_STATES: TaskState[] = ["completed", "failed", "canceled"];
 const ACTIVE_STATES: TaskState[] = ["open", "claimed", "working", "blocked"];
 const ALL_STATES: TaskState[] = ["open", "claimed", "working", "blocked", "completed", "failed", "canceled"];
+const WORKFLOW_COLUMNS = ["Todo", "Accepted", "Doing", "Testing", "Review", "Blocked"] as const;
 
 export interface KanbanOptions extends ScopeOptions {
   all?: boolean;
   done?: boolean;
   compact?: boolean;
+  stateColumns?: boolean;
   watch?: boolean;
   intervalMs?: number;
   limit?: number;
@@ -106,13 +108,25 @@ function printKanban(opts: KanbanOptions): void {
     include_terminal: opts.all === true || opts.done === true,
     limit: opts.limit ?? 200,
   });
-  const waitingReview = rows.filter((task) => task.review_required && task.review_state === "pending" && !TERMINAL_STATES.includes(task.state));
-
-  for (const state of taskStates(opts)) {
-    printColumn(columnLabel(state), rows.filter((task) => task.state === state), opts.compact === true);
+  if (opts.stateColumns === true || opts.done === true) {
+    const waitingReview = rows.filter((task) => task.review_required && task.review_state === "pending" && !TERMINAL_STATES.includes(task.state));
+    for (const state of taskStates(opts)) {
+      printColumn(columnLabel(state), rows.filter((task) => task.state === state), opts.compact === true);
+    }
+    if (opts.done !== true) {
+      printColumn("Waiting Review", waitingReview, opts.compact === true);
+    }
+    return;
   }
-  if (opts.done !== true) {
-    printColumn("Waiting Review", waitingReview, opts.compact === true);
+
+  const activeRows = rows.filter((task) => !TERMINAL_STATES.includes(task.state));
+  for (const column of WORKFLOW_COLUMNS) {
+    printColumn(column, activeRows.filter((task) => workflowColumn(task) === column), opts.compact === true);
+  }
+  if (opts.all === true) {
+    for (const state of TERMINAL_STATES) {
+      printColumn(columnLabel(state), rows.filter((task) => task.state === state), opts.compact === true);
+    }
   }
 }
 
@@ -162,6 +176,30 @@ function columnLabel(state: TaskState): string {
     case "canceled":
       return "Canceled";
   }
+}
+
+function workflowColumn(task: Task): (typeof WORKFLOW_COLUMNS)[number] {
+  if (task.state === "open") return "Todo";
+  if (task.state === "claimed") return "Accepted";
+  if (task.state === "blocked") return "Blocked";
+  if (isWaitingReview(task)) return "Review";
+  if (isTestingPhase(task.phase)) return "Testing";
+  return "Doing";
+}
+
+function isWaitingReview(task: Task): boolean {
+  if (task.review_required && task.review_state === "pending") return true;
+  const phase = normalizePhase(task.phase);
+  return phase === "review" || phase === "reviewing" || phase === "waiting_review";
+}
+
+function isTestingPhase(phase: string | null): boolean {
+  const normalized = normalizePhase(phase);
+  return normalized === "testing" || normalized === "test" || normalized === "qa" || normalized === "verification" || normalized === "verify";
+}
+
+function normalizePhase(phase: string | null): string {
+  return phase?.trim().toLowerCase().replace(/[\s-]+/g, "_") ?? "";
 }
 
 function printList(values: string[]): void {

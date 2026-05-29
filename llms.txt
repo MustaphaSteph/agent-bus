@@ -575,6 +575,12 @@ first. Use `session_brief` when a new session needs current agents,
 open/blocked/stale tasks, recent decisions, pinned memories, recent
 memories, recent messages, and suggested next actions.
 
+For team work, use memory deliberately:
+- `kind="decision"` for settled architecture/product choices.
+- `kind="risk", pinned=true` for active risks the board should keep visible.
+- `kind="handoff", pinned=true` before a session exits or transfers work.
+- Call `session_brief` before taking over an existing project/team.
+
 ### record_test_result / list_test_results
 
 Record and list explicit build/lint/test evidence for `final_report`.
@@ -819,6 +825,11 @@ Use this when work may take longer than one `ask` timeout or needs visible
 state. If the user expects work to show on `project_board`,
 `team_board`, `kanban`, or `done`, it must be represented as a task;
 plain `send` / `send_team` messages are not enough.
+
+Kanban uses stable task states plus phases. Keep states to
+`open/claimed/working/blocked/completed/failed/canceled`; use phases
+like `planning`, `editing`, `testing`, `review`, and `done` to drive
+human workflow lanes.
 
 ```
 const task = create_task({
