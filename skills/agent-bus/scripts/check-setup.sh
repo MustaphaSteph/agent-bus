@@ -44,6 +44,48 @@ install_cli() {
   hash -r 2>/dev/null || true
 }
 
+semver_lt() {
+  a="$1"
+  b="$2"
+
+  a_major="${a%%.*}"
+  a_rest="${a#*.}"
+  a_minor="${a_rest%%.*}"
+  a_rest="${a_rest#*.}"
+  a_patch="${a_rest%%[-+]*}"
+
+  b_major="${b%%.*}"
+  b_rest="${b#*.}"
+  b_minor="${b_rest%%.*}"
+  b_rest="${b_rest#*.}"
+  b_patch="${b_rest%%[-+]*}"
+
+  a_major="${a_major:-0}"; a_minor="${a_minor:-0}"; a_patch="${a_patch:-0}"
+  b_major="${b_major:-0}"; b_minor="${b_minor:-0}"; b_patch="${b_patch:-0}"
+
+  if [ "${a_major}" -lt "${b_major}" ] 2>/dev/null; then return 0; fi
+  if [ "${a_major}" -gt "${b_major}" ] 2>/dev/null; then return 1; fi
+  if [ "${a_minor}" -lt "${b_minor}" ] 2>/dev/null; then return 0; fi
+  if [ "${a_minor}" -gt "${b_minor}" ] 2>/dev/null; then return 1; fi
+  if [ "${a_patch}" -lt "${b_patch}" ] 2>/dev/null; then return 0; fi
+  return 1
+}
+
+fail_old_cli() {
+  if command -v npm >/dev/null 2>&1; then
+    NPM_LATEST="$(npm view @agent-bus-connect/cli version 2>/dev/null | tr -d '\r\n ')"
+    if [ -n "${NPM_LATEST}" ] && semver_lt "${NPM_LATEST}" "${MIN_AGENT_BUS}"; then
+      printf "\n[agent-bus skill] setup check failed: agent-bus %s is older than required %s\n\n" "${VERSION_RAW}" "${MIN_AGENT_BUS}" >&2
+      printf "Important: npm latest is @agent-bus-connect/cli@%s, which is also older than required %s.\n" "${NPM_LATEST}" "${MIN_AGENT_BUS}" >&2
+      printf "That means this skill/plugin version is ahead of the published npm CLI.\n" >&2
+      printf "Fix: publish @agent-bus-connect/cli@%s or install this skill/plugin version only after that package is available.\n" "${MIN_AGENT_BUS}" >&2
+      printf "Temporary workaround for plugin authors: lower MIN_AGENT_BUS to the latest published CLI version.\n\n" >&2
+      exit 1
+    fi
+  fi
+  fail "agent-bus ${VERSION_RAW} is older than required ${MIN_AGENT_BUS}; upgrade with npm i -g @agent-bus-connect/cli@latest"
+}
+
 # 1. node >= MIN_NODE_MAJOR
 if ! command -v node >/dev/null 2>&1; then
   fail "node is not on PATH (need Node.js >= ${MIN_NODE_MAJOR})"
@@ -108,21 +150,21 @@ elif [ "${got_major}" -eq "${want_major}" ] 2>/dev/null; then
         install_cli
         exec "$0"
       fi
-      fail "agent-bus ${VERSION_RAW} is older than required ${MIN_AGENT_BUS}; upgrade with npm i -g @agent-bus-connect/cli@latest"
+      fail_old_cli
     fi
   else
     if [ "$INSTALL_CLI" = "1" ]; then
       install_cli
       exec "$0"
     fi
-    fail "agent-bus ${VERSION_RAW} is older than required ${MIN_AGENT_BUS}; upgrade with npm i -g @agent-bus-connect/cli@latest"
+    fail_old_cli
   fi
 else
   if [ "$INSTALL_CLI" = "1" ]; then
     install_cli
     exec "$0"
   fi
-  fail "agent-bus ${VERSION_RAW} is older than required ${MIN_AGENT_BUS}; upgrade with npm i -g @agent-bus-connect/cli@latest"
+  fail_old_cli
 fi
 
 printf "agent-bus %s ready (node %s)\n" "${VERSION_RAW}" "${NODE_VERSION_RAW}"

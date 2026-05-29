@@ -2,6 +2,44 @@
 
 Common symptoms and what to do.
 
+## "MCP server failed: ENOENT"
+
+`ENOENT` means Claude Code tried to spawn the MCP server command and
+the operating system could not find that executable. The agent-bus
+plugin declares an MCP command named `agent-bus-mcp`; the plugin does
+not bundle the npm CLI binary itself.
+
+Fix:
+
+```bash
+npm i -g @agent-bus-connect/cli@latest
+which agent-bus-mcp
+agent-bus --version
+```
+
+Then reconnect the MCP in Claude Code (`/mcp` → reconnect) or restart
+Claude Code so it respawns the server with the updated PATH.
+
+If `which agent-bus-mcp` prints nothing after install, your global npm
+bin directory is not on PATH. Check `npm root -g` and add the matching
+bin directory to your shell startup file.
+
+## "agent-bus X is older than required Y" after installing latest
+
+If the setup checker still fails after
+`npm i -g @agent-bus-connect/cli@latest`, compare the skill minimum
+with the published npm version:
+
+```bash
+npm view @agent-bus-connect/cli version
+grep MIN_AGENT_BUS ~/.claude/skills/agent-bus/scripts/check-setup.sh
+```
+
+If npm's latest version is lower than `MIN_AGENT_BUS`, the plugin/skill
+was released ahead of the CLI package. Publish the required
+`@agent-bus-connect/cli` version first, or use a plugin/skill version
+whose minimum matches the latest published CLI.
+
 ## "MCP agent-bus tools don't show up in my session"
 
 The MCP wasn't loaded when this session started. MCP config is read

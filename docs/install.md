@@ -181,6 +181,8 @@ new build.
 | Symptom | Fix |
 |---|---|
 | `agent-bus: command not found` after `npm i -g` | nvm/node bin path isn't in PATH. Check `npm root -g`. |
+| Claude Code `/mcp` shows `ENOENT` for `agent-bus-mcp` | The plugin config points at `agent-bus-mcp`, but the npm CLI package is not installed or is not on Claude Code's PATH. Run `npm i -g @agent-bus-connect/cli@latest`, verify `which agent-bus-mcp`, then reconnect `/mcp` or restart Claude Code. |
+| Setup checker says `agent-bus X is older than required Y` after installing `latest` | The skill/plugin version is ahead of the published npm CLI. Verify with `npm view @agent-bus-connect/cli version`. Publish the required CLI version first, or install a plugin/skill version whose `MIN_AGENT_BUS` matches the latest published CLI. |
 | Claude Code session doesn't see the MCP tools | The session started before the install — open a new session. |
 | Codex Desktop doesn't see the MCP | Relative paths in the TOML, or Desktop wasn't fully quit. Use absolute paths and Cmd+Q + reopen. |
 | `UNKNOWN_AGENT` errors | Sender or recipient never called `register`. |
