@@ -1,5 +1,5 @@
 import kleur from "kleur";
-import { AREA_WILDCARD, PROJECT_WILDCARD } from "../bus.js";
+import { AREA_WILDCARD, PROJECT_WILDCARD, TEAM_WILDCARD } from "../bus.js";
 import {
   deriveScope,
   validateAreaFilter,
@@ -9,6 +9,7 @@ import {
 export interface ScopeOptions {
   project?: string;
   area?: string;
+  team?: string;
 }
 
 export function resolveProjectScope(value: string | undefined): string | undefined {
@@ -18,12 +19,13 @@ export function resolveProjectScope(value: string | undefined): string | undefin
   return normalized;
 }
 
-export function resolveScopeOptions(project: string | undefined, area: string | undefined): ScopeOptions {
+export function resolveScopeOptions(project: string | undefined, area: string | undefined, team?: string): ScopeOptions {
   const derived = deriveScope();
   const resolvedProject =
     project === undefined ? (derived.project ?? undefined) : normalizeProject(project);
   const resolvedArea = area === undefined ? (derived.area ?? undefined) : normalizeArea(area);
-  return { project: resolvedProject, area: resolvedArea };
+  const resolvedTeam = team === undefined ? undefined : normalizeTeam(team);
+  return { project: resolvedProject, area: resolvedArea, team: resolvedTeam };
 }
 
 export function scopeBanner(scope: ScopeOptions): string | null {
@@ -34,8 +36,11 @@ export function scopeBanner(scope: ScopeOptions): string | null {
   if (scope.area !== undefined && scope.area !== AREA_WILDCARD) {
     parts.push(`area=${scope.area}`);
   }
+  if (scope.team !== undefined && scope.team !== TEAM_WILDCARD) {
+    parts.push(`team=${scope.team}`);
+  }
   if (parts.length === 0) return null;
-  return kleur.gray(`scoped: ${parts.join(" / ")} (use --project all --area all for global)`);
+  return kleur.gray(`scoped: ${parts.join(" / ")} (use --project all --area all --team all for global)`);
 }
 
 function normalizeProject(value: string): string {
@@ -47,5 +52,11 @@ function normalizeProject(value: string): string {
 function normalizeArea(value: string): string {
   const normalized = value === "all" ? AREA_WILDCARD : value;
   validateAreaFilter(normalized);
+  return normalized;
+}
+
+function normalizeTeam(value: string): string {
+  const normalized = value === "all" ? TEAM_WILDCARD : value;
+  validateProjectFilter(normalized);
   return normalized;
 }

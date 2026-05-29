@@ -74,10 +74,11 @@ program
   .option("--interval <ms>", "poll interval in ms", "250")
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
+  .option("--team <name>", "team scope (use 'all' for every team)")
   .option("--global", "show every project and area")
-  .action(async (opts: { interval: string; project?: string; area?: string; global?: boolean }) => {
-    const scope = opts.global === true ? { project: "all", area: "all" } : { project: opts.project, area: opts.area };
-    const resolved = resolveScopeOptions(scope.project, scope.area);
+  .action(async (opts: { interval: string; project?: string; area?: string; team?: string; global?: boolean }) => {
+    const scope = opts.global === true ? { project: "all", area: "all", team: "all" } : { project: opts.project, area: opts.area, team: opts.team };
+    const resolved = resolveScopeOptions(scope.project, scope.area, scope.team);
     await watch({
       intervalMs: Number(opts.interval),
       strict: opts.global !== true,
@@ -91,8 +92,9 @@ program
   .option("-n, --last <count>", "how many to show", "50")
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
-  .action((opts: { last: string; project?: string; area?: string }) => {
-    const scope = resolveScopeOptions(opts.project, opts.area);
+  .option("--team <name>", "team scope (use 'all' for every team)")
+  .action((opts: { last: string; project?: string; area?: string; team?: string }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
     const banner = scopeBanner(scope);
     if (banner) console.log(banner);
     const msgs = recentMessages({ limit: Number(opts.last), ...scope });
@@ -296,9 +298,10 @@ program
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
   .option("--required-capability <name>", "filter by required task capability")
+  .option("--team <name>", "team scope (use 'all' for every team)")
   .option("--mode <mode>", "filter by task mode")
   .option("--manager-reviewed", "only reviewed tasks")
-  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string; requiredCapability?: string; mode?: string; managerReviewed?: boolean }) => {
+  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string; team?: string; requiredCapability?: string; mode?: string; managerReviewed?: boolean }) => {
     await tasks({
       state: opts.state,
       all: opts.all,
@@ -307,7 +310,7 @@ program
       requiredCapability: opts.requiredCapability,
       mode: opts.mode,
       managerReviewed: opts.managerReviewed,
-      ...resolveScopeOptions(opts.project, opts.area),
+      ...resolveScopeOptions(opts.project, opts.area, opts.team),
     });
   });
 
@@ -973,8 +976,9 @@ program
   .description("Generate a merge-readiness report from tasks")
   .option("--project <name>", "project scope (use all for global)")
   .option("--area <name>", "area scope (use all for global)")
-  .action((opts: { project?: string; area?: string }) => {
-    const report = finalReport(resolveScopeOptions(opts.project, opts.area));
+  .option("--team <name>", "team scope (use all for global)")
+  .action((opts: { project?: string; area?: string; team?: string }) => {
+    const report = finalReport(resolveScopeOptions(opts.project, opts.area, opts.team));
     console.log(`Implemented:\n${formatList(report.implemented)}`);
     console.log(`Not implemented:\n${formatList(report.not_implemented)}`);
     console.log(`Known risks:\n${formatList(report.known_risks)}`);
@@ -991,10 +995,11 @@ program
   .description("Check whether the current project is ready to merge/push")
   .option("--project <name>", "project scope (use all for global)")
   .option("--area <name>", "area scope (use all for global)")
+  .option("--team <name>", "team scope (use all for global)")
   .option("--json", "print raw JSON")
   .option("--hook-decision", "print a Claude Code Stop-hook decision JSON object")
-  .action((opts: { project?: string; area?: string; json?: boolean; hookDecision?: boolean }) => {
-    const gate = reviewGate(resolveScopeOptions(opts.project, opts.area));
+  .action((opts: { project?: string; area?: string; team?: string; json?: boolean; hookDecision?: boolean }) => {
+    const gate = reviewGate(resolveScopeOptions(opts.project, opts.area, opts.team));
     if (opts.hookDecision === true) {
       const reason = [...gate.blockers, ...gate.warnings].join("; ");
       console.log(JSON.stringify({ decision: gate.ok ? "approve" : "block", reason }, null, 2));

@@ -4,6 +4,7 @@ import {
   type Agent,
   type Message,
   PROJECT_WILDCARD,
+  TEAM_WILDCARD,
   messagesSince,
   whois,
 } from "../bus.js";
@@ -24,7 +25,7 @@ export async function watch(opts: WatchOptions = {}): Promise<never> {
   printHeader(opts);
 
   for (;;) {
-    const raw = messagesSince(lastId, 200, opts.project, opts.area);
+    const raw = messagesSince(lastId, 200, opts.project, opts.area, opts.team);
     for (const m of raw) lastId = m.id;
     const fresh = filterStrict(raw, opts);
     for (const m of fresh) {
@@ -35,7 +36,7 @@ export async function watch(opts: WatchOptions = {}): Promise<never> {
 }
 
 function mostRecentId(scope: ScopeOptions): number {
-  const recent = messagesSince(0, 1, scope.project, scope.area).at(-1);
+  const recent = messagesSince(0, 1, scope.project, scope.area, scope.team).at(-1);
   return recent ? recent.id - 1 : 0;
 }
 
@@ -58,8 +59,9 @@ function printHeader(scope: ScopeOptions): void {
       const caps = a.capabilities.length > 0 ? ` [${a.capabilities.join(", ")}]` : "";
       const projectChip = a.project ? ` {${a.project}}` : " {no-project}";
       const areaChip = a.area ? `/${a.area}` : "";
+      const teamChip = a.team ? ` team=${a.team}` : "";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`  ${status}  ${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip)}${paused}`);
+      console.log(`  ${status}  ${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + teamChip)}${paused}`);
     }
   }
   console.log(kleur.gray("---"));
@@ -70,7 +72,8 @@ function filterStrict(messages: Message[], scope: WatchOptions): Message[] {
   return messages.filter((message) => {
     const projectOk = scope.project === undefined || scope.project === PROJECT_WILDCARD || message.project === scope.project;
     const areaOk = scope.area === undefined || scope.area === AREA_WILDCARD || message.area === scope.area;
-    return projectOk && areaOk;
+    const teamOk = scope.team === undefined || scope.team === TEAM_WILDCARD || message.team === scope.team;
+    return projectOk && areaOk && teamOk;
   });
 }
 
@@ -78,6 +81,7 @@ function filterAgentsStrict(agents: Agent[], scope: ScopeOptions): Agent[] {
   return agents.filter((agent) => {
     const projectOk = scope.project === undefined || scope.project === PROJECT_WILDCARD || agent.project === scope.project;
     const areaOk = scope.area === undefined || scope.area === AREA_WILDCARD || agent.area === scope.area;
-    return projectOk && areaOk;
+    const teamOk = scope.team === undefined || scope.team === TEAM_WILDCARD || agent.team === scope.team;
+    return projectOk && areaOk && teamOk;
   });
 }

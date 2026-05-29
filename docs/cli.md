@@ -15,6 +15,7 @@ agent-bus watch --interval 100   # change poll interval in ms (default 250)
 agent-bus watch --global         # every project and area
 agent-bus watch --project all    # every project
 agent-bus watch --area all       # all areas in current project
+agent-bus watch --team ui-design # exact team in current project/area
 ```
 
 By default, `watch` is scoped to the current repo-derived project and
@@ -32,6 +33,7 @@ agent-bus log                  # last 50
 agent-bus log -n 200           # last 200
 agent-bus log --project all    # global
 agent-bus log --area area-a     # specific configured area
+agent-bus log --team ui-design  # exact team
 ```
 
 ### `agent-bus whois`
@@ -90,6 +92,7 @@ agent-bus tasks --watch            # print new or changed tasks
 agent-bus tasks --watch --interval 500
 agent-bus tasks --project all      # global
 agent-bus tasks --area area-a      # only one configured task lane
+agent-bus tasks --team ui-design   # only one team
 agent-bus tasks --required-capability tests
 agent-bus tasks --mode investigate_only
 agent-bus tasks --manager-reviewed
@@ -403,8 +406,9 @@ agent-bus whois
 agent-bus tasks
 ```
 
-Use `agent-bus watch --global` for every project and area. Other read
-commands use `--project all` for all projects, `--area all` for all
-areas in the selected project, or concrete names for specific scopes.
+Use `agent-bus watch --global` for every project, area, and team. Other
+read commands use `--project all` for all projects, `--area all` for all
+areas in the selected project, `--team all` for all teams in the
+selected project/area, or concrete names for specific scopes.
 CLI relay/admin commands (`inject`, `register`) default to null/global
 project and area instead of deriving from cwd.
