@@ -819,6 +819,11 @@ Use `send_team` for announcements and lightweight discussion. If you
 want each worker's assignment to show on the team board, use
 `delegate_team`; messages alone do not become board tasks.
 
+For a human terminal view of one team's discussion, use
+`agent-bus team-chat --team <team>` or
+`agent-bus team-chat --team <team> --watch`. With MCP only, call
+`recent(team=<team>)` and render the matching scoped messages.
+
 ### Continue a thread
 
 When you receive a message, take its `thread_id` and pass it back:

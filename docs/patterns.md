@@ -178,6 +178,18 @@ team_board({ team: "ios-ui", project: "movie-app" })
 Team scope is only routing metadata. The agent prompt and task fields
 still decide behavior, roles, and permissions.
 
+For a human-readable team conversation, use the CLI view:
+
+```bash
+agent-bus team-chat --team ios-ui
+agent-bus team-chat --team ios-ui --watch
+agent-bus team-chat --team ios-ui --from pm "status update?"
+```
+
+Team chat is conversation, not workflow state. If the user expects an
+item to appear on `team_board`, `kanban`, or `done`, create a tracked
+task with `delegate_team` or `delegate`.
+
 ## 5. At-least-once delivery
 
 **When**: the recipient does something irreversible or expensive

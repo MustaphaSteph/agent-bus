@@ -63,7 +63,7 @@ a file and a process.
 - **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive a project-specific `area` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), wait for expected rosters, assign pending work before workers register, split read scope from edit scope, require acknowledgements, gate completion on review, record test evidence, hand off work with pinned memory, and generate final merge-readiness reports.
-- **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus inject` lets you nudge any agent from the terminal.
+- **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus team-chat --team <name>` focuses one workgroup conversation; `agent-bus inject` lets you nudge any agent from the terminal.
 
 ## How it works
 
@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 6. Verify
 
 ```bash
-agent-bus --version                # 0.16.0
+agent-bus --version                # 0.17.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -263,13 +263,15 @@ English. No tool names. No JSON.
 
 ```bash
 agent-bus watch
+agent-bus team-chat --team frontend --watch
 ```
 
 `watch` defaults to the current repo-derived project and, when
 configured, the current subfolder area; it hides old `{no-project}`
 traffic by default so demos stay focused. Use `agent-bus watch --global`
 when you want the whole local bus. `log`, `whois`, `tasks`, `kanban`,
-and `done` use `--project all --area all --team all` for global views.
+`team-chat`, and `done` use `--project all --area all --team all` for
+global views.
 
 Record durable context when a session is about to hand off work:
 
@@ -287,6 +289,8 @@ same app:
 ```bash
 agent-bus board
 agent-bus team-board --team frontend
+agent-bus team-chat --team frontend
+agent-bus team-chat --team frontend --from coordinator "status update?"
 agent-bus tasks --team frontend
 agent-bus kanban --team frontend
 agent-bus kanban --team frontend --all
@@ -466,7 +470,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; agents can also register a neutral `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
-- **Terminal project management views** — `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
+- **Terminal project management views** — `agent-bus team-chat` shows one team's conversation, `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 

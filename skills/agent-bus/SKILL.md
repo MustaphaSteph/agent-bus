@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.16.0
+  - agent-bus-mcp >= 0.17.0
 ---
 
 # agent-bus
@@ -64,6 +64,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Have someone summarize the docs for X" | `ask_best(capability="docs" or "summarize", …)` |
 | "Ask the UI team / backend team / <team> team X" | `ask_team(team=<team>, question=…)`; add `capability` or `role` if the user wants a specialist inside that team |
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=<team>, message=…)` |
+| "Show team chat" / "watch the <team> conversation" | If using CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch`; with MCP, use `recent(team=<team>)` and render only that team scope |
 | "Listen only to my team" / "keep checking this team" | `inbox(agent=<your name>, team=<team>, wait_s=110, claim_s=300)`; use `inbox_status(agent=<your name>, team=<team>)` for non-consuming checks |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
 | "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` |
@@ -231,6 +232,9 @@ create roles, prompts, or behavior rules.
   and `done`. The CLI Kanban maps state plus phase into `Todo`,
   `Accepted`, `Doing`, `Testing`, `Review`, and `Blocked` lanes. Do not
   invent new task states for phases; keep the state machine stable.
+- Use `team-chat`/`recent(team=...)` for discussion history and human
+  visibility. Use `delegate_team`, `team_board`, `kanban`, and `done`
+  for tracked work. A team chat message alone is not a task.
 - Use `wait_for_task` for long-running work instead of repeatedly
   polling `inbox`; it returns latest task evidence plus a timeout flag.
 - After a bus reply or task update gives enough information to proceed,

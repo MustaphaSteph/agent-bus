@@ -36,6 +36,25 @@ agent-bus log --area area-a     # specific configured area
 agent-bus log --team ui-design  # exact team
 ```
 
+### `agent-bus team-chat`
+
+Focused view for a team's conversation. It shows messages whose stored
+team scope matches the team, including team broadcasts and direct
+messages produced by team-scoped agents.
+
+```bash
+agent-bus team-chat --team ui-design
+agent-bus team-chat --team ui-design -n 100
+agent-bus team-chat --team ui-design --watch
+agent-bus team-chat --team ui-design --from coordinator "sync on navigation"
+agent-bus team-chat --team ui-design --from coordinator --message "status?"
+```
+
+Use `team-chat` when a human wants to watch or post to the discussion
+stream. Use `kanban`, `team-board`, or `done` when they want tracked
+work status. Sending a team chat message is still normal messaging; it
+does not create a task by itself.
+
 ### `agent-bus whois`
 
 List every registered agent with capabilities, status, role, active task,

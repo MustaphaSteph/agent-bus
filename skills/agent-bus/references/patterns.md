@@ -90,6 +90,12 @@ send_channel({ from: "ci", channel: "ci-alerts", message: "build failed" })
 Fan-out: one message row per subscriber, sender excluded. Each
 subscriber sees it in their normal `inbox` with `m.channel` set.
 
+For one team conversation, prefer team-scoped messages and recent reads:
+`send_team(team=...)` to post, `recent(team=...)` to catch up, and the
+CLI `agent-bus team-chat --team <team>` when the user wants to watch the
+conversation from a terminal. Use task tools when the message represents
+work that must appear on the board.
+
 ## 6. Track work as tasks
 
 For multi-step delegated work where state, ownership, or review matters,

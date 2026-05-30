@@ -41,6 +41,7 @@ patterns:
 | "Have someone summarize the docs for X" | `ask_best(capability="docs" or "summarize", …)` |
 | "Ask the UI/backend/<team> team X" | `ask_team(team=…, question=…)`; add `capability` or `role` when the user wants a specialist inside that team |
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=…, message=…)` |
+| "Show team chat" / "watch the <team> conversation" | Use `recent(team=…)` and render only that team scope; if using the CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch` |
 | "Listen only to this team" / "check this team inbox" | `inbox_status(agent="$ARGUMENTS", team=…)` for diagnostics; `inbox(agent="$ARGUMENTS", team=…, wait_s=110)` only when intentionally processing |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user it's been dispatched. |
 | "Ask <specific name> to do X" | `ask(from="$ARGUMENTS", to="<specific name>", question=…)` |
@@ -152,6 +153,9 @@ Do not make the user wait in silence while bus calls happen. For
 - Team-scoped addressing: when agents register with `team`, use that
   filter to avoid unrelated agents in the same project receiving
   coordination noise. Use `team: "*"` only when the user asks broadly.
+- Team chat is discussion history, not tracked work. Use `recent(team=…)`
+  or `agent-bus team-chat --team <team>` for conversation; use
+  `delegate_team`, `team_board`, `kanban`, and `done` for tasks.
 - When assigning work, set `mode`, `expected_output`, and `file_scope`
   when known. Prefer `edit_scope` for files a worker may change and
   `read_scope` for verifier/test-only review. Use `investigate_only` or

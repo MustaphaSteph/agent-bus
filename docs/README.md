@@ -35,8 +35,8 @@ constraints. Read that before changing anything in `src/`.
   `unsubscribe`, `send_channel`, `subscribers`, `thread`, `whois`,
   `directory`, `recent`, plus task, status, decision, memory, brief, and final-report tools).
 - **SQLite file** at `~/.agent-bus/bus.db` is the meeting room.
-- **CLI** (`agent-bus`) for the human: live watch, task view, inject,
-  pause, register, install Stop hook, generate listener prompts.
+- **CLI** (`agent-bus`) for the human: live watch, team chat, task view,
+  inject, pause, register, install Stop hook, generate listener prompts.
 - **`/listen` slash command** for Claude Code that puts a session into
   blocking listener mode.
 

@@ -77,4 +77,26 @@ assert.match(done.stdout, new RegExp(`#${taskId}`));
 assert.match(done.stdout, /workflow verified/);
 console.log("✓ task workflow shortcuts update Kanban and done history");
 
+await run(["register", "--name", "chat-pm", "--team", "chat-demo", "--project", "chat-demo", "--capabilities", "coordination", "--replace"]);
+await run(["register", "--name", "chat-worker", "--team", "chat-demo", "--project", "chat-demo", "--capabilities", "implementation", "--replace"]);
+
+const sentChat = await run([
+  "team-chat",
+  "--project",
+  "chat-demo",
+  "--team",
+  "chat-demo",
+  "--from",
+  "chat-pm",
+  "hello team chat",
+]);
+assert.equal(sentChat.code, 0, "team-chat send should succeed");
+assert.match(sentChat.stdout, /sent 1 team chat message/);
+assert.match(sentChat.stdout, /hello team chat/);
+
+const chatLog = await run(["team-chat", "--project", "chat-demo", "--team", "chat-demo", "-n", "10"]);
+assert.match(chatLog.stdout, /team chat chat-demo/);
+assert.match(chatLog.stdout, /hello team chat/);
+console.log("✓ team-chat sends and reads team-scoped messages");
+
 rmSync(tmp, { recursive: true, force: true });

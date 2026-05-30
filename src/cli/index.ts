@@ -64,6 +64,7 @@ import { listenPrompt } from "./listen-prompt.js";
 import { markListening, unmarkListening } from "./listener-marker.js";
 import { pollInbox } from "./poll-inbox.js";
 import { resolveScopeOptions, scopeBanner } from "./project-scope.js";
+import { teamChat } from "./team-chat.js";
 import { tasks } from "./tasks.js";
 import { watch } from "./watch.js";
 
@@ -162,6 +163,35 @@ program
       return;
     }
     for (const m of msgs) console.log(formatMessage(m));
+  });
+
+program
+  .command("team-chat")
+  .description("Show, send, or watch messages scoped to one team")
+  .requiredOption("--team <name>", "team scope")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
+  .option("-n, --last <count>", "how many recent messages to show", "50")
+  .option("--watch", "keep running after the snapshot and print new messages")
+  .option("--interval <ms>", "watch poll interval in ms", "250")
+  .option("--from <agent>", "sender agent when sending a message")
+  .option("--message <text>", "message body to send before showing chat")
+  .option("--thread <id>", "existing thread id for the sent message")
+  .option("--include-self", "also send to the sender when sending")
+  .argument("[message]", "message body to send before showing chat")
+  .action(async (message: string | undefined, opts: {
+    team: string;
+    project?: string;
+    area?: string;
+    last: string;
+    watch?: boolean;
+    interval: string;
+    from?: string;
+    message?: string;
+    thread?: string;
+    includeSelf?: boolean;
+  }) => {
+    await teamChat(message, opts);
   });
 
 program
