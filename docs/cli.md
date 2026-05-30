@@ -55,6 +55,49 @@ stream. Use `kanban`, `team-board`, or `done` when they want tracked
 work status. Sending a team chat message is still normal messaging; it
 does not create a task by itself.
 
+### `agent-bus activity`
+
+Chronological "what happened?" view across messages, task events, test
+results, decisions, and memories.
+
+```bash
+agent-bus activity
+agent-bus activity --team ui-design
+agent-bus activity --project movie-app --since 30m
+agent-bus activity --team ui-design -n 100
+```
+
+Use this when the user is waiting and needs to understand recent bus
+movement without reading raw message logs.
+
+### `agent-bus cockpit`
+
+Coordinator dashboard for what needs attention next.
+
+```bash
+agent-bus cockpit
+agent-bus cockpit --team ui-design
+agent-bus cockpit --project movie-app --area all
+```
+
+It groups waiting acknowledgements/reviews, ready work, blockers, and
+suggested next actions. Use `kanban` for workflow columns and `cockpit`
+for manager decisions.
+
+### `agent-bus now`
+
+One-call current-status update for agents.
+
+```bash
+agent-bus now --agent worker-a --status working
+agent-bus now --agent worker-a --task 12 --phase testing --note "running simulator smoke"
+agent-bus now --agent worker-a --status blocked --task 12 --phase blocked --note "waiting on API key"
+```
+
+When a task is supplied, `now` updates agent status, moves claimed or
+blocked tasks to `working` when appropriate, updates the task phase, and
+records a durable task event.
+
 ### `agent-bus whois`
 
 List every registered agent with capabilities, status, role, active task,
@@ -296,8 +339,10 @@ agent-bus remember --by coordinator --kind handoff --pinned "handoff summary for
 agent-bus memories --kind handoff --pinned
 agent-bus pin-memory 12
 agent-bus brief --agent coordinator
+agent-bus activity --team ios-ui
 agent-bus board
 agent-bus team-board --team ios-ui
+agent-bus cockpit --team ios-ui
 agent-bus kanban --team ios-ui --watch
 agent-bus done --team ios-ui
 agent-bus scope-conflicts --files "src/module/**"
@@ -307,6 +352,7 @@ agent-bus ack-task 12 --agent worker-a --response claimed
 agent-bus review-task 12 --reviewer reviewer --approve --notes "tests passed"
 agent-bus handoff 12 --from worker-a --to worker-b --reason "session ending"
 agent-bus task-event 12 --by worker-a --type progress --phase testing --message "Checks are running"
+agent-bus now --agent worker-a --task 12 --phase testing --note "Checks are running"
 agent-bus task-testing 12 --by worker-a --message "Checks are running"
 agent-bus task-done 12 --by worker-a --result "implemented and tests passed"
 agent-bus task-event 12 --list

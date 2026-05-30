@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 6. Verify
 
 ```bash
-agent-bus --version                # 0.17.0
+agent-bus --version                # 0.18.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -289,6 +289,8 @@ same app:
 ```bash
 agent-bus board
 agent-bus team-board --team frontend
+agent-bus cockpit --team frontend
+agent-bus activity --team frontend
 agent-bus team-chat --team frontend
 agent-bus team-chat --team frontend --from coordinator "status update?"
 agent-bus tasks --team frontend
@@ -298,6 +300,7 @@ agent-bus kanban --team frontend --watch
 agent-bus done --team frontend
 agent-bus task 12
 agent-bus task-start 12 --by agent-a
+agent-bus now --agent agent-a --task 12 --phase testing --note "running simulator smoke"
 agent-bus task-testing 12 --by agent-a --message "running simulator smoke"
 agent-bus task-done 12 --by agent-a --result "implemented and tests passed"
 agent-bus wait-for-agents --names agent-a,agent-b,reviewer --area all
@@ -466,11 +469,11 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 
 ## What you get
 
-- **57 MCP tools** — direct messages, synchronous ask/reply, thread replies, non-consuming inbox diagnostics, message/reply diagnostics, team-scoped send/ask/boards, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, one-call direct and team delegation, task waiting, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
+- **60 MCP tools** — direct messages, synchronous ask/reply, thread replies, non-consuming inbox diagnostics, message/reply diagnostics, team-scoped send/ask/boards, activity timelines, cockpit dashboards, current-work updates, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, one-call direct and team delegation, task waiting, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; agents can also register a neutral `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
-- **Terminal project management views** — `agent-bus team-chat` shows one team's conversation, `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
+- **Terminal project management views** — `agent-bus activity` explains what happened recently, `agent-bus cockpit` shows what needs attention next, `agent-bus team-chat` shows one team's conversation, `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 

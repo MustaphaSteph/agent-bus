@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.17.0
+  - agent-bus-mcp >= 0.18.0
 ---
 
 # agent-bus
@@ -74,6 +74,8 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
 | "Wait for these workers" / "Are my agents ready?" | `wait_for_agents(names=[…])` and report ready/missing/stale/wrong-scope |
 | "Show the team board" / "what is everyone doing?" | `team_board(team=…)` when a team is named; otherwise `project_board()` rendered with status, active work, review queue, conflicts, pinned risks, handoffs, and next actions |
+| "What happened recently?" / "show activity" | `activity(project/area/team as appropriate)` and summarize the chronological timeline |
+| "What should I do next?" / "show cockpit" | `cockpit(project/area/team as appropriate)` and report waiting items, ready items, blockers, and suggested next actions |
 | "Remember X" / "Note that X" | `remember(by_agent=<your name>, kind="summary", content=…)`; use `pinned=true` for handoffs |
 | "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; use `ask_best(capability="memory", …)` only if needed |
 | "Give me a handoff / session brief" | `session_brief()` |
@@ -89,6 +91,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Hand this task to <agent>" | `handoff_task(from_agent=<current holder>, task_id=…, to_agent=…, reason=…, memory=…)` |
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
 | "Record progress / update phase" | `record_task_event(by_agent=<your name>, task_id=…, event_type="progress", message=…, phase=…)` |
+| "What are you working on now?" / "mark current work" | `now(agent=<your name>, task_id=…, phase=…, note=…)` when updating your own visible status/task phase |
 | "Move task X to testing / review / done" | With MCP, use `update_task` plus `record_task_event`; with CLI, use `agent-bus task-testing`, `agent-bus task-phase <id> review`, or `agent-bus task-done` |
 | "Show what happened on this task" | `task_result(task_id=…)` and summarize task, events, test evidence, memories, and thread messages |
 | "Cancel this task" | `cancel_task(agent=<your name>, task_id=…, reason=…)` |
@@ -235,6 +238,10 @@ create roles, prompts, or behavior rules.
 - Use `team-chat`/`recent(team=...)` for discussion history and human
   visibility. Use `delegate_team`, `team_board`, `kanban`, and `done`
   for tracked work. A team chat message alone is not a task.
+- Use `activity` when the user asks what happened recently. Use
+  `cockpit` when the user asks what the manager should do next. Use
+  `now` for your own current-work updates instead of sending a vague
+  status message.
 - Use `wait_for_task` for long-running work instead of repeatedly
   polling `inbox`; it returns latest task evidence plus a timeout flag.
 - After a bus reply or task update gives enough information to proceed,
@@ -293,7 +300,7 @@ within that scope when tools receive the team filter.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 57 MCP tools with input/output shapes
+- `references/tools.md` — the 60 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `send_team`,
   `ask_team`, `team_board`, `assign_task`, `record_decision`,

@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 57 MCP tools, all prefixed with the server name `agent-bus` in
+You have 60 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -19,12 +19,13 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 7. Reconstruct conversation threads.
 8. Inspect inbox/message status without consuming messages.
 9. Create, delegate, wait on, claim, update, release, list, inspect, cancel, and review-gate tasks.
-10. Record task progress/phase events and fetch task result bundles.
+10. Record task progress/phase events, update current-work status, and fetch task result bundles.
 11. Scope reads and routing to the current project, or opt into global.
 12. Discover other agents.
 13. Store structured memories and generate session briefs for handoffs.
 14. Wait for expected rosters, reserve tasks for not-yet-registered
     workers, split edit scope from read scope, and record test evidence.
+15. Show activity timelines and coordinator cockpit dashboards.
 
 ## Core rules
 
@@ -539,7 +540,7 @@ mid-task; it records a pinned handoff memory and can reassign the work.
 - `reason: string`
 - `memory?: string`
 
-### check_scope_conflicts / project_board
+### check_scope_conflicts / project_board / activity / cockpit / now
 
 Use `check_scope_conflicts` before assigning overlapping `edit_files` or
 `propose_patch` work. Use `project_board` for manager status: agents,
@@ -564,8 +565,32 @@ pinned risks, pinned handoffs, and suggested next actions.
 - `project?: string`
 - `area?: string`
 
+`activity` input:
+- `project?: string`
+- `area?: string`
+- `team?: string`
+- `since?: number` — ms epoch lower bound
+- `limit?: number`
+
+`cockpit` input:
+- `project?: string`
+- `area?: string`
+- `team?: string`
+- `agent?: string`
+- `limit?: number`
+
+`now` input:
+- `agent: string`
+- `task_id?: number`
+- `phase?: string | null`
+- `note?: string | null`
+- `status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping"`
+
 Conflict checks compare active edit/propose tasks by `edit_scope`; broad
 verifier `read_scope` does not create edit-conflict noise.
+Use `activity` to answer "what happened recently?", `cockpit` to answer
+"what needs manager attention?", and `now` to update your own visible
+current work with one tool call.
 
 ### record_decision / list_decisions
 

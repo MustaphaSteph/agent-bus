@@ -57,6 +57,7 @@ import {
   scopeConfigPath,
   writeScopeConfig,
 } from "../util/project.js";
+import { parseSince, printActivity, printCockpit, printNow } from "./coordination.js";
 import { formatMessage } from "./format.js";
 import { installHook, uninstallHook } from "./install-hook.js";
 import { doneTasks, kanban, taskDetail } from "./kanban.js";
@@ -192,6 +193,54 @@ program
     includeSelf?: boolean;
   }) => {
     await teamChat(message, opts);
+  });
+
+program
+  .command("activity")
+  .description("Show a chronological activity timeline for a project, area, or team")
+  .option("-n, --last <count>", "maximum activity rows", "50")
+  .option("--since <time>", "ms epoch or duration like 30m, 2h, 1d")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
+  .option("--team <name>", "team scope (use 'all' for every team)")
+  .action((opts: { last: string; since?: string; project?: string; area?: string; team?: string }) => {
+    printActivity({
+      ...resolveScopeOptions(opts.project, opts.area, opts.team),
+      limit: Number(opts.last),
+      sinceMs: parseSince(opts.since),
+    });
+  });
+
+program
+  .command("cockpit")
+  .description("Show coordinator next actions for a project, area, or team")
+  .option("-n, --last <count>", "maximum items per section", "20")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
+  .option("--team <name>", "team scope (use 'all' for every team)")
+  .action((opts: { last: string; project?: string; area?: string; team?: string }) => {
+    printCockpit({
+      ...resolveScopeOptions(opts.project, opts.area, opts.team),
+      limit: Number(opts.last),
+    });
+  });
+
+program
+  .command("now")
+  .description("Update an agent's current status and optional task phase/progress")
+  .requiredOption("--agent <name>", "agent name")
+  .option("--task <id>", "active task id")
+  .option("--phase <name>", "task phase, e.g. planning, editing, testing, review")
+  .option("--note <text>", "progress note to record on the task")
+  .option("--status <status>", "idle, working, blocked, waiting_review, or sleeping")
+  .action((opts: { agent: string; task?: string; phase?: string; note?: string; status?: string }) => {
+    printNow({
+      agent: opts.agent,
+      taskId: opts.task ? Number(opts.task) : undefined,
+      phase: opts.phase,
+      note: opts.note,
+      status: opts.status,
+    });
   });
 
 program

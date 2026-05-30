@@ -9,6 +9,8 @@ import { z } from "zod";
 import {
   ack,
   acknowledgeTask,
+  activityTimeline,
+  agentNow,
   assignTask,
   ask,
   askBest,
@@ -17,6 +19,7 @@ import {
   checkScopeConflicts,
   claimTask,
   claimBestTask,
+  cockpit,
   createTask,
   delegate,
   delegateTeam,
@@ -506,6 +509,22 @@ const TeamBoardInput = z.object({
   project: ProjectFilterField,
   area: AreaFilterField,
   limit: z.number().int().positive().max(100).optional(),
+});
+
+const ActivityInput = z.object({
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  team: TeamFilterField,
+  since: z.number().int().nonnegative().optional(),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+const NowInput = z.object({
+  agent: z.string().min(1),
+  task_id: z.number().int().positive().optional(),
+  phase: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  status: AgentStatusEnum.optional(),
 });
 
 const TOOLS = [
@@ -1354,6 +1373,52 @@ const TOOLS = [
     },
   },
   {
+    name: "activity",
+    description:
+      "Chronological project/area/team activity timeline across messages, task events, test results, decisions, and memories.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
+        since: { type: "number", description: "Optional lower bound as ms epoch" },
+        limit: { type: "number", description: "Maximum activity rows" },
+      },
+    },
+  },
+  {
+    name: "cockpit",
+    description:
+      "Coordinator dashboard: waiting items, ready items, blockers, suggested next actions, and the underlying project board.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "Optional project filter; '*' means all projects" },
+        area: { type: "string", description: "Optional area filter; '*' means all areas" },
+        team: { type: "string", description: "Optional team filter; '*' means all teams" },
+        agent: { type: "string", description: "Optional agent-specific memory filter" },
+        limit: { type: "number", description: "Maximum items per section" },
+      },
+    },
+  },
+  {
+    name: "now",
+    description:
+      "Update an agent's visible current work in one call: status plus optional task phase/progress event.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string" },
+        task_id: { type: "number" },
+        phase: { type: ["string", "null"] },
+        note: { type: ["string", "null"] },
+        status: { type: "string", enum: ["idle", "working", "blocked", "waiting_review", "sleeping"] },
+      },
+      required: ["agent"],
+    },
+  },
+  {
     name: "project_board",
     description:
       "Manager board: agents, open/active/blocked/waiting-review/stale tasks, scope conflicts, pinned risks/handoffs, and deterministic next actions.",
@@ -1791,6 +1856,26 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "get_task":
       return getTask(GetTaskInput.parse(raw).task_id);
+    case "activity": {
+      const input = ActivityInput.parse(raw);
+      return activityTimeline({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
+      });
+    }
+    case "cockpit": {
+      const input = SessionBriefInput.parse(raw);
+      return cockpit({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
+        team: input.team,
+      });
+    }
+    case "now":
+      return agentNow(NowInput.parse(raw));
     case "record_decision": {
       const input = RecordDecisionInput.parse(raw);
       return recordDecision({

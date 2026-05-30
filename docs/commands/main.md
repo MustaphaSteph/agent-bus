@@ -1,6 +1,6 @@
 ---
 description: Make this Claude session bus-aware as the coordinator. Talks to other agents on the bus via natural language.
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__send_team, mcp__agent-bus__ask_team, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__team_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__record_task_event, mcp__agent-bus__list_task_events, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__final_report, mcp__agent-bus__review_gate, mcp__agent-bus__inbox_status, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__delegate, mcp__agent-bus__delegate_team, mcp__agent-bus__wait_for_task
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__send_team, mcp__agent-bus__ask_team, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__team_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__record_task_event, mcp__agent-bus__list_task_events, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__activity, mcp__agent-bus__cockpit, mcp__agent-bus__now, mcp__agent-bus__final_report, mcp__agent-bus__review_gate, mcp__agent-bus__inbox_status, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__delegate, mcp__agent-bus__delegate_team, mcp__agent-bus__wait_for_task
 ---
 
 You are now the **coordinator** session on the local `agent-bus`. Your
@@ -51,6 +51,8 @@ patterns:
 | "Who's around?" / "Who's listening?" | `whois()` and render it cleanly |
 | "Wait for these workers" / "Are my agents ready?" | `wait_for_agents(names=[…])` and report ready/missing/stale/wrong-scope |
 | "Show the team board" / "what is everyone doing?" | `team_board(team=…)` if a team is named; otherwise `project_board()` and render agents, active tasks, blocked tasks, waiting review, conflicts, pinned risks, and next actions |
+| "What happened recently?" / "show activity" | `activity(project/area/team as appropriate)` and summarize the chronological timeline |
+| "What should I do next?" / "show cockpit" | `cockpit(project/area/team as appropriate)` and report waiting items, ready items, blockers, and suggested next actions |
 | "Remember X" / "Note that X" | `remember(by_agent="$ARGUMENTS", kind="summary", content=…)`; use `pinned=true` for handoffs |
 | "Recall X" / "What did we decide about X" | `list_memories()` and `list_decisions()` first; ask a specialist only if needed |
 | "Give me a handoff / session brief" | `session_brief()` |
@@ -65,6 +67,7 @@ patterns:
 | "Can these agents edit the same files?" | `check_scope_conflicts(file_scope=[…])` before assigning overlapping edit work |
 | "Put <agent> to sleep" / "wake <agent>" | `sleep_agent` / `wake_agent` |
 | "Record progress / update phase" | `record_task_event(by_agent="$ARGUMENTS", task_id=…, event_type="progress", message=…, phase=…)` |
+| "Mark current work" / "what are you doing now?" | `now(agent="$ARGUMENTS", task_id=…, phase=…, note=…)` for your own visible status/task phase |
 | "Move task X to testing / review / done" | Use `update_task` plus `record_task_event`; phases should be `planning`, `editing`, `testing`, `review`, or `done` |
 | "Show what happened on this task" | `task_result(task_id=…)` |
 | "Wait for this task" / "Any progress?" | `wait_for_task(task_id=…, wait_s=110)` when blocking is useful |
@@ -156,6 +159,9 @@ Do not make the user wait in silence while bus calls happen. For
 - Team chat is discussion history, not tracked work. Use `recent(team=…)`
   or `agent-bus team-chat --team <team>` for conversation; use
   `delegate_team`, `team_board`, `kanban`, and `done` for tasks.
+- Use `activity` to answer "what happened?", `cockpit` to answer
+  "what needs attention?", and `now` to update your own current work
+  without inventing ad hoc status messages.
 - When assigning work, set `mode`, `expected_output`, and `file_scope`
   when known. Prefer `edit_scope` for files a worker may change and
   `read_scope` for verifier/test-only review. Use `investigate_only` or

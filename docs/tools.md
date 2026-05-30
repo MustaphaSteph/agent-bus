@@ -740,11 +740,51 @@ team_board({
   area?: string,
   limit?: number,
 }) -> ProjectBoard
+
+activity({
+  project?: string,
+  area?: string,
+  team?: string,
+  since?: number,
+  limit?: number,
+}) -> ActivityItem[]
+
+cockpit({
+  project?: string,
+  area?: string,
+  team?: string,
+  agent?: string,
+  limit?: number,
+}) -> {
+  waiting_on: string[],
+  ready: string[],
+  blockers: string[],
+  suggested_next_actions: string[],
+  board: ProjectBoard,
+}
+
+now({
+  agent: string,
+  task_id?: number,
+  phase?: string | null,
+  note?: string | null,
+  status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
+}) -> {
+  agent: Agent,
+  task: Task | null,
+  event: TaskEvent | null,
+  suggested_next_actions: string[],
+}
 ```
 
 `check_scope_conflicts` compares active edit/propose tasks by
 `edit_scope`. Verifier or test-only tasks can set a broad `read_scope`
 without creating edit-conflict noise.
+`activity` is the compact "what happened recently?" timeline across
+messages, task events, test results, decisions, and memories. `cockpit`
+is the coordinator next-action view. `now` is the agent self-status
+helper: it updates visible status, optional task phase, and records a
+task event when a note or phase is provided.
 
 ## list_tasks
 

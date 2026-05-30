@@ -9,11 +9,14 @@ process.env.AGENT_BUS_DIR = tmp;
 const {
   ack,
   acknowledgeTask,
+  activityTimeline,
+  agentNow,
   assignTask,
   cancelTask,
   claimTask,
   claimBestTask,
   checkScopeConflicts,
+  cockpit,
   createTask,
   delegate,
   delegateTeam,
@@ -1460,6 +1463,35 @@ await test("reviewGate blocks unsafe project state and passes clean completed wo
 
   const clean = reviewGate({ project: "gate" });
   assert.equal(clean.ok, true);
+});
+
+await test("activity, cockpit, and now summarize coordination state", () => {
+  register({ name: "ux-pm", project: "ux", team: "ios-ui", capabilities: ["coordination"], replace: true });
+  register({ name: "ux-worker", project: "ux", team: "ios-ui", capabilities: ["implementation"], replace: true });
+  const task = createTask({
+    requested_by: "ux-pm",
+    title: "Build visible status",
+    project: "ux",
+    team: "ios-ui",
+    ack_required: true,
+  });
+  claimTask({ agent: "ux-worker", task_id: task.id });
+  const status = agentNow({
+    agent: "ux-worker",
+    task_id: task.id,
+    phase: "testing",
+    note: "running smoke checks",
+  });
+  assert.equal(status.agent.status, "working");
+  assert.equal(status.task?.phase, "testing");
+  assert.equal(status.event?.message, "running smoke checks");
+
+  const timeline = activityTimeline({ project: "ux", team: "ios-ui", limit: 20 });
+  assert.ok(timeline.some((item) => item.summary.includes("running smoke checks")));
+
+  const dashboard = cockpit({ project: "ux", team: "ios-ui" });
+  assert.ok(dashboard.waiting_on.some((item) => item.includes("acknowledgement")));
+  assert.ok(dashboard.suggested_next_actions.length > 0);
 });
 
 closeDb();

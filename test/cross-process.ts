@@ -99,4 +99,30 @@ assert.match(chatLog.stdout, /team chat chat-demo/);
 assert.match(chatLog.stdout, /hello team chat/);
 console.log("✓ team-chat sends and reads team-scoped messages");
 
+await run(["register", "--name", "dash-pm", "--team", "dash-demo", "--project", "dash-demo", "--capabilities", "coordination", "--replace"]);
+await run(["register", "--name", "dash-worker", "--team", "dash-demo", "--project", "dash-demo", "--capabilities", "implementation", "--replace"]);
+const dashDelegated = await run([
+  "delegate",
+  "--from",
+  "dash-pm",
+  "--to",
+  "dash-worker",
+  "--title",
+  "Exercise activity cockpit now",
+  "--project",
+  "dash-demo",
+  "--team",
+  "dash-demo",
+]);
+const dashTaskId = dashDelegated.stdout.match(/task #(\d+)/)?.[1];
+assert.ok(dashTaskId, `expected dashboard task id in output: ${dashDelegated.stdout}`);
+const nowOut = await run(["now", "--agent", "dash-worker", "--task", dashTaskId, "--phase", "testing", "--note", "running cross-process smoke"]);
+assert.match(nowOut.stdout, /updated dash-worker status=working/);
+const activity = await run(["activity", "--project", "dash-demo", "--team", "dash-demo", "-n", "20"]);
+assert.match(activity.stdout, /running cross-process smoke/);
+const cockpit = await run(["cockpit", "--project", "dash-demo", "--team", "dash-demo"]);
+assert.match(cockpit.stdout, /Waiting on:/);
+assert.match(cockpit.stdout, /acknowledgement/);
+console.log("✓ activity, cockpit, and now work through the CLI");
+
 rmSync(tmp, { recursive: true, force: true });

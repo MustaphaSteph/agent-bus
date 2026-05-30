@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 57 MCP tools. All return JSON.
+doesn't cover in detail. There are 60 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -416,12 +416,19 @@ project_board({
   pinned_handoffs: Memory[],
   suggested_next_actions: string[],
 }
+
+activity({ project?: string | "*", area?: string | "*", team?: string | "*", since?: number, limit?: number }) -> ActivityItem[]
+cockpit({ project?: string | "*", area?: string | "*", team?: string | "*", agent?: string, limit?: number }) -> { waiting_on: string[], ready: string[], blockers: string[], suggested_next_actions: string[], board: ProjectBoard }
+now({ agent: string, task_id?: number, phase?: string | null, note?: string | null, status?: AgentStatus }) -> { agent: Agent, task: Task | null, event: TaskEvent | null, suggested_next_actions: string[] }
 ```
 Use `project_board` for manager status. It combines agent status, task
 state, review queue, pending acknowledgements, stale work, scope
 conflicts, pinned risks/handoffs, and suggested next actions. Scope
 conflicts compare edit ownership; broad verifier read scope should not
 block workers.
+Use `activity` when the user asks what happened recently, `cockpit`
+when the coordinator needs the next action, and `now` when an agent
+wants to update visible current work with one tool call.
 
 ## Decisions and Final Report
 

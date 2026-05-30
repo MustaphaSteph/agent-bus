@@ -3484,6 +3484,241 @@ export function teamBoard(opts: TeamBoardOptions): ProjectBoard {
   return projectBoard({ ...opts, team: opts.team });
 }
 
+export type ActivityItem =
+  | {
+      source: "message";
+      at: number;
+      id: number;
+      summary: string;
+      message: Message;
+    }
+  | {
+      source: "task_event";
+      at: number;
+      id: number;
+      summary: string;
+      event: TaskEvent;
+    }
+  | {
+      source: "test_result";
+      at: number;
+      id: number;
+      summary: string;
+      test_result: TestResult;
+    }
+  | {
+      source: "decision";
+      at: number;
+      id: number;
+      summary: string;
+      decision: Decision;
+    }
+  | {
+      source: "memory";
+      at: number;
+      id: number;
+      summary: string;
+      memory: Memory;
+    };
+
+export interface ActivityOptions extends SessionBriefOptions {
+  since?: number;
+}
+
+export function activityTimeline(opts: ActivityOptions = {}): ActivityItem[] {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  const scope = { project: opts.project, area: opts.area, team: opts.team };
+  const since = opts.since ?? 0;
+  const items: ActivityItem[] = [];
+
+  for (const message of recentMessages({ ...scope, limit })) {
+    if (message.created_at < since) continue;
+    items.push({
+      source: "message",
+      at: message.created_at,
+      id: message.id,
+      summary: `${message.from_agent} ${message.kind === "ask" ? "asked" : message.kind === "reply" ? "replied to" : "messaged"} ${message.to_agent}: ${message.content}`,
+      message,
+    });
+  }
+  for (const event of listTaskEvents({ ...scope, limit })) {
+    if (event.created_at < since) continue;
+    items.push({
+      source: "task_event",
+      at: event.created_at,
+      id: event.id,
+      summary: `${event.by_agent} ${event.event_type} task #${event.task_id}${event.phase ? ` -> ${event.phase}` : ""}: ${event.message}`,
+      event,
+    });
+  }
+  for (const result of listTestResults({ ...scope, limit })) {
+    if (result.created_at < since) continue;
+    items.push({
+      source: "test_result",
+      at: result.created_at,
+      id: result.id,
+      summary: `${result.by_agent} recorded ${result.status} test${result.task_id ? ` for task #${result.task_id}` : ""}: ${result.command}${result.output_summary ? ` - ${result.output_summary}` : ""}`,
+      test_result: result,
+    });
+  }
+  for (const decision of listDecisions({ ...scope, limit })) {
+    if (decision.created_at < since) continue;
+    items.push({
+      source: "decision",
+      at: decision.created_at,
+      id: decision.id,
+      summary: `${decision.by_agent} decided: ${decision.decision}${decision.rationale ? ` - ${decision.rationale}` : ""}`,
+      decision,
+    });
+  }
+  for (const memory of listMemories({ ...scope, since, limit })) {
+    items.push({
+      source: "memory",
+      at: memory.created_at,
+      id: memory.id,
+      summary: `${memory.by_agent} remembered [${memory.kind}]: ${memory.content}`,
+      memory,
+    });
+  }
+
+  return items
+    .sort((a, b) => a.at - b.at || sourceOrder(a.source) - sourceOrder(b.source) || a.id - b.id)
+    .slice(-limit);
+}
+
+export interface Cockpit {
+  waiting_on: string[];
+  ready: string[];
+  blockers: string[];
+  suggested_next_actions: string[];
+  board: ProjectBoard;
+}
+
+export function cockpit(opts: SessionBriefOptions = {}): Cockpit {
+  const board = projectBoard(opts);
+  const waitingOn: string[] = [];
+  const ready: string[] = [];
+  const blockers: string[] = [];
+
+  for (const task of board.waiting_acknowledgement) {
+    waitingOn.push(`task #${task.id} acknowledgement from ${task.pending_assignee ?? task.claimed_by ?? "assignee"}: ${task.title}`);
+  }
+  for (const task of board.waiting_review) {
+    waitingOn.push(`task #${task.id} review: ${task.title}`);
+  }
+  for (const task of board.blocked_tasks) {
+    blockers.push(`task #${task.id} blocked${task.blocked_reason ? `: ${task.blocked_reason}` : ""}`);
+  }
+  for (const task of board.stale_tasks) {
+    blockers.push(`task #${task.id} stale holder ${task.claimed_by ?? "unknown"}: ${task.title}`);
+  }
+  for (const row of board.scope_conflicts) {
+    blockers.push(`task #${row.task_id} edit scope overlaps ${row.conflicts.map((conflict) => `#${conflict.task_id}`).join(", ")}`);
+  }
+  const completedNeedsReview = listTasks({
+    project: opts.project,
+    area: opts.area,
+    team: opts.team,
+    state: "completed",
+    include_terminal: true,
+    manager_reviewed: false,
+    limit: opts.limit ?? 50,
+  });
+  for (const task of completedNeedsReview) {
+    ready.push(`task #${task.id} completed, needs manager review: ${task.title}`);
+  }
+  for (const task of board.open_tasks) {
+    ready.push(`task #${task.id} open: ${task.title}`);
+  }
+
+  const suggested = [...board.suggested_next_actions];
+  if (ready.some((item) => item.includes("completed, needs manager review"))) {
+    suggested.push("Review completed tasks and set manager_reviewed when accepted.");
+  }
+  if (waitingOn.length === 0 && blockers.length === 0 && ready.length === 0) {
+    suggested.push("No immediate manager action; check activity for recent discussion.");
+  }
+
+  return {
+    waiting_on: waitingOn,
+    ready,
+    blockers,
+    suggested_next_actions: suggested,
+    board,
+  };
+}
+
+export interface AgentNowOptions {
+  agent: string;
+  task_id?: number;
+  phase?: string | null;
+  note?: string | null;
+  status?: AgentStatus;
+}
+
+export interface AgentNowResult {
+  agent: Agent;
+  task: Task | null;
+  event: TaskEvent | null;
+  suggested_next_actions: string[];
+}
+
+export function agentNow(opts: AgentNowOptions): AgentNowResult {
+  validateName(opts.agent);
+  const agent = setAgentStatus(opts.agent, opts.status ?? (opts.task_id !== undefined ? "working" : "idle"));
+  let task: Task | null = null;
+  let event: TaskEvent | null = null;
+
+  if (opts.task_id !== undefined) {
+    const current = getTask(opts.task_id);
+    const nextState = current.state === "claimed" || current.state === "blocked" ? "working" : undefined;
+    task = updateTask({
+      agent: opts.agent,
+      task_id: opts.task_id,
+      state: nextState,
+      phase: opts.phase,
+    });
+    if (opts.note !== undefined || opts.phase !== undefined) {
+      event = recordTaskEvent({
+        by_agent: opts.agent,
+        task_id: opts.task_id,
+        event_type: opts.phase !== undefined ? "phase" : "progress",
+        phase: opts.phase,
+        message: opts.note ?? (opts.phase ? `phase -> ${opts.phase}` : "progress update"),
+        metadata: {
+          status: agent.status,
+        },
+      });
+      task = getTask(opts.task_id);
+    }
+  }
+
+  return {
+    agent,
+    task,
+    event,
+    suggested_next_actions: [
+      opts.task_id !== undefined ? `task #${opts.task_id} is visible in activity, cockpit, and task_result` : `agent ${opts.agent} status updated`,
+      "Tell the user what changed and continue local work.",
+    ],
+  };
+}
+
+function sourceOrder(source: ActivityItem["source"]): number {
+  switch (source) {
+    case "message":
+      return 0;
+    case "task_event":
+      return 1;
+    case "test_result":
+      return 2;
+    case "decision":
+      return 3;
+    case "memory":
+      return 4;
+  }
+}
+
 export interface FinalReport {
   implemented: string[];
   not_implemented: string[];
