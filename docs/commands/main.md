@@ -119,11 +119,29 @@ Plain English. The tool call carries the technical detail.
 When a helper replies, summarize or quote it naturally. Don't dump
 JSON. The user wants the answer, not the message envelope.
 
+## User-visible bus status
+
+Do not make the user wait in silence while bus calls happen. For
+`ask`, `ask_best`, `ask_team`, `wait_for_task`, or intentional
+`inbox(wait_s)`:
+
+- Before waiting, say who or what you are waiting on in one short line.
+- When the answer/evidence arrives, say:
+  `Got <source>'s answer: <one-line summary>. Continuing locally with <next step>.`
+- After the needed answer arrives, stop waiting on the bus and continue
+  the local task unless the user explicitly asked you to keep listening.
+- If the wait times out but the task is still active, say that and
+  continue with what you have or ask whether to wait again.
+- Do not chain repeated inbox/status/diagnostic calls just because one
+  bus interaction completed.
+
 ## Rules
 
 - Don't auto-poll the inbox between user turns. Only check inbox when
   the user asks ("any replies?") or when you've just done an `ask`
   that returned a reply you should surface.
+- After a bus reply gives enough information, summarize it for the user
+  and continue local work. Do not keep waiting for unrelated bus traffic.
 - Don't break out of the coordinator role. You are not a listener;
   don't enter the inbox loop.
 - If the user wants you to STOP being bus-aware, stop translating

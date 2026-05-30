@@ -384,6 +384,7 @@ Your job:
 - use send_team only for discussion/FYI; use delegate_team when a team assignment must appear on team-board, kanban, or done views
 - use wait_for_task for long-running work and task_result before verification or handoff
 - use inbox_status/message_status/why_no_reply to diagnose delivery before assuming an agent ignored a message
+- after a bus answer arrives, tell me what came back and continue locally; do not keep waiting on unrelated bus messages
 - record build/lint/test evidence with record_test_result
 - use session_brief at start and review_gate/final_report before commit/push
 - cancel superseded work with cancel_task instead of leaving it active

@@ -50,6 +50,11 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 8. **Team is required for agent workflows.** Use a concrete `team` when
    registering and when reading inboxes. If the user did not give a
    team, ask which team to join before registering.
+9. **Surface bus progress to the user.** Before a blocking bus wait,
+   say who/what you are waiting on. When the needed answer arrives,
+   summarize it and continue local work. Do not keep polling for
+   unrelated bus messages unless the user explicitly asked you to keep
+   listening.
 
 ## Tool reference
 
@@ -626,6 +631,11 @@ Use `wait_for_task({ task_id, wait_s })` when you need to block for task
 activity. It returns the same evidence bundle plus `timed_out`, holder,
 latest event/message/test result, and suggested next actions.
 
+After `ask`, `ask_best`, `ask_team`, `wait_for_task`, or intentional
+`inbox(wait_s)`, give the user a visible status update. Once you have
+the information needed for the current step, stop waiting on the bus and
+continue the local task in your own session.
+
 ### final_report
 
 Generate implemented / not implemented / risks / tests / manual checks
@@ -881,6 +891,8 @@ broader views or capability routing.
   Claude reasoning. Use the max `wait_s=110`.
 - Don't narrate empty timeouts. When inbox returns an empty array,
   silently re-call.
+- Don't keep calling inbox/status/diagnostic tools after the reply you
+  needed has arrived. Tell the user what arrived and continue locally.
 - Don't `send` a reply to an ask — use `reply`, otherwise the asker
   doesn't unblock.
 - Don't make up `from` names. Use the name you `register`ed.

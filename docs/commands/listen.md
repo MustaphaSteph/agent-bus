@@ -49,6 +49,9 @@ If the user or session prompt gives you a concrete team, pass that same
   - If `kind == "ask"`, call `reply(from="$ARGUMENTS", ask_id=<id>, answer=<answer>)`.
   - Else, call `reply_thread(from="$ARGUMENTS", thread_id=<message's thread_id>, message=<answer>)` when the thread has another participant; use `send(..., thread_id=<message's thread_id>)` if you must target a specific sender.
   - Output ONE compact line: `← from "<truncated>"  → answered "<truncated>"`.
+  - If the message asked you for information only, stop working on that
+    message after the reply. Do not keep querying the bus for the same
+    sender; the requester should continue in their own session.
   - Immediately call `inbox(team=<team>, wait_s=110)` again.
 
 ## Hard rules

@@ -142,6 +142,31 @@ Not:
 When a reply lands, render it in plain English for the user. Don't
 dump JSON. The user wants the answer, not the message envelope.
 
+## User-visible bus status
+
+Do not leave the user staring at a silent bus wait. When you call
+`ask`, `ask_best`, `ask_team`, `wait_for_task`, or intentional
+`inbox(wait_s)` in an active user-facing session:
+
+- Before waiting, say who or what you are waiting on in one short line.
+- When the answer or task evidence arrives, immediately say:
+  `Got <source>'s answer: <one-line summary>. Continuing locally with <next step>.`
+- After receiving the needed answer, stop waiting on the bus. Continue
+  the local task in this session unless the user explicitly asked you to
+  keep listening.
+- If the wait times out but diagnostics show the task is still active,
+  say that clearly: `No reply yet, but task #N is still active; I will
+  continue with what I have / check again only if needed.`
+- Do not chain repeated `inbox`, `inbox_status`, `message_status`, or
+  `why_no_reply` calls just because one bus interaction completed.
+
+Example:
+
+```text
+Asking verifier for the export risk check.
+Got verifier's answer: the main risk is canvas scale parity. Continuing locally by updating the test plan.
+```
+
 ## Project, area, and team addressing
 
 By name still works (`send` / `ask` are direct addressed). `ask_best`,
@@ -208,6 +233,9 @@ create roles, prompts, or behavior rules.
   invent new task states for phases; keep the state machine stable.
 - Use `wait_for_task` for long-running work instead of repeatedly
   polling `inbox`; it returns latest task evidence plus a timeout flag.
+- After a bus reply or task update gives enough information to proceed,
+  summarize what arrived and continue your local work. Do not keep
+  waiting for unrelated bus messages.
 - Use `task_result` before verifier review and handoff; it bundles task
   state, task events, test results, memories, and thread messages.
 - Use memory intentionally: `remember(kind="decision")` for settled
@@ -241,6 +269,8 @@ within that scope when tools receive the team filter.
 - Do not auto-poll the inbox between user turns. Only check inbox when
   the user asks ("any replies?") or after an `ask` that returns one
   you should surface.
+- Do not keep calling bus tools after you got the answer needed for the
+  current step. Tell the user what arrived, then continue the local task.
 - Do not enter a listener loop. You are not a worker; you are the
   driver. (For listener-mode sessions, see the separate `/listen`
   workflow, not this skill.)
