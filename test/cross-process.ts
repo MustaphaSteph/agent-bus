@@ -99,6 +99,21 @@ assert.match(chatLog.stdout, /team chat chat-demo/);
 assert.match(chatLog.stdout, /hello team chat/);
 console.log("✓ team-chat sends and reads team-scoped messages");
 
+await run(["register", "--name", "preview-pm", "--team", "preview-demo", "--project", "preview-demo", "--capabilities", "coordination", "--replace"]);
+await run(["register", "--name", "preview-worker", "--team", "preview-demo", "--project", "preview-demo", "--capabilities", "implementation", "--replace"]);
+const hugeBody = "large-body-".repeat(2000);
+await run(["inject", "--from", "preview-pm", "--to", "preview-worker", hugeBody]);
+const previews = await run(["inbox-previews", "--agent", "preview-worker", "--preview-chars", "24"]);
+assert.match(previews.stdout, /len=22000/);
+assert.match(previews.stdout, /truncated/);
+assert.match(previews.stdout, /large-body-large-body-/);
+const previewMessageId = previews.stdout.match(/#(\d+)/)?.[1];
+assert.ok(previewMessageId, `expected preview message id in output: ${previews.stdout}`);
+const messagePreview = await run(["message", previewMessageId, "--no-content"]);
+assert.match(messagePreview.stdout, /len=22000/);
+assert.match(messagePreview.stdout, /Next:/);
+console.log("✓ inbox-previews and message avoid dumping large inbox bodies");
+
 await run(["register", "--name", "dash-pm", "--team", "dash-demo", "--project", "dash-demo", "--capabilities", "coordination", "--replace"]);
 await run(["register", "--name", "dash-worker", "--team", "dash-demo", "--project", "dash-demo", "--capabilities", "implementation", "--replace"]);
 const dashDelegated = await run([

@@ -68,6 +68,12 @@ export interface Message {
   priority: MessagePriority;
 }
 
+export interface MessagePreview extends Omit<Message, "content"> {
+  content_preview: string;
+  content_length: number;
+  truncated: boolean;
+}
+
 export interface Subscription {
   channel: string;
   agent: string;
@@ -147,6 +153,25 @@ function toMessage(row: MessageRow): Message {
     area: row.area,
     team: row.team,
     priority: row.priority,
+  };
+}
+
+function previewContent(content: string, previewChars: number): { content_preview: string; content_length: number; truncated: boolean } {
+  const contentLength = content.length;
+  const truncated = contentLength > previewChars;
+  return {
+    content_preview: truncated ? content.slice(0, previewChars) : content,
+    content_length: contentLength,
+    truncated,
+  };
+}
+
+function toMessagePreview(row: MessageRow, previewChars = 300): MessagePreview {
+  const message = toMessage(row);
+  const { content, ...withoutContent } = message;
+  return {
+    ...withoutContent,
+    ...previewContent(content, Math.min(Math.max(previewChars, 0), 4000)),
   };
 }
 
@@ -590,6 +615,15 @@ export interface InboxOptions {
   claim_s?: number;
 }
 
+export interface InboxPreviewOptions {
+  agent: string;
+  team?: string;
+  since_id?: number;
+  limit?: number;
+  wait_s?: number;
+  preview_chars?: number;
+}
+
 export async function inbox(opts: InboxOptions): Promise<Message[]> {
   validateName(opts.agent);
   if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
@@ -606,6 +640,27 @@ export async function inbox(opts: InboxOptions): Promise<Message[]> {
     await sleep(POLL_INTERVAL_MS);
     heartbeat(opts.agent);
     const fresh = readInbox(opts);
+    if (fresh.length > 0) return fresh;
+  }
+  return [];
+}
+
+export async function inboxPreviews(opts: InboxPreviewOptions): Promise<MessagePreview[]> {
+  validateName(opts.agent);
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
+  const agent = requireAgent(opts.agent);
+  heartbeat(opts.agent);
+  if (agent.paused) return [];
+
+  const immediate = readInboxPreviews(opts);
+  if (immediate.length > 0 || !opts.wait_s) return immediate;
+
+  const waitMs = Math.min(opts.wait_s, MAX_INBOX_WAIT_S) * 1000;
+  const deadline = now() + waitMs;
+  while (now() < deadline) {
+    await sleep(POLL_INTERVAL_MS);
+    heartbeat(opts.agent);
+    const fresh = readInboxPreviews(opts);
     if (fresh.length > 0) return fresh;
   }
   return [];
@@ -672,6 +727,67 @@ function readInbox(opts: InboxOptions): Message[] {
   }
 
   return rows.map(toMessage);
+}
+
+function readInboxPreviews(opts: InboxPreviewOptions): MessagePreview[] {
+  const db = getDb();
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const since = opts.since_id ?? 0;
+  const ts = now();
+  const teamFilter = opts.team !== undefined && opts.team !== TEAM_WILDCARD ? opts.team : null;
+  const where = [
+    "to_agent = ?",
+    "id > ?",
+    "status = 'pending'",
+    "(claim_deadline IS NULL OR claim_deadline < ?)",
+  ];
+  const params: unknown[] = [opts.agent, since, ts];
+  if (teamFilter !== null) {
+    where.push("team = ?");
+    params.push(teamFilter);
+  }
+  const rows = db
+    .prepare(
+      `SELECT * FROM messages
+         WHERE ${where.join("\n           AND ")}
+         ORDER BY CASE priority
+           WHEN 'urgent' THEN 3
+           WHEN 'high' THEN 2
+           WHEN 'normal' THEN 1
+           ELSE 0
+         END DESC, id ASC
+         LIMIT ?`,
+    )
+    .all(...params, limit) as MessageRow[];
+  return rows.map((row) => toMessagePreview(row, opts.preview_chars));
+}
+
+export interface GetMessageOptions {
+  message_id: number;
+  preview_chars?: number;
+  include_content?: boolean;
+}
+
+export interface GetMessageResult {
+  message: Message | MessagePreview;
+  full_content_included: boolean;
+  suggested_next_actions: string[];
+}
+
+export function getMessage(opts: GetMessageOptions): GetMessageResult {
+  const row = getMessageRow(opts.message_id);
+  const previewOnly = opts.include_content === false || opts.preview_chars !== undefined;
+  const message = previewOnly ? toMessagePreview(row, opts.preview_chars) : toMessage(row);
+  return {
+    message,
+    full_content_included: !previewOnly,
+    suggested_next_actions: [
+      row.kind === "ask"
+        ? `answer with reply(from=<you>, ask_id=${row.id}, answer=...)`
+        : `this is kind=${row.kind}; continue the conversation with reply_thread(thread_id="${row.thread_id ?? ""}", ...) or send(..., thread_id="${row.thread_id ?? ""}")`,
+      row.thread_id ? `read related context with thread(thread_id="${row.thread_id}")` : "message has no thread id",
+    ],
+  };
 }
 
 export interface AckOptions {
@@ -879,7 +995,11 @@ export function reply(opts: ReplyOptions): Message {
     .prepare("SELECT * FROM messages WHERE id = ? AND kind = 'ask'")
     .get(opts.ask_id) as MessageRow | undefined;
   if (!askRow) {
-    throw new BusError("ASK_NOT_FOUND", `no ask with id ${opts.ask_id}`);
+    const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(opts.ask_id) as MessageRow | undefined;
+    const hint = row
+      ? `message #${opts.ask_id} is kind='${row.kind}', not kind='ask'; use reply_thread(thread_id='${row.thread_id ?? ""}', ...) or send(..., thread_id='${row.thread_id ?? ""}') for non-ask messages`
+      : `no message with id ${opts.ask_id}; check inbox_previews or get_message for the correct id`;
+    throw new BusError("ASK_NOT_FOUND", `no pending ask with id ${opts.ask_id}. ${hint}`);
   }
   if (askRow.to_agent !== opts.from) {
     throw new BusError(

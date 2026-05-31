@@ -25,8 +25,10 @@ import {
   delegateTeam,
   directory,
   finalReport,
+  getMessage,
   getTask,
   inbox,
+  inboxPreviews,
   inboxStatus,
   listTaskEvents,
   listTasks,
@@ -127,9 +129,24 @@ const InboxInput = z.object({
   claim_s: z.number().int().positive().max(3600).optional(),
 });
 
+const InboxPreviewsInput = z.object({
+  agent: z.string().min(1),
+  team: TeamFilterField,
+  since_id: z.number().int().nonnegative().optional(),
+  limit: z.number().int().positive().max(100).optional(),
+  wait_s: z.number().int().positive().max(110).optional(),
+  preview_chars: z.number().int().nonnegative().max(4000).optional(),
+});
+
 const AckInput = z.object({
   agent: z.string().min(1),
   message_id: z.number().int().positive(),
+});
+
+const GetMessageInput = z.object({
+  message_id: z.number().int().positive(),
+  preview_chars: z.number().int().nonnegative().max(4000).optional(),
+  include_content: z.boolean().optional(),
 });
 
 const AskInput = z.object({
@@ -646,6 +663,48 @@ const TOOLS = [
         limit: { type: "number", description: "Maximum rows per section (default 20, cap 100)" },
       },
       required: ["agent"],
+    },
+  },
+  {
+    name: "inbox_previews",
+    description:
+      "Preview pending inbox messages without consuming them and without returning full message bodies. " +
+      "Use this before inbox when the inbox may contain huge messages that could truncate the tool result.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "Registered agent name" },
+        team: {
+          type: "string",
+          description:
+            "Optional team filter. Pass a concrete team to preview only that team's pending inbox rows; pass '*' for all teams.",
+        },
+        since_id: { type: "number", description: "Only preview messages with id > this" },
+        limit: { type: "number", description: "Max previews to return (default 20, cap 100)" },
+        wait_s: { type: "number", description: "Block up to N seconds for a pending message (max 110)" },
+        preview_chars: { type: "number", description: "Max content preview chars per message (default 300, cap 4000)" },
+      },
+      required: ["agent"],
+    },
+  },
+  {
+    name: "get_message",
+    description:
+      "Fetch one exact message by id. Use include_content:false or preview_chars to avoid returning a huge body.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message_id: { type: "number", description: "Message id to fetch" },
+        preview_chars: {
+          type: "number",
+          description: "Return a preview with at most this many content chars instead of full content",
+        },
+        include_content: {
+          type: "boolean",
+          description: "Set false to return metadata and content preview only",
+        },
+      },
+      required: ["message_id"],
     },
   },
   {
@@ -1652,8 +1711,12 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
     }
     case "inbox":
       return inbox(InboxInput.parse(raw));
+    case "inbox_previews":
+      return inboxPreviews(InboxPreviewsInput.parse(raw));
     case "inbox_status":
       return inboxStatus(InboxStatusInput.parse(raw));
+    case "get_message":
+      return getMessage(GetMessageInput.parse(raw));
     case "ack":
       return ack(AckInput.parse(raw));
     case "ask":

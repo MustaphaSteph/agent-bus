@@ -100,7 +100,8 @@ inbox({ agent: "alpha", wait_s: 110, claim_s: 300 })
 
 Inspect an inbox without consuming messages. Use this when a coordinator
 needs to distinguish "nothing unread" from "claimed/in flight" or "last
-message already delivered".
+message already delivered". If message bodies may be huge, use
+`inbox_previews` instead so the tool result stays small.
 
 ```ts
 inbox_status({
@@ -115,6 +116,44 @@ inbox_status({
   last_message: Message | null,
   next_claim_deadline: number | null,
   summary: string,
+}
+```
+
+## inbox_previews
+
+Preview pending inbox messages without consuming them and without
+returning full message bodies. Use this before `inbox` when a worker may
+have large messages queued.
+
+```ts
+inbox_previews({
+  agent: string,
+  team?: string,               // concrete team only; "*" means all teams
+  since_id?: number,
+  wait_s?: number,             // block up to N seconds for first arrival (max 110)
+  limit?: number,              // default 20, max 100
+  preview_chars?: number,      // default 300, max 4000
+}) -> MessagePreview[]
+```
+
+`MessagePreview` has the same metadata as `Message`, but replaces
+`content` with `content_preview`, `content_length`, and `truncated`.
+
+## get_message
+
+Fetch one exact message by id. For huge messages, pass
+`include_content:false` or `preview_chars` first, then fetch the full
+content only when you really need it.
+
+```ts
+get_message({
+  message_id: number,
+  include_content?: boolean,   // false returns a preview instead of full content
+  preview_chars?: number,      // also returns a preview
+}) -> {
+  message: Message | MessagePreview,
+  full_content_included: boolean,
+  suggested_next_actions: string[],
 }
 ```
 
@@ -207,6 +246,11 @@ reply({
 ```
 
 **Errors**: `ASK_NOT_FOUND`, `INVALID_INPUT` (wrong agent).
+
+`reply` only answers `kind: "ask"` messages. If you received a normal
+`kind: "msg"` inbox item, use `reply_thread(thread_id=...)` or
+`send(..., thread_id=...)` instead. `ASK_NOT_FOUND` includes that
+fallback hint when the id belongs to a non-ask message.
 
 ```js
 reply({ from: "beta", ask_id: 42, answer: "4" })
@@ -1055,7 +1099,12 @@ const reply = await ask({ from: "me", to: "you", question: "..." })
 
 ```js
 while (true) {
-  const msgs = await inbox({ agent: "me", wait_s: 110 })
+  const previews = await inbox_previews({ agent: "me", wait_s: 110 })
+  if (previews.some((m) => m.truncated)) {
+    // Use get_message({ include_content:false }) or ask for a file path/artifact
+    // before pulling a huge body into the model context.
+  }
+  const msgs = await inbox({ agent: "me", wait_s: 110, limit: 1 })
   for (const m of msgs) {
     const answer = handle(m)
     if (m.kind === "ask") reply({ from: "me", ask_id: m.id, answer })

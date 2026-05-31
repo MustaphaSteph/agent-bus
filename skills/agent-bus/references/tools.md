@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 60 MCP tools. All return JSON.
+doesn't cover in detail. There are 62 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -100,6 +100,29 @@ until you intentionally read all teams.
 Use `inbox_status` when you need to inspect unread/claimed/recent
 delivery state without consuming anything.
 
+Use `inbox_previews` when the inbox may contain huge content:
+
+```ts
+inbox_previews({
+  agent: string,
+  team?: string | "*",
+  since_id?: number,
+  wait_s?: number,
+  limit?: number,
+  preview_chars?: number,
+}) -> MessagePreview[]
+
+get_message({
+  message_id: number,
+  include_content?: boolean,
+  preview_chars?: number,
+}) -> { message: Message | MessagePreview, full_content_included: boolean, suggested_next_actions: string[] }
+```
+
+`MessagePreview` replaces `content` with `content_preview`,
+`content_length`, and `truncated`. Use it to avoid tool-result
+truncation; fetch full content only for one exact message when needed.
+
 ## Request / Response
 
 ### ask / ask_best / reply / reply_thread
@@ -145,6 +168,8 @@ agents. Use wildcards only for deliberate cross-project/cross-area/team work.
 Use `reply_thread` when continuing a conversation and the recipient is
 obvious from thread history. Use `message_status`/`why_no_reply` before
 guessing that an agent ignored an ask.
+Only call `reply` for inbox messages where `kind === "ask"`. For
+`kind === "msg"`, use `reply_thread` or `send(..., thread_id=...)`.
 
 ## Channels
 
@@ -588,7 +613,7 @@ review_gate({ project?: string | "*", area?: string | "*" }) -> {
 | `NAME_TAKEN` | Use `replace: true` intentionally or pick a new name |
 | `ASK_TIMEOUT` | Switch to `send`, increase readiness, or nudge the recipient |
 | `ASK_CYCLE` | Resolve the other side's pending ask first |
-| `ASK_NOT_FOUND` | Check the id; the ask may already be answered |
+| `ASK_NOT_FOUND` | Check the id and message kind; use `reply_thread` for non-ask messages |
 | `TASK_NOT_FOUND` | Verify with `list_tasks` |
 | `TASK_NOT_CLAIMABLE` | Task is already claimed or not open |
 | `TASK_INVALID_TRANSITION` | Check current task state and allowed transitions |

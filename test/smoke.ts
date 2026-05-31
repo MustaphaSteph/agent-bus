@@ -22,11 +22,13 @@ const {
   delegateTeam,
   directory,
   finalReport,
+  getMessage,
   getTask,
   ask,
   askBest,
   askTeam,
   inbox,
+  inboxPreviews,
   inboxStatus,
   listTasks,
   listTaskEvents,
@@ -195,6 +197,30 @@ await test("very large messages are accepted", async () => {
   const found = got.find((m) => m.id === sent.id);
   assert.ok(found, "expected large message to land in inbox");
   assert.equal(found.content.length, big.length);
+});
+
+await test("inbox_previews and get_message avoid pulling full large bodies", async () => {
+  const big = "abcdef".repeat(200_000);
+  const sent = send({ from: "alice", to: "bob", content: big, thread_id: "t_large_preview" });
+  const previews = await inboxPreviews({ agent: "bob", limit: 1, preview_chars: 12 });
+  const preview = previews.find((m) => m.id === sent.id);
+  assert.ok(preview);
+  assert.equal(preview.content_preview, "abcdefabcdef");
+  assert.equal(preview.content_length, big.length);
+  assert.equal(preview.truncated, true);
+  assert.ok(!("content" in preview));
+
+  const fetchedPreview = getMessage({ message_id: sent.id, include_content: false });
+  assert.equal(fetchedPreview.full_content_included, false);
+  assert.ok(!("content" in fetchedPreview.message));
+
+  const fetchedFull = getMessage({ message_id: sent.id });
+  assert.equal(fetchedFull.full_content_included, true);
+  assert.ok("content" in fetchedFull.message);
+  if ("content" in fetchedFull.message) assert.equal(fetchedFull.message.content.length, big.length);
+
+  const stillPending = await inbox({ agent: "bob", limit: 1 });
+  assert.ok(stillPending.some((m) => m.id === sent.id), "preview should not consume message");
 });
 
 await test("paused agent gets empty inbox; resume restores", async () => {
@@ -407,6 +433,19 @@ await test("reply_thread continues with the last other participant", async () =>
   assert.equal(sent.thread_id, tid);
   const rows = await inbox({ agent: "bob" });
   assert.ok(rows.some((m) => m.id === sent.id));
+});
+
+await test("reply to non-ask explains reply_thread fallback", async () => {
+  const msg = send({ from: "alice", to: "bob", content: "normal message", thread_id: "t_non_ask_reply" });
+  assert.throws(
+    () => reply({ from: "bob", ask_id: msg.id, answer: "not valid" }),
+    (e: unknown) =>
+      e instanceof BusError
+      && e.code === "ASK_NOT_FOUND"
+      && e.message.includes("kind='msg'")
+      && e.message.includes("reply_thread"),
+  );
+  await inbox({ agent: "bob", limit: 1 });
 });
 
 await test("subscribe + send_channel fans out to subscribers", () => {

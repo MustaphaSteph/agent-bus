@@ -325,6 +325,28 @@ The output separates unread, claimed/in-flight, and recent delivered
 messages, so coordinators can see whether an agent has no work, has a
 claimed message, or already consumed the last message.
 
+### `agent-bus inbox-previews`
+
+Preview unread inbox messages without consuming them or printing full
+bodies. This is the safe first command when an inbox may contain a huge
+brief.
+
+```bash
+agent-bus inbox-previews --agent worker-a
+agent-bus inbox-previews --agent worker-a --team frontend --preview-chars 200
+agent-bus inbox-previews --agent worker-a --wait-s 110
+```
+
+### `agent-bus message`
+
+Fetch one message by id. Use previews for large content.
+
+```bash
+agent-bus message 45
+agent-bus message 45 --no-content
+agent-bus message 45 --preview-chars 500
+```
+
 ### Agent state and reports
 
 ```bash
@@ -358,6 +380,8 @@ agent-bus task-done 12 --by worker-a --result "implemented and tests passed"
 agent-bus task-event 12 --list
 agent-bus task-result 12
 agent-bus wait-task 12 --wait-s 110
+agent-bus inbox-previews --agent worker-a --team ios-ui
+agent-bus message 45 --no-content
 agent-bus message-status 45
 agent-bus why-no-reply 45
 agent-bus reply-thread t_abc123 --from coordinator --message "continue from here"

@@ -1,6 +1,6 @@
 ---
 description: Make this Claude session bus-aware as the coordinator. Talks to other agents on the bus via natural language.
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__send_team, mcp__agent-bus__ask_team, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__team_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__record_task_event, mcp__agent-bus__list_task_events, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__activity, mcp__agent-bus__cockpit, mcp__agent-bus__now, mcp__agent-bus__final_report, mcp__agent-bus__review_gate, mcp__agent-bus__inbox_status, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__delegate, mcp__agent-bus__delegate_team, mcp__agent-bus__wait_for_task
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__send, mcp__agent-bus__ask, mcp__agent-bus__ask_best, mcp__agent-bus__send_team, mcp__agent-bus__ask_team, mcp__agent-bus__reply, mcp__agent-bus__inbox, mcp__agent-bus__whois, mcp__agent-bus__directory, mcp__agent-bus__wait_for_agents, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__subscribe, mcp__agent-bus__send_channel, mcp__agent-bus__create_task, mcp__agent-bus__claim_task, mcp__agent-bus__assign_task, mcp__agent-bus__claim_best_task, mcp__agent-bus__update_task, mcp__agent-bus__release_task, mcp__agent-bus__list_tasks, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__submit_review, mcp__agent-bus__handoff_task, mcp__agent-bus__check_scope_conflicts, mcp__agent-bus__project_board, mcp__agent-bus__team_board, mcp__agent-bus__record_test_result, mcp__agent-bus__list_test_results, mcp__agent-bus__record_task_event, mcp__agent-bus__list_task_events, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__set_agent_status, mcp__agent-bus__sleep_agent, mcp__agent-bus__wake_agent, mcp__agent-bus__record_decision, mcp__agent-bus__list_decisions, mcp__agent-bus__remember, mcp__agent-bus__list_memories, mcp__agent-bus__pin_memory, mcp__agent-bus__unpin_memory, mcp__agent-bus__session_brief, mcp__agent-bus__activity, mcp__agent-bus__cockpit, mcp__agent-bus__now, mcp__agent-bus__final_report, mcp__agent-bus__review_gate, mcp__agent-bus__inbox_status, mcp__agent-bus__inbox_previews, mcp__agent-bus__get_message, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__delegate, mcp__agent-bus__delegate_team, mcp__agent-bus__wait_for_task
 ---
 
 You are now the **coordinator** session on the local `agent-bus`. Your
@@ -43,6 +43,7 @@ patterns:
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=…, message=…)` |
 | "Show team chat" / "watch the <team> conversation" | Use `recent(team=…)` and render only that team scope; if using the CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch` |
 | "Listen only to this team" / "check this team inbox" | `inbox_status(agent="$ARGUMENTS", team=…)` for diagnostics; `inbox(agent="$ARGUMENTS", team=…, wait_s=110)` only when intentionally processing |
+| "Inbox is too large" / "message got truncated" | `inbox_previews(agent="$ARGUMENTS", team=…)`, then `get_message(message_id=…, include_content=false)` or fetch one exact message only when needed |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user it's been dispatched. |
 | "Ask <specific name> to do X" | `ask(from="$ARGUMENTS", to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from="$ARGUMENTS", to="<specific name>", message=…)` |
@@ -159,6 +160,13 @@ Do not make the user wait in silence while bus calls happen. For
 - Team chat is discussion history, not tracked work. Use `recent(team=…)`
   or `agent-bus team-chat --team <team>` for conversation; use
   `delegate_team`, `team_board`, `kanban`, and `done` for tasks.
+- If inbox output is too large, use `inbox_previews` and
+  `get_message(include_content=false)` before fetching a full message.
+  For very large briefs, ask the sender to use a file path or task
+  artifact reference instead of a giant chat payload.
+- `reply` only answers `kind="ask"`. For normal `kind="msg"` inbox
+  rows, use `reply_thread(thread_id=...)` or
+  `send(..., thread_id=...)`.
 - Use `activity` to answer "what happened?", `cockpit` to answer
   "what needs attention?", and `now` to update your own current work
   without inventing ad hoc status messages.

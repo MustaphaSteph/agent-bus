@@ -1,6 +1,6 @@
 ---
 description: Enter listener mode on agent-bus — sit and wait for messages from other sessions
-allowed-tools: mcp__agent-bus__register, mcp__agent-bus__inbox, mcp__agent-bus__send, mcp__agent-bus__reply, mcp__agent-bus__ack, mcp__agent-bus__subscribe, mcp__agent-bus__whois, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__update_task, mcp__agent-bus__submit_review, mcp__agent-bus__record_test_result, mcp__agent-bus__record_task_event, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__handoff_task, Bash(agent-bus mark-listening:*), mcp__agent-bus__inbox_status, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__wait_for_task
+allowed-tools: mcp__agent-bus__register, mcp__agent-bus__inbox, mcp__agent-bus__send, mcp__agent-bus__reply, mcp__agent-bus__ack, mcp__agent-bus__subscribe, mcp__agent-bus__whois, mcp__agent-bus__recent, mcp__agent-bus__thread, mcp__agent-bus__get_task, mcp__agent-bus__acknowledge_task, mcp__agent-bus__update_task, mcp__agent-bus__submit_review, mcp__agent-bus__record_test_result, mcp__agent-bus__record_task_event, mcp__agent-bus__task_result, mcp__agent-bus__cancel_task, mcp__agent-bus__handoff_task, Bash(agent-bus mark-listening:*), mcp__agent-bus__inbox_status, mcp__agent-bus__inbox_previews, mcp__agent-bus__get_message, mcp__agent-bus__reply_thread, mcp__agent-bus__message_status, mcp__agent-bus__why_no_reply, mcp__agent-bus__wait_for_task
 ---
 
 !agent-bus mark-listening --session "$CLAUDE_SESSION_ID" --agent "$ARGUMENTS" 2>/dev/null || true
@@ -32,6 +32,10 @@ If the user or session prompt gives you a concrete team, pass that same
 
 - **Non-empty array returned** → for each message in order:
   - Do the minimum work required to answer.
+  - If the message body is too large or appears truncated, use
+    `inbox_previews` / `get_message(include_content=false)` to inspect
+    metadata first. Ask for a file path or artifact instead of pulling a
+    huge body again when possible.
   - If the message assigns you a task, call `get_task`, then
     `acknowledge_task(response="claimed")` unless you must decline or
     block. Respect `mode` and `file_scope`.
@@ -61,3 +65,6 @@ If the user or session prompt gives you a concrete team, pass that same
 - Do not break the loop. Only exit when the user types "stop listening", "exit listener", or interrupts you.
 - If a sender's request requires destructive action (rm, git push, drop table, send email, etc.), pause and ask the user in this terminal before acting.
 - When replying via `send`, always pass the original message's `thread_id` so the conversation stays threaded.
+- Never call `reply` for a normal `kind="msg"` message. `reply` is only
+  for `kind="ask"`; use `reply_thread` or `send(..., thread_id=...)`
+  for non-ask messages.

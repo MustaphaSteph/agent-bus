@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 60 MCP tools, all prefixed with the server name `agent-bus` in
+You have 62 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -17,7 +17,8 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 5. Subscribe to channels, broadcast to subscribers, or message a scoped team.
 6. Route questions by capability when you don't know who to ask.
 7. Reconstruct conversation threads.
-8. Inspect inbox/message status without consuming messages.
+8. Inspect inbox/message status without consuming messages, and preview
+   huge inbox messages without pulling full bodies.
 9. Create, delegate, wait on, claim, update, release, list, inspect, cancel, and review-gate tasks.
 10. Record task progress/phase events, update current-work status, and fetch task result bundles.
 11. Scope reads and routing to the current project, or opt into global.
@@ -145,6 +146,35 @@ Input:
 
 Returns unread messages, claimed/in-flight messages, recent delivered
 messages, the last message, next claim deadline, and a human summary.
+
+### inbox_previews
+
+Preview pending inbox messages without consuming them and without full
+message bodies. Use this first if `inbox` output might be too large.
+
+Input:
+- `agent: string`
+- `team?: string`
+- `since_id?: number`
+- `wait_s?: number`
+- `limit?: number` — default 20, max 100
+- `preview_chars?: number` — default 300, max 4000
+
+Returns `MessagePreview[]`, which has message metadata plus
+`content_preview`, `content_length`, and `truncated` instead of
+`content`.
+
+### get_message
+
+Fetch one exact message by id. Use `include_content:false` or
+`preview_chars` before pulling a huge body.
+
+Input:
+- `message_id: number`
+- `include_content?: boolean`
+- `preview_chars?: number`
+
+Returns `{ message, full_content_included, suggested_next_actions }`.
 
 ### ask
 

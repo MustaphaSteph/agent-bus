@@ -12,8 +12,10 @@ import {
   directory,
   finalReport,
   handoffTask,
+  getMessage,
   getTask,
   inbox,
+  inboxPreviews,
   inboxStatus,
   listDecisions,
   listMemories,
@@ -428,6 +430,32 @@ program
     console.log(formatList(status.in_flight.map((message) => `#${message.id} claimed_by=${message.claimed_by ?? "-"} until=${message.claim_deadline ?? "-"}`)));
     console.log(kleur.bold("Delivered recent:"));
     console.log(formatList(status.delivered_recent.map((message) => `#${message.id} [${message.status}] ${message.from_agent}: ${message.content}`)));
+  });
+
+program
+  .command("inbox-previews")
+  .description("Preview unread inbox messages without consuming them or printing full bodies")
+  .requiredOption("--agent <name>", "agent inbox to inspect")
+  .option("--team <name>", "only inspect messages for this team (use 'all' for every team)")
+  .option("--since-id <id>", "only preview messages with id > this")
+  .option("-n, --last <count>", "maximum previews", "20")
+  .option("--wait-s <seconds>", "block up to N seconds for a message")
+  .option("--preview-chars <count>", "max content preview chars per message", "300")
+  .option("--json", "print raw JSON")
+  .action(async (opts: { agent: string; team?: string; sinceId?: string; last: string; waitS?: string; previewChars: string; json?: boolean }) => {
+    const previews = await inboxPreviews({
+      agent: opts.agent,
+      team: normalizeTeamOption(opts.team),
+      since_id: opts.sinceId ? Number(opts.sinceId) : undefined,
+      limit: Number(opts.last),
+      wait_s: opts.waitS ? Number(opts.waitS) : undefined,
+      preview_chars: Number(opts.previewChars),
+    });
+    if (opts.json === true) {
+      console.log(JSON.stringify(previews, null, 2));
+      return;
+    }
+    console.log(formatList(previews.map((message) => `#${message.id} ${message.from_agent} ${message.kind} len=${message.content_length}${message.truncated ? " truncated" : ""}: ${message.content_preview}`)));
   });
 
 program
@@ -940,6 +968,33 @@ program
     console.log(formatMessage(result.message));
     console.log(kleur.bold("Diagnostics:"));
     console.log(formatList(result.diagnostics));
+    console.log(kleur.bold("Next:"));
+    console.log(formatList(result.suggested_next_actions));
+  });
+
+program
+  .command("message <message-id>")
+  .description("Fetch one message by id; use --preview-chars or --no-content for large messages")
+  .option("--preview-chars <count>", "return only this many content chars")
+  .option("--no-content", "return metadata and a small preview, not full content")
+  .option("--json", "print raw JSON")
+  .action((messageId: string, opts: { previewChars?: string; content?: boolean; json?: boolean }) => {
+    const result = getMessage({
+      message_id: Number(messageId),
+      preview_chars: opts.previewChars ? Number(opts.previewChars) : undefined,
+      include_content: opts.content,
+    });
+    if (opts.json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    const message = result.message;
+    if ("content" in message) {
+      console.log(formatMessage(message));
+    } else {
+      console.log(`#${message.id} ${message.from_agent} → ${message.to_agent} ${message.kind} [${message.status}] len=${message.content_length}${message.truncated ? " truncated" : ""}`);
+      console.log(message.content_preview);
+    }
     console.log(kleur.bold("Next:"));
     console.log(formatList(result.suggested_next_actions));
   });

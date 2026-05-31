@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.18.0
+  version: 0.19.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 60 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 62 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
@@ -245,6 +245,58 @@ paths:
       responses:
         '200':
           description: Unread, in-flight, delivered-recent, and summary state.
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/inbox_previews:
+    post:
+      tags: [Direct messaging]
+      summary: Preview pending inbox messages without full bodies
+      description: |
+        Returns pending inbox metadata plus bounded content previews
+        without consuming messages. Use before `inbox` when large message
+        bodies could truncate the tool result.
+      operationId: inbox_previews
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboxPreviewsRequest'
+      responses:
+        '200':
+          description: Pending message previews.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MessagePreview'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/get_message:
+    post:
+      tags: [Direct messaging]
+      summary: Fetch one exact message by id
+      description: |
+        Fetches one message. Pass `include_content:false` or
+        `preview_chars` to return metadata and a bounded preview instead
+        of a full potentially huge body.
+      operationId: get_message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetMessageRequest'
+      responses:
+        '200':
+          description: Message or preview plus response guidance.
           content:
             application/json:
               schema:
@@ -1382,6 +1434,68 @@ components:
           type: string
           enum: [low, normal, high, urgent]
 
+    MessagePreview:
+      type: object
+      required:
+        - id
+        - from_agent
+        - to_agent
+        - kind
+        - content_preview
+        - content_length
+        - truncated
+        - status
+        - created_at
+        - thread_id
+      properties:
+        id:
+          type: integer
+          format: int64
+        from_agent:
+          $ref: '#/components/schemas/AgentName'
+        to_agent:
+          $ref: '#/components/schemas/AgentName'
+        kind:
+          $ref: '#/components/schemas/MessageKind'
+        content_preview:
+          type: string
+        content_length:
+          type: integer
+        truncated:
+          type: boolean
+        reply_to:
+          type: [integer, 'null']
+          format: int64
+        status:
+          $ref: '#/components/schemas/MessageStatus'
+        created_at:
+          type: integer
+          format: int64
+        delivered_at:
+          type: [integer, 'null']
+          format: int64
+        replied_at:
+          type: [integer, 'null']
+          format: int64
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        claim_deadline:
+          type: [integer, 'null']
+          format: int64
+        claimed_by:
+          type: [string, 'null']
+        channel:
+          type: [string, 'null']
+        project:
+          type: [string, 'null']
+        area:
+          type: [string, 'null']
+        team:
+          type: [string, 'null']
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+
     Task:
       type: object
       required:
@@ -1622,6 +1736,46 @@ components:
           type: integer
           minimum: 1
           maximum: 100
+
+    InboxPreviewsRequest:
+      type: object
+      required: [agent]
+      additionalProperties: false
+      properties:
+        agent:
+          $ref: '#/components/schemas/AgentName'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+        since_id:
+          type: integer
+          minimum: 0
+        wait_s:
+          type: integer
+          minimum: 1
+          maximum: 110
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+        preview_chars:
+          type: integer
+          minimum: 0
+          maximum: 4000
+
+    GetMessageRequest:
+      type: object
+      required: [message_id]
+      additionalProperties: false
+      properties:
+        message_id:
+          type: integer
+          format: int64
+        include_content:
+          type: boolean
+        preview_chars:
+          type: integer
+          minimum: 0
+          maximum: 4000
 
     AckRequest:
       type: object

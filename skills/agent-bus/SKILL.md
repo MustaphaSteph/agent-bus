@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.18.0
+  - agent-bus-mcp >= 0.19.0
 ---
 
 # agent-bus
@@ -66,6 +66,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=<team>, message=…)` |
 | "Show team chat" / "watch the <team> conversation" | If using CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch`; with MCP, use `recent(team=<team>)` and render only that team scope |
 | "Listen only to my team" / "keep checking this team" | `inbox(agent=<your name>, team=<team>, wait_s=110, claim_s=300)`; use `inbox_status(agent=<your name>, team=<team>)` for non-consuming checks |
+| "Inbox is too large" / "message got truncated" | Use `inbox_previews(agent=<your name>, team=<team>)`, then `get_message(message_id=…, include_content=false)` or fetch one full message only when needed |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
 | "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
@@ -238,6 +239,13 @@ create roles, prompts, or behavior rules.
 - Use `team-chat`/`recent(team=...)` for discussion history and human
   visibility. Use `delegate_team`, `team_board`, `kanban`, and `done`
   for tracked work. A team chat message alone is not a task.
+- If an inbox result is too large or likely to truncate, switch to
+  `inbox_previews` and `get_message(include_content=false)` before
+  reading a full message body. Prefer sending file paths or task
+  artifacts for very large briefs.
+- `reply` is only for `kind="ask"` inbox messages. For normal
+  `kind="msg"` messages, answer with `reply_thread(thread_id=...)` or
+  `send(..., thread_id=...)`; for task assignments, use the task tools.
 - Use `activity` when the user asks what happened recently. Use
   `cockpit` when the user asks what the manager should do next. Use
   `now` for your own current-work updates instead of sending a vague
@@ -300,7 +308,7 @@ within that scope when tools receive the team filter.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 60 MCP tools with input/output shapes
+- `references/tools.md` — the 62 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `send_team`,
   `ask_team`, `team_board`, `assign_task`, `record_decision`,
