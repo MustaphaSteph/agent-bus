@@ -7,7 +7,7 @@
 set -e
 
 MIN_NODE_MAJOR=20
-MIN_AGENT_BUS="0.20.0"
+MIN_AGENT_BUS="0.21.0"
 INSTALL_CLI=0
 
 while [ $# -gt 0 ]; do

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
+import { packageVersion } from "../src/util/package-info.js";
 
 const tmp = mkdtempSync(join(tmpdir(), "agent-bus-xp-"));
 const env = { ...process.env, AGENT_BUS_DIR: tmp };
@@ -141,7 +142,7 @@ const ui = start(["ui", "--no-open", "--port", "8791", "--project", "all", "--ar
 try {
   const stateRes = await waitForUrl("http://127.0.0.1:8791/api/state");
   const state = await stateRes.json() as { version: string; stats: { online: number }; messages: unknown[] };
-  assert.equal(state.version, "0.20.0");
+  assert.equal(state.version, packageVersion());
   assert.ok(Array.isArray(state.messages));
   assert.ok(state.stats.online >= 0);
   const html = await (await waitForUrl("http://127.0.0.1:8791/")).text();
