@@ -3768,6 +3768,212 @@ export function cockpit(opts: SessionBriefOptions = {}): Cockpit {
   };
 }
 
+export interface ScopeTeamSummary {
+  team: string | null;
+  agents_total: number;
+  agents_online: number;
+  active_tasks: number;
+  open_tasks: number;
+  blocked_tasks: number;
+  waiting_review: number;
+  stale_tasks: number;
+  attention: number;
+}
+
+export interface ScopeProjectSummary {
+  project: string | null;
+  agents_total: number;
+  agents_online: number;
+  active_tasks: number;
+  open_tasks: number;
+  blocked_tasks: number;
+  waiting_review: number;
+  stale_tasks: number;
+  attention: number;
+  teams: ScopeTeamSummary[];
+}
+
+export interface ScopesResult {
+  generated_at: number;
+  projects: ScopeProjectSummary[];
+  totals: {
+    projects: number;
+    teams: number;
+    agents: number;
+    agents_online: number;
+    active_tasks: number;
+    attention: number;
+  };
+}
+
+/**
+ * Enumerate the distinct project/team scopes present on the bus, with live
+ * counts, by unioning agents, active tasks, and message history. This is the
+ * one capability the multi-project cockpit needs that scope-filtered reads
+ * (directory/cockpit/listTasks) cannot provide: they require a scope, they do
+ * not discover what scopes exist. Pure read; no scope argument by design.
+ */
+export function scopes(): ScopesResult {
+  const agents = directory({ project: PROJECT_WILDCARD, area: AREA_WILDCARD, team: TEAM_WILDCARD });
+  const tasks = listTasks({
+    project: PROJECT_WILDCARD,
+    area: AREA_WILDCARD,
+    team: TEAM_WILDCARD,
+    include_terminal: false,
+    limit: 500,
+  });
+  const messageScopes = getDb()
+    .prepare("SELECT DISTINCT project, team FROM messages")
+    .all() as Array<{ project: string | null; team: string | null }>;
+
+  // Group by project, then team. null project/team are real scopes ("unscoped"
+  // agents, "unteamed" workers) and must still appear; we key the maps with
+  // sentinels so null buckets group correctly without colliding with a literal.
+  const PROJECT_NULL = "__agent_bus_project_null__";
+  const TEAM_NULL = "__agent_bus_team_null__";
+  const pkey = (p: string | null): string => (p === null ? PROJECT_NULL : `p:${p}`);
+  const tkey = (t: string | null): string => (t === null ? TEAM_NULL : `t:${t}`);
+
+  interface ProjectAcc {
+    project: string | null;
+    teams: Map<string, ScopeTeamSummary>;
+  }
+  const projects = new Map<string, ProjectAcc>();
+
+  const ensureProject = (project: string | null): ProjectAcc => {
+    const key = pkey(project);
+    let acc = projects.get(key);
+    if (acc === undefined) {
+      acc = { project, teams: new Map() };
+      projects.set(key, acc);
+    }
+    return acc;
+  };
+  const ensureTeam = (project: string | null, team: string | null): ScopeTeamSummary => {
+    const acc = ensureProject(project);
+    const key = tkey(team);
+    let summary = acc.teams.get(key);
+    if (summary === undefined) {
+      summary = {
+        team,
+        agents_total: 0,
+        agents_online: 0,
+        active_tasks: 0,
+        open_tasks: 0,
+        blocked_tasks: 0,
+        waiting_review: 0,
+        stale_tasks: 0,
+        attention: 0,
+      };
+      acc.teams.set(key, summary);
+    }
+    return summary;
+  };
+
+  // Seed buckets for every scope that appears in message history, so a team
+  // that has only chat (no current agents or active tasks) still shows up.
+  for (const row of messageScopes) ensureTeam(row.project, row.team);
+
+  for (const agent of agents) {
+    const summary = ensureTeam(agent.project, agent.team);
+    summary.agents_total += 1;
+    if (agent.presence === "online") summary.agents_online += 1;
+  }
+
+  for (const task of tasks) {
+    const summary = ensureTeam(task.project, task.team);
+    const isActive = task.state === "claimed" || task.state === "working";
+    const isOpen = task.state === "open";
+    const isBlocked = task.state === "blocked";
+    const isWaitingReview = task.review_required && task.review_state === "pending";
+    const isStale = task.stale === true;
+    const isWaitingAck =
+      task.ack_required &&
+      task.acknowledged_at === null &&
+      (task.pending_assignee !== null || task.claimed_by !== null);
+    if (isActive) summary.active_tasks += 1;
+    if (isOpen) summary.open_tasks += 1;
+    if (isBlocked) summary.blocked_tasks += 1;
+    if (isWaitingReview) summary.waiting_review += 1;
+    if (isStale) summary.stale_tasks += 1;
+    // Count attention items the same way the cockpit board does: one point per
+    // condition, so the rail badge matches the rows shown in the Attention view
+    // (a single task can be both stale and pending-review). Scope conflicts are
+    // the one board attention source not counted here — computing them needs a
+    // cross-task check per task, too costly for this discovery-level summary.
+    summary.attention +=
+      (isBlocked ? 1 : 0) + (isWaitingReview ? 1 : 0) + (isStale ? 1 : 0) + (isWaitingAck ? 1 : 0);
+  }
+
+  const projectSummaries: ScopeProjectSummary[] = [];
+  let totalTeams = 0;
+  for (const acc of projects.values()) {
+    const teams = [...acc.teams.values()].sort(compareScopeBuckets);
+    totalTeams += teams.length;
+    const rollup = teams.reduce(
+      (sum, team) => ({
+        agents_total: sum.agents_total + team.agents_total,
+        agents_online: sum.agents_online + team.agents_online,
+        active_tasks: sum.active_tasks + team.active_tasks,
+        open_tasks: sum.open_tasks + team.open_tasks,
+        blocked_tasks: sum.blocked_tasks + team.blocked_tasks,
+        waiting_review: sum.waiting_review + team.waiting_review,
+        stale_tasks: sum.stale_tasks + team.stale_tasks,
+        attention: sum.attention + team.attention,
+      }),
+      {
+        agents_total: 0,
+        agents_online: 0,
+        active_tasks: 0,
+        open_tasks: 0,
+        blocked_tasks: 0,
+        waiting_review: 0,
+        stale_tasks: 0,
+        attention: 0,
+      },
+    );
+    projectSummaries.push({ project: acc.project, ...rollup, teams });
+  }
+  projectSummaries.sort(compareScopeBuckets);
+
+  return {
+    generated_at: now(),
+    projects: projectSummaries,
+    totals: {
+      projects: projectSummaries.length,
+      teams: totalTeams,
+      agents: agents.length,
+      agents_online: agents.filter((agent) => agent.presence === "online").length,
+      active_tasks: projectSummaries.reduce((sum, project) => sum + project.active_tasks, 0),
+      attention: projectSummaries.reduce((sum, project) => sum + project.attention, 0),
+    },
+  };
+}
+
+/**
+ * Sort scope buckets so the ones a human should look at first float up:
+ * attention desc, then online agents desc, then active tasks desc, then name
+ * (named scopes before the null "unscoped"/"unteamed" bucket).
+ */
+interface ScopeBucketOrder {
+  attention: number;
+  agents_online: number;
+  active_tasks: number;
+  project?: string | null;
+  team?: string | null;
+}
+
+function compareScopeBuckets(a: ScopeBucketOrder, b: ScopeBucketOrder): number {
+  if (a.attention !== b.attention) return b.attention - a.attention;
+  if (a.agents_online !== b.agents_online) return b.agents_online - a.agents_online;
+  if (a.active_tasks !== b.active_tasks) return b.active_tasks - a.active_tasks;
+  const an = a.project !== undefined ? a.project : a.team ?? null;
+  const bn = b.project !== undefined ? b.project : b.team ?? null;
+  if (an === null) return bn === null ? 0 : 1;
+  if (bn === null) return -1;
+  return an.localeCompare(bn);
+}
+
 export interface AgentNowOptions {
   agent: string;
   task_id?: number;

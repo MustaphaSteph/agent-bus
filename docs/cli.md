@@ -57,16 +57,39 @@ does not create a task by itself.
 
 ### `agent-bus ui`
 
-Start the local Agent Bus Cockpit web UI. It reads the same local SQLite
-bus database and shows agents, team chat, task Kanban, activity,
-manager blockers, pinned memories, and recent decisions.
+Start the local Agent Bus Cockpit web UI — a Slack-style dashboard over
+the same local SQLite bus database. The browser is the cockpit; you do
+**not** restart the server to change scope.
+
+The layout has four panes:
+
+- **Project rail** (far left) — every project on the bus, with an
+  online-agent count and an attention badge. An "All" entry shows the
+  whole machine.
+- **Team/view rail** — the project-level views (Attention, Kanban,
+  Activity, People) plus every team inside the selected project. Teams
+  show a presence dot and live task/attention counts. Selecting a team
+  opens its channel with `Chat / Kanban / Activity / People` sub-tabs.
+- **Main pane** — team chat, the task Kanban, the activity timeline, a
+  People roster grouped by presence and work status (online / idle /
+  working / blocked / waiting review / stale / sleeping), or the
+  Attention view (blocked, stale, pending-review, unacknowledged, and
+  scope-conflict items, sorted by severity).
+- **Inspector** (right, collapsible) — the cockpit summary by default;
+  click an agent, task, or message to drill into its profile, event
+  log / test results / thread, or full body.
 
 ```bash
 agent-bus ui
-agent-bus ui --project movie-app --team ios-ui
-agent-bus ui --project all --area all --team all --port 8790
+agent-bus ui --project movie-app --team ios-ui   # just sets the initial view
+agent-bus ui --port 8790
 agent-bus ui --no-open
 ```
+
+The launch `--project/--area/--team` flags only choose the **initial**
+selection; switch projects and teams live in the browser afterward. The
+selection is encoded in the URL hash (`#p=…&t=…&v=…`) so views are
+shareable and survive reload.
 
 Default URL:
 
@@ -74,8 +97,19 @@ Default URL:
 http://127.0.0.1:8787
 ```
 
-The UI is local-only by default. It binds to `127.0.0.1`, uses the
-current `AGENT_BUS_DIR`, and refreshes automatically.
+JSON endpoints (read-only, same origin):
+
+- `GET /api/scopes` — all projects → teams with live counts (the rails).
+- `GET /api/state?project=&area=&team=` — agents, chat, tasks, activity,
+  cockpit, memories, and decisions for one scope (`*` or `all` =
+  everything; omit `team` for all teams in a project).
+- `GET /api/tasks/:id` — task detail bundle (events, test results,
+  thread) for the inspector.
+- `GET /api/messages/:id?full=1` — one message, optionally full body.
+
+The UI is local-only and read-only by design: it binds to `127.0.0.1`,
+uses the current `AGENT_BUS_DIR`, refreshes automatically, and never
+mutates bus state (no action buttons).
 
 ### `agent-bus activity`
 

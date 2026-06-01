@@ -40,6 +40,7 @@ const {
   PROJECT_WILDCARD,
   recentMessages,
   register,
+  scopes,
   recordDecision,
   recordTaskEvent,
   recordTestResult,
@@ -1531,6 +1532,40 @@ await test("activity, cockpit, and now summarize coordination state", () => {
   const dashboard = cockpit({ project: "ux", team: "ios-ui" });
   assert.ok(dashboard.waiting_on.some((item) => item.includes("acknowledgement")));
   assert.ok(dashboard.suggested_next_actions.length > 0);
+});
+
+await test("scopes enumerates projects and teams with counts", async () => {
+  register({ name: "scope-pm", capabilities: ["coord"], project: "scopeproj", team: "sa", replace: true });
+  register({ name: "scope-w1", capabilities: ["build"], project: "scopeproj", team: "sa", replace: true });
+  register({ name: "scope-w2", capabilities: ["build"], project: "scopeproj", team: "sb", replace: true });
+  register({ name: "scope-other", capabilities: ["build"], project: "otherproj", team: "ox", replace: true });
+
+  const blocked = createTask({
+    requested_by: "scope-pm",
+    title: "blocked work",
+    project: "scopeproj",
+    team: "sa",
+  });
+  claimTask({ agent: "scope-w1", task_id: blocked.id });
+  updateTask({ agent: "scope-w1", task_id: blocked.id, state: "working" });
+  updateTask({ agent: "scope-w1", task_id: blocked.id, state: "blocked", blocked_reason: "waiting" });
+
+  const result = scopes();
+  const proj = result.projects.find((p) => p.project === "scopeproj");
+  assert.ok(proj, "scopeproj should be enumerated");
+  assert.equal(proj?.agents_total, 3);
+  assert.ok(result.projects.some((p) => p.project === "otherproj"), "otherproj should be enumerated");
+
+  const teamSa = proj?.teams.find((t) => t.team === "sa");
+  const teamSb = proj?.teams.find((t) => t.team === "sb");
+  assert.equal(teamSa?.agents_total, 2);
+  assert.equal(teamSb?.agents_total, 1);
+  assert.equal(teamSa?.blocked_tasks, 1);
+  assert.ok((teamSa?.attention ?? 0) >= 1, "blocked task should count toward attention");
+
+  assert.ok(result.totals.projects >= 2);
+  assert.ok(result.totals.agents >= 4);
+  assert.equal(result.totals.attention, result.projects.reduce((sum, p) => sum + p.attention, 0));
 });
 
 closeDb();
