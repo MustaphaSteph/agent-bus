@@ -24,6 +24,29 @@ function run(args: string[]): Promise<{ stdout: string; code: number }> {
   });
 }
 
+function start(args: string[]): ReturnType<typeof spawn> {
+  return spawn("./node_modules/.bin/tsx", ["src/cli/index.ts", ...args], {
+    env,
+    cwd: process.cwd(),
+  });
+}
+
+async function waitForUrl(url: string, timeoutMs = 5000): Promise<Response> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return res;
+      lastError = new Error(`status ${res.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 console.log("agent-bus cross-process smoke test");
 console.log(`tmpdir: ${tmp}`);
 
@@ -113,6 +136,20 @@ const messagePreview = await run(["message", previewMessageId, "--no-content"]);
 assert.match(messagePreview.stdout, /len=22000/);
 assert.match(messagePreview.stdout, /Next:/);
 console.log("✓ inbox-previews and message avoid dumping large inbox bodies");
+
+const ui = start(["ui", "--no-open", "--port", "8791", "--project", "all", "--area", "all", "--team", "all"]);
+try {
+  const stateRes = await waitForUrl("http://127.0.0.1:8791/api/state");
+  const state = await stateRes.json() as { version: string; stats: { online: number }; messages: unknown[] };
+  assert.equal(state.version, "0.20.0");
+  assert.ok(Array.isArray(state.messages));
+  assert.ok(state.stats.online >= 0);
+  const html = await (await waitForUrl("http://127.0.0.1:8791/")).text();
+  assert.match(html, /Agent Bus Cockpit/);
+  console.log("✓ local web UI serves cockpit state");
+} finally {
+  ui.kill();
+}
 
 await run(["register", "--name", "dash-pm", "--team", "dash-demo", "--project", "dash-demo", "--capabilities", "coordination", "--replace"]);
 await run(["register", "--name", "dash-worker", "--team", "dash-demo", "--project", "dash-demo", "--capabilities", "implementation", "--replace"]);

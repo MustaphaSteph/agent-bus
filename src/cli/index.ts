@@ -69,6 +69,7 @@ import { pollInbox } from "./poll-inbox.js";
 import { resolveScopeOptions, scopeBanner } from "./project-scope.js";
 import { teamChat } from "./team-chat.js";
 import { tasks } from "./tasks.js";
+import { startUi } from "./ui.js";
 import { watch } from "./watch.js";
 
 const program = new Command();
@@ -195,6 +196,26 @@ program
     includeSelf?: boolean;
   }) => {
     await teamChat(message, opts);
+  });
+
+program
+  .command("ui")
+  .description("Start the local Agent Bus Cockpit web UI")
+  .option("--host <host>", "host to bind", "127.0.0.1")
+  .option("--port <port>", "port to bind", "8787")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
+  .option("--team <name>", "team scope (use 'all' for every team)")
+  .option("--no-open", "do not open the browser automatically")
+  .action(async (opts: { host: string; port: string; project?: string; area?: string; team?: string; open?: boolean }) => {
+    await startUi({
+      host: opts.host,
+      port: Number(opts.port),
+      project: opts.project,
+      area: opts.area,
+      team: opts.team,
+      open: opts.open,
+    });
   });
 
 program

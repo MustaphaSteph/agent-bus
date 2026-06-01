@@ -55,6 +55,28 @@ stream. Use `kanban`, `team-board`, or `done` when they want tracked
 work status. Sending a team chat message is still normal messaging; it
 does not create a task by itself.
 
+### `agent-bus ui`
+
+Start the local Agent Bus Cockpit web UI. It reads the same local SQLite
+bus database and shows agents, team chat, task Kanban, activity,
+manager blockers, pinned memories, and recent decisions.
+
+```bash
+agent-bus ui
+agent-bus ui --project movie-app --team ios-ui
+agent-bus ui --project all --area all --team all --port 8790
+agent-bus ui --no-open
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:8787
+```
+
+The UI is local-only by default. It binds to `127.0.0.1`, uses the
+current `AGENT_BUS_DIR`, and refreshes automatically.
+
 ### `agent-bus activity`
 
 Chronological "what happened?" view across messages, task events, test

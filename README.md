@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 6. Verify
 
 ```bash
-agent-bus --version                # 0.19.0
+agent-bus --version                # 0.20.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -474,6 +474,7 @@ From here, swap the math for "review my last commit", "run the test suite", "sum
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
 - **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; agents can also register a neutral `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
 - **Terminal project management views** — `agent-bus activity` explains what happened recently, `agent-bus cockpit` shows what needs attention next, `agent-bus team-chat` shows one team's conversation, `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
+- **Local web cockpit** — `agent-bus ui --team <team>` opens a dense local dashboard for agents, team chat, Kanban, activity, coordination blockers, pinned memory, and decisions.
 - **Large-message recovery** — `agent-bus inbox-previews` shows pending messages without full bodies, and `agent-bus message <id> --no-content` fetches one exact message safely before an agent chooses to pull the full content.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
