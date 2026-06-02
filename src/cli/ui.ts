@@ -8,9 +8,11 @@ import {
   listDecisions,
   listMemories,
   listTasks,
+  messagePage,
   recentMessages,
   scopes,
   taskResult,
+  timeseries,
   type MessagePreview,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
@@ -99,6 +101,34 @@ function handleRequest(req: IncomingMessage, res: ServerResponse, defaultScope: 
     }
     if (url.pathname === "/api/state") {
       sendJson(res, buildState(scopeFromQuery(url, defaultScope)));
+      return;
+    }
+    if (url.pathname === "/api/metrics") {
+      const scope = scopeFromQuery(url, defaultScope);
+      const buckets = url.searchParams.get("buckets");
+      const windowH = url.searchParams.get("window_h");
+      const days = url.searchParams.get("days");
+      sendJson(res, timeseries({
+        project: scope.project,
+        area: scope.area,
+        team: scope.team,
+        buckets: buckets ? Number(buckets) : undefined,
+        window_ms: windowH ? Number(windowH) * 3600 * 1000 : undefined,
+        days: days ? Number(days) : undefined,
+      }));
+      return;
+    }
+    if (url.pathname === "/api/messages") {
+      const scope = scopeFromQuery(url, defaultScope);
+      const before = url.searchParams.get("before");
+      const limit = url.searchParams.get("limit");
+      sendJson(res, messagePage({
+        project: scope.project,
+        area: scope.area,
+        team: scope.team,
+        before_id: before ? Number(before) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      }));
       return;
     }
     const taskMatch = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);
@@ -207,606 +237,369 @@ function html(): string {
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body>
-  <div id="root">
-    <header class="topbar">
-      <div class="brand">
-        <div class="eyebrow">local cockpit</div>
-        <h1>Agent Bus</h1>
+  <header class="top">
+    <div class="brand"><div class="logo">AB</div><div><div class="ey">command center</div><h1>Agent Bus</h1></div></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="tr"><span class="cmdk" id="scopeText">loading…</span><span class="clock"><span class="dotlive"></span><span id="clock">live</span></span></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="s-grp">Views</div>
+      <div class="viewitem" data-view="attention"><span class="g">⚡</span>Attention<span class="c alert" id="vc-attention"></span></div>
+      <div class="viewitem" data-view="kanban"><span class="g">▤</span>Kanban<span class="c" id="vc-kanban"></span></div>
+      <div class="viewitem" data-view="activity"><span class="g">◴</span>Activity<span class="c" id="vc-activity"></span></div>
+      <div class="viewitem" data-view="people"><span class="g">◉</span>People<span class="c" id="vc-people"></span></div>
+      <div class="s-grp">Projects <span id="projCount"></span></div>
+      <div id="projects"></div>
+    </nav>
+    <div class="center">
+      <div class="metrics-strip" id="metrics"></div>
+      <div class="chat-card">
+        <div class="chat-head" id="mainHead"></div>
+        <div class="scroller" id="mainBody"></div>
+        <div class="chat-foot" id="mainFoot"></div>
       </div>
-      <div class="scope">
-        <span id="scopeText">loading…</span>
-        <button class="ghost" data-act="toggle-inspector" title="Toggle inspector">inspector</button>
-        <span class="live"><i></i> <span id="updatedAt">live</span></span>
-      </div>
-    </header>
-    <main class="shell">
-      <nav class="project-rail" id="projectRail"></nav>
-      <nav class="team-rail" id="teamRail"></nav>
-      <section class="main">
-        <div class="main-head" id="mainHead"></div>
-        <div class="main-body" id="mainBody"></div>
-      </section>
-      <aside class="inspector" id="inspector"></aside>
-    </main>
+    </div>
+    <aside class="right" id="right"></aside>
   </div>
+  <div class="drawer-wrap" id="drawer"></div>
   <script src="/app.js"></script>
 </body>
 </html>`;
 }
 
 function css(): string {
-  return `:root {
-  color-scheme: dark;
-  --bg: #0b0d10;
-  --surface: #11151a;
-  --surface-2: #171d24;
-  --line: #28313b;
-  --line-soft: #1c232b;
-  --text: #eef3f8;
-  --muted: #8d9aa8;
-  --soft: #5d6a78;
-  --accent: #47d6b6;
-  --accent-2: #8aa7ff;
-  --warning: #f2bf5e;
-  --danger: #ff6b6b;
-  --review: #c790ff;
-  --done: #72d572;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  return `:root{
+  --bg:#070a0e; --panel:#0f141b; --panel-2:#141b24; --panel-3:#19212b; --line:#1f2630; --line-soft:#161c24;
+  --text:#eaf1f8; --muted:#8a98a8; --soft:#566270;
+  --accent:#3ad6b6; --blue:#6ea8fe; --purple:#c79bff; --amber:#f4c06a; --red:#ff6f6f; --green:#62d98a;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
 }
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  min-height: 100vh;
-  background: radial-gradient(circle at top left, rgba(71, 214, 182, .12), transparent 32rem), var(--bg);
-  color: var(--text);
-}
-button, input { font: inherit; }
-h1, h2, h3, p { margin: 0; }
-h1 { font-size: 22px; font-weight: 720; }
-h2 { font-size: 15px; font-weight: 680; }
-h3 { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .09em; margin-bottom: 10px; }
-.eyebrow { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .14em; margin-bottom: 3px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.topbar {
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--line-soft);
-  background: rgba(11, 13, 16, .9);
-  backdrop-filter: blur(18px);
-  position: sticky; top: 0; z-index: 10;
-}
-.scope { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
-.live { display: inline-flex; gap: 7px; align-items: center; color: var(--text); }
-.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 18px var(--accent); }
-.ghost { appearance: none; background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 7px; padding: 5px 10px; cursor: pointer; font-size: 12px; }
-.ghost:hover { color: var(--text); border-color: var(--accent); }
-.shell {
-  display: grid;
-  grid-template-columns: 76px 240px minmax(420px, 1fr) 344px;
-  gap: 1px;
-  min-height: calc(100vh - 64px);
-  background: var(--line-soft);
-}
-.shell.no-inspector { grid-template-columns: 76px 240px 1fr; }
-.shell.no-inspector .inspector { display: none; }
-.project-rail, .team-rail, .main, .inspector { background: rgba(13, 16, 20, .98); min-width: 0; }
-.project-rail { padding: 14px 10px; display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
-.proj {
-  position: relative; border: 1px solid var(--line-soft); border-radius: 12px;
-  padding: 10px 6px 8px; text-align: center; cursor: pointer; color: var(--muted);
-}
-.proj:hover { border-color: var(--line); color: var(--text); }
-.proj.active { border-color: var(--accent); color: var(--text); background: rgba(71,214,182,.06); }
-.proj .avatar { width: 34px; height: 34px; margin: 0 auto 6px; border-radius: 10px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-weight: 720; color: var(--text); }
-.proj .plabel { font-size: 10px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.proj .ponline { font-size: 10px; color: var(--soft); }
-.badge { position: absolute; top: 4px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--danger); color: #1b0d0d; font-size: 10px; font-weight: 720; display: inline-flex; align-items: center; justify-content: center; }
-.team-rail { padding: 14px 12px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
-.rail-section { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .09em; margin: 14px 6px 6px; }
-.rail-item { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 8px; cursor: pointer; color: var(--muted); font-size: 13px; }
-.rail-item:hover { background: var(--surface); color: var(--text); }
-.rail-item.active { background: var(--surface-2); color: var(--text); }
-.rail-item .glyph { width: 16px; text-align: center; opacity: .9; }
-.rail-item .rlabel { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rail-item .rcount { color: var(--soft); font-size: 11px; }
-.rail-item .badge { position: static; }
-.main { display: flex; flex-direction: column; }
-.main-head { border-bottom: 1px solid var(--line-soft); padding: 16px 22px 0; }
-.head-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding-bottom: 14px; }
-.head-row h2 { font-size: 22px; }
-.channel-title { display: flex; align-items: center; gap: 8px; }
-.members { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-.member { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); border: 1px solid var(--line-soft); border-radius: 999px; padding: 2px 8px; cursor: pointer; }
-.member:hover { color: var(--text); border-color: var(--line); }
-.metrics { display: flex; gap: 16px; }
-.metric strong { display: block; font-size: 22px; font-weight: 740; }
-.metric span { color: var(--muted); font-size: 11px; }
-.subtabs { display: flex; gap: 6px; }
-.subtab { appearance: none; border: 0; background: transparent; color: var(--muted); padding: 9px 10px; border-bottom: 2px solid transparent; cursor: pointer; font-size: 13px; }
-.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
-.main-body { padding: 18px 22px 26px; overflow-y: auto; }
-.stream, .timeline { display: grid; gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
-.message, .event, .task-card, .note { background: var(--surface); padding: 13px 14px; }
-.message { cursor: pointer; }
-.message:hover { background: var(--surface-2); }
-.message-head, .event-head, .task-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.route, .event-title { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.time { color: var(--soft); font-size: 11px; white-space: nowrap; }
-.message p, .event p, .task-card p, .note p { color: #c7d0da; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
-.status-pill, .kind, .state {
-  border: 1px solid var(--line); border-radius: 999px; color: var(--muted);
-  padding: 4px 8px; font-size: 11px; white-space: nowrap;
-}
-.status-pill.working, .state.working { color: var(--accent); border-color: rgba(71, 214, 182, .35); }
-.status-pill.blocked, .state.blocked, .state.failed { color: var(--danger); border-color: rgba(255, 107, 107, .35); }
-.status-pill.waiting_review, .state.review { color: var(--review); border-color: rgba(199, 144, 255, .35); }
-.kind.ask { color: var(--warning); border-color: rgba(242, 191, 94, .35); }
-.kind.reply { color: var(--accent); border-color: rgba(71, 214, 182, .35); }
-.kind.msg { color: var(--accent-2); border-color: rgba(138, 167, 255, .35); }
-.large { margin-top: 10px; border: 1px solid rgba(242, 191, 94, .22); color: var(--warning); padding: 8px 10px; font-size: 11px; background: rgba(242, 191, 94, .06); }
-.kanban { display: grid; grid-template-columns: repeat(7, minmax(150px, 1fr)); gap: 10px; align-items: start; }
-.lane { min-width: 0; }
-.lane-title { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; }
-.lane-body { display: grid; gap: 8px; }
-.task-card { border: 1px solid var(--line-soft); min-height: 104px; cursor: pointer; }
-.task-card:hover { border-color: var(--line); }
-.task-title { font-size: 13px; font-weight: 650; line-height: 1.35; }
-.task-meta { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
-.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--soft); flex: none; }
-.dot.online { background: var(--accent); }
-.dot.idle { background: var(--accent-2); }
-.dot.stale { background: var(--warning); }
-.dot.paused { background: var(--danger); }
-.people-group { margin-bottom: 18px; }
-.people-group h3 { display: flex; gap: 8px; align-items: center; }
-.person { display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; align-items: center; min-height: 54px; border-bottom: 1px solid var(--line-soft); cursor: pointer; }
-.person:hover .agent-name { color: var(--accent); }
-.agent-name { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-meta { margin-top: 4px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attn { display: grid; gap: 8px; }
-.attn-row { display: grid; grid-template-columns: 92px 1fr auto; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line-soft); border-left: 3px solid var(--line); padding: 12px 14px; cursor: pointer; }
-.attn-row:hover { background: var(--surface-2); }
-.attn-row .sev { font-size: 10px; font-weight: 720; letter-spacing: .08em; }
-.attn-row.blocked { border-left-color: var(--danger); } .attn-row.blocked .sev { color: var(--danger); }
-.attn-row.stale { border-left-color: var(--warning); } .attn-row.stale .sev { color: var(--warning); }
-.attn-row.review { border-left-color: var(--review); } .attn-row.review .sev { color: var(--review); }
-.attn-row.ack { border-left-color: var(--accent-2); } .attn-row.ack .sev { color: var(--accent-2); }
-.attn-row.conflict { border-left-color: var(--danger); } .attn-row.conflict .sev { color: var(--danger); }
-.attn-row .at { color: var(--soft); font-size: 11px; }
-.attn-main { min-width: 0; }
-.attn-main strong { font-size: 13px; }
-.attn-main p { color: var(--muted); font-size: 12px; margin-top: 3px; overflow-wrap: anywhere; }
-.inspector { padding: 16px 16px 26px; overflow-y: auto; }
-.insp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; color: var(--muted); }
-.insp-head .ghost { padding: 3px 8px; }
-.cockpit-list { display: grid; gap: 8px; margin-bottom: 16px; }
-.cockpit-list .note { border-left: 2px solid var(--line); }
-.cockpit-list.waiting .note { border-left-color: var(--warning); }
-.cockpit-list.blockers .note { border-left-color: var(--danger); }
-.cockpit-list.ready .note { border-left-color: var(--accent); }
-.memory-block { border-top: 1px solid var(--line-soft); padding-top: 14px; margin-top: 14px; }
-.kv { display: grid; grid-template-columns: 86px 1fr; gap: 4px 10px; font-size: 12px; margin-bottom: 14px; }
-.kv dt { color: var(--soft); }
-.kv dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-.empty { color: var(--soft); padding: 16px; font-size: 12px; background: var(--surface); }
-.profile-name { font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.profile-sub { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
-@media (max-width: 1180px) {
-  .shell { grid-template-columns: 76px 220px 1fr; }
-  .shell .inspector { grid-column: 1 / -1; }
-  .shell.no-inspector { grid-template-columns: 76px 220px 1fr; }
-  .kanban { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
-}
-@media (max-width: 760px) {
-  .shell, .shell.no-inspector { grid-template-columns: 1fr; }
-  .project-rail { flex-direction: row; overflow-x: auto; }
-  .kanban { grid-template-columns: 1fr; }
-}`;
+*{box-sizing:border-box}
+body{margin:0;background:
+  radial-gradient(900px 380px at 12% -12%,rgba(58,214,182,.10),transparent 60%),
+  radial-gradient(700px 360px at 98% -8%,rgba(110,168,254,.08),transparent 55%),
+  var(--bg);color:var(--text);height:100vh;overflow:hidden}
+h1,h2,h3,h4,p{margin:0}.mono{font-family:var(--mono)}button{font:inherit}
+.top{height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid var(--line-soft);background:rgba(7,10,14,.7);backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:11px;width:230px}
+.logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--blue));display:grid;place-items:center;color:#04130f;font-weight:800}
+.brand .ey{font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}.brand h1{font-size:16px;font-weight:760}
+.kpis{display:flex;gap:8px;flex-wrap:wrap}
+.kchip{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line-soft);border-radius:10px;padding:6px 12px}
+.kchip .v{font-family:var(--mono);font-weight:700;font-size:15px}.kchip .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.kchip.alert .v{color:var(--red)}
+.tr{display:flex;align-items:center;gap:12px}
+.cmdk{font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:5px 9px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clock{font-family:var(--mono);font-size:13px;color:var(--muted);display:flex;align-items:center;gap:7px}
+.dotlive{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--accent)}
+.shell{display:grid;grid-template-columns:248px 1fr 326px;height:calc(100vh - 58px)}
+.sidebar{border-right:1px solid var(--line-soft);overflow-y:auto;padding:12px 10px}
+.s-grp{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--soft);margin:14px 8px 6px;display:flex;justify-content:space-between}
+.viewitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;cursor:pointer;color:var(--muted);font-size:13px}
+.viewitem:hover{background:var(--panel)}.viewitem.active{background:var(--panel-2);color:var(--text)}
+.viewitem .g{width:16px;text-align:center}.viewitem .c{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--soft)}
+.viewitem .c.alert{color:var(--red)}
+.proj{border-radius:10px;margin-bottom:2px}
+.proj-row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;cursor:pointer;color:var(--text)}
+.proj-row:hover{background:var(--panel)}
+.proj.active>.proj-row{background:var(--panel-2);box-shadow:inset 2px 0 0 var(--accent)}
+.proj-row .chev{color:var(--soft);font-size:10px;transition:transform .15s;width:10px}
+.proj.open .chev{transform:rotate(90deg)}
+.proj-row .pava{width:26px;height:26px;border-radius:8px;background:var(--panel-3);display:grid;place-items:center;font-size:10px;font-weight:800;color:var(--text);flex:none}
+.proj-row .pname{font-size:13.5px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj-row .pmeta{font-size:10px;color:var(--soft);font-family:var(--mono)}
+.proj-row .badge,.team-row .badge{min-width:16px;height:16px;border-radius:8px;background:var(--red);color:#1a0707;font-size:9px;font-weight:800;display:grid;place-items:center;padding:0 4px}
+.teams{display:none;padding:2px 0 6px 14px}
+.proj.open .teams{display:block}
+.team-row{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;cursor:pointer;color:var(--muted);font-size:12.5px}
+.team-row:hover{background:var(--panel)}.team-row.active{background:var(--panel-2);color:var(--text)}
+.team-row .d{width:7px;height:7px;border-radius:50%;background:var(--soft);flex:none}.team-row .d.on{background:var(--accent);box-shadow:0 0 9px var(--accent)}
+.team-row .tn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-row .tc{font-family:var(--mono);font-size:10px;color:var(--soft)}
+.center{display:flex;flex-direction:column;min-width:0;overflow:hidden;padding:14px;gap:12px}
+.metrics-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.mtile{background:linear-gradient(180deg,var(--panel),#0c1118);border:1px solid var(--line-soft);border-radius:14px;padding:12px 14px}
+.mtile h3{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin-bottom:7px}
+.mtile .big{font-family:var(--mono);font-size:26px;font-weight:740;line-height:1}
+.mtile .sub{font-size:10.5px;color:var(--soft);margin-top:4px}
+.mtile .up{color:var(--green)}.mtile .down{color:var(--red)}
+svg.spark{width:100%;height:26px;display:block;margin-top:6px}
+.chat-card{flex:1;display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(180deg,var(--panel),#0c1118);border:1px solid var(--line-soft);border-radius:16px}
+.chat-head{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--line-soft)}
+.chat-head .ttl{font-size:15px;font-weight:700;display:flex;align-items:center;gap:9px}
+.chat-head .members{display:flex}
+.mini-ava{width:24px;height:24px;border-radius:50%;border:2px solid var(--panel);margin-left:-8px;display:grid;place-items:center;font-size:9px;font-weight:800;color:#04130f}
+.chat-head .meta{font-size:12px;color:var(--muted)}
+.view-head{display:flex;align-items:center;justify-content:space-between;width:100%}
+.view-head .vt{font-size:16px;font-weight:740;display:flex;align-items:center;gap:9px}
+.view-head .vsub{font-size:12px;color:var(--muted)}
+.scroller{flex:1;overflow-y:auto;padding:8px 0}
+.scroller::-webkit-scrollbar{width:9px}.scroller::-webkit-scrollbar-thumb{background:#222c38;border-radius:5px;border:2px solid var(--panel)}
+.loadmore{display:flex;justify-content:center;padding:10px}
+.loadmore button{background:var(--panel-2);border:1px solid var(--line-soft);color:var(--muted);border-radius:999px;padding:7px 16px;font-size:12px;cursor:pointer}
+.loadmore button:hover{color:var(--text);border-color:var(--line)}
+.daydiv{display:flex;align-items:center;gap:12px;color:var(--soft);font-size:11px;padding:10px 20px;text-transform:uppercase;letter-spacing:.08em}
+.daydiv:before,.daydiv:after{content:"";flex:1;height:1px;background:var(--line-soft)}
+.grp{display:grid;grid-template-columns:44px 1fr;gap:11px;padding:5px 18px 3px}
+.grp .ava{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;font-size:12px;font-weight:800;color:#04130f;margin-top:3px;position:relative}
+.grp .ava.online:after{content:"";position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:var(--green);border:2px solid var(--panel)}
+.grp .col{min-width:0}
+.grp .head{display:flex;align-items:baseline;gap:9px;margin-bottom:4px}
+.grp .nm{font-size:13.5px;font-weight:700}.grp .role{font-size:10px;color:var(--soft);border:1px solid var(--line-soft);border-radius:999px;padding:1px 7px}
+.grp .tm{font-family:var(--mono);font-size:10.5px;color:var(--soft)}
+.bub{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:5px 13px 13px 13px;padding:9px 13px;font-size:13.5px;line-height:1.5;color:#d4dde7;margin-bottom:6px;max-width:82%;width:fit-content}
+.grp.self .bub{background:rgba(58,214,182,.08);border-color:rgba(58,214,182,.18)}
+.bub.ask{border-left:3px solid var(--amber)}.bub.reply{border-left:3px solid var(--accent)}
+.bub .quote{border-left:2px solid var(--soft);padding:3px 0 3px 9px;margin-bottom:7px;font-size:12px;color:var(--muted)}.bub .quote b{color:var(--text)}
+.kind-row{display:flex;gap:7px;margin-top:7px;align-items:center}
+.kpill{font-size:9.5px;border-radius:999px;padding:2px 8px;border:1px solid var(--line);color:var(--muted);font-weight:600}
+.kpill.ask{color:var(--amber);border-color:rgba(244,192,106,.4)}.kpill.reply{color:var(--accent);border-color:rgba(58,214,182,.4)}
+.kpill.msg{color:var(--blue);border-color:rgba(110,168,254,.4)}
+.kpill.await{color:var(--amber);background:rgba(244,192,106,.08)}.kpill.done{color:var(--green);border-color:rgba(98,217,138,.4)}
+.bub.msg{border-left:3px solid rgba(110,168,254,.45)}
+.bub .bub-text{overflow-wrap:anywhere;display:block}
+.bub .bub-text .md-h{font-weight:700;color:var(--text);margin:9px 0 3px;font-size:13px}
+.bub .bub-text .md-sp{height:6px}
+.bub .bub-text ul{margin:5px 0;padding-left:18px}
+.bub .bub-text li{margin:2px 0}
+.bub .bub-text code{font-family:var(--mono);font-size:12px;background:rgba(255,255,255,.06);border:1px solid var(--line-soft);border-radius:5px;padding:1px 5px}
+.bub .bub-text strong{color:var(--text);font-weight:700}
+.bub .collapsed{color:var(--amber);font-size:11px;margin-top:7px;background:rgba(244,192,106,.06);border:1px solid rgba(244,192,106,.22);border-radius:8px;padding:6px 10px;cursor:pointer}
+.bub .collapsed:hover{background:rgba(244,192,106,.12)}
+.bub .id{font-family:var(--mono);font-size:9.5px;color:var(--soft);margin-top:6px}
+.chat-foot{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--line-soft)}
+.chat-foot .count{font-family:var(--mono);font-size:11px;color:var(--soft)}
+.chat-foot .actions{display:flex;gap:6px;align-items:center}
+.chat-foot button{font-family:var(--mono);background:var(--panel-2);border:1px solid var(--line-soft);color:var(--muted);border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer}
+.chat-foot button:hover{color:var(--text);border-color:var(--line)}
+.readonly{font-size:11px;color:var(--soft)}
+.board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,1fr);gap:12px;padding:14px 16px;height:100%;align-items:start;overflow-x:auto}
+.bcol{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:13px;padding:11px;height:100%;display:flex;flex-direction:column;min-width:0}
+.bcol .bhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.bcol .bname{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;align-items:center;gap:7px}
+.bcol .bdot{width:8px;height:8px;border-radius:50%}
+.bcol.todo .bdot{background:var(--soft)}.bcol.accepted .bdot{background:var(--blue)}.bcol.doing .bdot{background:var(--accent)}
+.bcol.testing .bdot{background:var(--amber)}.bcol.review .bdot{background:var(--purple)}.bcol.blocked .bdot{background:var(--red)}.bcol.done .bdot{background:var(--green)}
+.bcol .bcount{font-family:var(--mono);font-size:11px;color:var(--soft)}
+.bcol .bbody{display:flex;flex-direction:column;gap:9px;overflow-y:auto}
+.tcard{background:linear-gradient(180deg,#0f161e,#0c1218);border:1px solid var(--line-soft);border-radius:11px;padding:12px;cursor:pointer;transition:border-color .12s,transform .12s}
+.tcard:hover{border-color:var(--line);transform:translateY(-1px)}
+.tcard .tid{font-family:var(--mono);font-size:10px;color:var(--accent)}
+.tcard .ttitle{font-size:13px;font-weight:600;line-height:1.35;margin-top:4px}
+.tcard .trow{display:flex;align-items:center;gap:7px;margin-top:10px;flex-wrap:wrap}
+.tcard .owner{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.tcard .oava{width:18px;height:18px;border-radius:6px;display:grid;place-items:center;font-size:8px;font-weight:800;color:#04130f}
+.tcard .mtag{font-size:9.5px;border:1px solid var(--line-soft);border-radius:999px;padding:2px 7px;color:var(--soft)}
+.tcard .flag{font-size:9.5px;border-radius:999px;padding:2px 7px;font-weight:600}
+.flag.blocked{color:var(--red);background:rgba(255,111,111,.1)}.flag.review{color:var(--purple);background:rgba(199,155,255,.1)}.flag.stale{color:var(--amber);background:rgba(244,192,106,.1)}
+.bempty{font-size:11px;color:var(--soft);text-align:center;padding:14px;border:1px dashed var(--line-soft);border-radius:9px}
+.tlfeed{padding:6px 18px}
+.tlitem{display:grid;grid-template-columns:18px 1fr;gap:12px;padding-bottom:14px;position:relative}
+.tlitem:before{content:"";position:absolute;left:8px;top:16px;bottom:0;width:1px;background:var(--line-soft)}
+.tlitem:last-child:before{display:none}
+.tlitem .td{width:12px;height:12px;border-radius:50%;border:3px solid var(--panel);margin-top:3px;background:var(--accent)}
+.tlitem .td.message{background:var(--blue)}.tlitem .td.task_event{background:var(--accent)}.tlitem .td.decision{background:var(--purple)}.tlitem .td.test_result{background:var(--green)}.tlitem .td.memory{background:var(--amber)}
+.tlitem .tx{font-size:13px;color:#d4dde7;line-height:1.45}.tlitem .tx .src{font-size:10px;color:var(--soft);text-transform:uppercase;letter-spacing:.06em;margin-right:8px}
+.tlitem .tts{font-family:var(--mono);font-size:10px;color:var(--soft);margin-top:3px}
+.people{padding:8px 18px}
+.pgroup{margin-bottom:18px}
+.pgroup h4{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--soft);margin:0 0 8px;display:flex;gap:8px;align-items:center}
+.person{display:grid;grid-template-columns:34px 1fr auto;gap:11px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line-soft)}
+.person .pava2{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;font-size:12px;font-weight:800;color:#04130f;position:relative}
+.person .pava2.online:after{content:"";position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:var(--green);border:2px solid var(--panel)}
+.person .pava2.stale:after{content:"";position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:var(--amber);border:2px solid var(--panel)}
+.person .pn{font-size:13.5px;font-weight:650}.person .pm{font-size:11px;color:var(--muted);margin-top:2px}
+.person .ps{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--muted)}
+.ps.working{color:var(--accent);border-color:rgba(58,214,182,.4)}.ps.blocked{color:var(--red);border-color:rgba(255,111,111,.4)}.ps.waiting_review{color:var(--purple);border-color:rgba(199,155,255,.4)}.ps.sleeping{color:var(--soft)}
+.attnfull{padding:10px 18px;display:grid;gap:10px}
+.afrow{display:grid;grid-template-columns:96px 1fr auto;gap:14px;align-items:center;background:var(--panel-2);border:1px solid var(--line-soft);border-left:3px solid var(--line);border-radius:12px;padding:14px 16px}
+.afrow.stale{border-left-color:var(--amber)}.afrow.review{border-left-color:var(--purple)}.afrow.blocked{border-left-color:var(--red)}.afrow.ack{border-left-color:var(--blue)}.afrow.conflict{border-left-color:var(--red)}
+.afrow .afsev{font-size:11px;font-weight:800;letter-spacing:.07em}
+.afrow.stale .afsev{color:var(--amber)}.afrow.review .afsev{color:var(--purple)}.afrow.blocked .afsev{color:var(--red)}.afrow.ack .afsev{color:var(--blue)}.afrow.conflict .afsev{color:var(--red)}
+.afrow strong{font-size:14px}.afrow p{font-size:12px;color:var(--muted);margin-top:3px}
+.afrow .afat{font-family:var(--mono);font-size:11px;color:var(--soft)}
+.right{border-left:1px solid var(--line-soft);overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.card{background:linear-gradient(180deg,var(--panel),#0c1118);border:1px solid var(--line-soft);border-radius:14px;padding:14px}
+.card h3{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-bottom:11px;display:flex;justify-content:space-between}
+.attn{display:flex;flex-direction:column;gap:8px}
+.attn-row{display:grid;grid-template-columns:64px 1fr;gap:9px;background:var(--panel-2);border:1px solid var(--line-soft);border-left:3px solid var(--line);border-radius:10px;padding:9px 11px}
+.attn-row.stale{border-left-color:var(--amber)}.attn-row.review{border-left-color:var(--purple)}.attn-row.blocked{border-left-color:var(--red)}.attn-row.ack{border-left-color:var(--blue)}.attn-row.conflict{border-left-color:var(--red)}
+.attn-row .sev{font-size:9px;font-weight:800;letter-spacing:.06em}
+.attn-row.stale .sev{color:var(--amber)}.attn-row.review .sev{color:var(--purple)}.attn-row.blocked .sev{color:var(--red)}.attn-row.ack .sev{color:var(--blue)}.attn-row.conflict .sev{color:var(--red)}
+.attn-row strong{font-size:12px}.attn-row p{font-size:10.5px;color:var(--muted);margin-top:2px}
+.heat{display:grid;gap:5px}
+.heat-row{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:center}
+.heat-row .tname{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cells{display:flex;gap:3px;flex-wrap:wrap}
+.cell{width:14px;height:14px;border-radius:3px;background:#1b232d}
+.cell.working{background:var(--accent)}.cell.idle{background:var(--blue)}.cell.waiting_review{background:var(--purple)}.cell.blocked{background:var(--red)}.cell.sleeping{background:#3a4654}.cell.stale{background:var(--amber)}
+.legend{display:flex;gap:9px;margin-top:9px;font-size:9.5px;color:var(--muted);flex-wrap:wrap}
+.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.kmini{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.klane{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:9px;padding:9px}
+.klane .kt{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:6px}
+.kcard{background:#0e141b;border:1px solid var(--line-soft);border-radius:6px;padding:6px;font-size:10.5px;margin-bottom:5px}
+.kcard .id{font-family:var(--mono);color:var(--accent);font-size:9.5px}
+.bars{display:flex;align-items:flex-end;gap:6px;height:54px}
+.bar{flex:1;background:linear-gradient(180deg,var(--blue),rgba(110,168,254,.22));border-radius:4px 4px 0 0;min-height:3px}
+.dec{font-size:12px;color:#c9d2dc;padding:8px 0;border-top:1px solid var(--line-soft);line-height:1.4}
+.dec:first-child{border-top:0}.dec small{color:var(--soft);display:block;margin-top:2px}
+.empty{color:var(--soft);font-size:12px;padding:16px;text-align:center}
+.afrow,.attn-row,.kcard{cursor:pointer}
+.afrow:hover,.attn-row:hover,.kcard:hover{border-color:var(--line)}
+.drawer-wrap{position:fixed;inset:0;z-index:60;display:none}
+.drawer-wrap.open{display:block}
+.drawer-bd{position:absolute;inset:0;background:rgba(4,6,9,.55);backdrop-filter:blur(2px)}
+.drawer-panel{position:absolute;top:0;right:0;height:100%;width:480px;max-width:94vw;background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;box-shadow:-24px 0 70px rgba(0,0,0,.55);animation:slidein .16s ease}
+@keyframes slidein{from{transform:translateX(24px);opacity:.4}to{transform:translateX(0);opacity:1}}
+.dk-head{position:relative;padding:20px 22px 16px;border-bottom:1px solid var(--line-soft)}
+.dk-id{font-family:var(--mono);font-size:11px;color:var(--accent)}
+.dk-title{font-size:18px;font-weight:740;margin-top:6px;line-height:1.25}
+.dk-close{position:absolute;top:14px;right:16px;cursor:pointer;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:4px 10px;background:var(--panel-2);font-size:12px}
+.dk-close:hover{color:var(--text);border-color:var(--accent)}
+.dk-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}
+.dk-body{padding:18px 22px 30px;display:grid;gap:20px}
+.dl{display:grid;grid-template-columns:108px 1fr;gap:7px 12px;font-size:12.5px;margin:0}
+.dl dt{color:var(--soft)}.dl dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+.dsec{font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--soft);margin-bottom:10px}
+.dmsg{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.dmsg-h{font-size:11.5px;font-weight:600;color:var(--muted)}
+.dmsg-b{font-size:12.5px;color:#c9d2dc;margin-top:5px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:1180px){.shell{grid-template-columns:220px 1fr}.right{display:none}.metrics-strip{grid-template-columns:repeat(2,1fr)}}
+`;
 }
 
 function js(): string {
-  return `const ui = {
-  scopes: null,
-  state: null,
-  detail: null,
-  inspectorOpen: true,
-  sel: { project: "*", team: null, view: "attention" }
-};
-const VIEWS_PROJECT = [["attention","Attention","⚡"],["kanban","Kanban","▤"],["activity","Activity","●"],["people","People","◉"]];
-const VIEWS_TEAM = [["chat","Chat"],["kanban","Kanban"],["activity","Activity"],["people","People"]];
-const lanes = [
-  ["todo", ["open"]],
-  ["accepted", ["claimed"]],
-  ["doing", ["working"]],
-  ["testing", ["working"], "testing"],
-  ["review", ["working"], "review"],
-  ["blocked", ["blocked"]],
-  ["done", ["completed", "failed", "canceled"]]
-];
-
-function api(path) { return fetch(path, { cache: "no-store" }).then((r) => r.json()); }
-
-function stateUrl() {
-  const p = new URLSearchParams();
-  // The bus can filter by a named project/team or "*", but it has no
-  // "project IS NULL only" query. For the null "unscoped"/"unteamed" buckets we
-  // fetch the broad scope and narrow client-side (applyNullFilters).
-  p.set("project", ui.sel.project === "__null__" ? "*" : (ui.sel.project || "*"));
-  if (ui.sel.team && ui.sel.team !== "__null__") p.set("team", ui.sel.team);
-  return "/api/state?" + p.toString();
+  return CLIENT_JS;
 }
 
-function applyNullFilters(st) {
-  const needProjNull = ui.sel.project === "__null__";
-  const needTeamNull = ui.sel.team === "__null__";
-  if (!needProjNull && !needTeamNull) return st;
-  const keep = (project, team) => (!needProjNull || (project == null)) && (!needTeamNull || (team == null));
-  st.agents = st.agents.filter((a) => keep(a.project, a.team));
-  st.messages = st.messages.filter((m) => keep(m.project, m.team));
-  st.tasks = st.tasks.filter((t) => keep(t.project, t.team));
-  st.activity = st.activity.filter((it) => {
-    const o = it.message || it.event || it.decision || it.memory || it.test_result || {};
-    return keep(o.project, o.team);
-  });
-  const b = st.cockpit.board;
-  const ft = (arr) => arr.filter((t) => keep(t.project, t.team));
-  b.active_tasks = ft(b.active_tasks); b.open_tasks = ft(b.open_tasks); b.blocked_tasks = ft(b.blocked_tasks);
-  b.waiting_review = ft(b.waiting_review); b.waiting_acknowledgement = ft(b.waiting_acknowledgement); b.stale_tasks = ft(b.stale_tasks);
-  st.stats.online = st.agents.filter((a) => a.presence === "online").length;
-  st.stats.working = st.agents.filter((a) => a.status === "working").length;
-  st.stats.active_tasks = b.active_tasks.length;
-  st.stats.attention = b.blocked_tasks.length + b.stale_tasks.length + b.waiting_review.length + b.waiting_acknowledgement.length + b.scope_conflicts.length;
-  return st;
-}
-
-function readHash() {
-  const h = location.hash.replace(/^#/, "");
-  if (!h) return;
-  const q = new URLSearchParams(h);
-  if (q.has("p")) ui.sel.project = q.get("p");
-  ui.sel.team = q.has("t") ? q.get("t") : null;
-  if (q.has("v")) ui.sel.view = q.get("v");
-}
-function writeHash() {
-  const q = new URLSearchParams();
-  q.set("p", ui.sel.project || "*");
-  if (ui.sel.team) q.set("t", ui.sel.team);
-  q.set("v", ui.sel.view);
-  history.replaceState(null, "", "#" + q.toString());
-}
-
-function projectViews() { return ui.sel.team ? VIEWS_TEAM : VIEWS_PROJECT; }
-
-function selectProject(p) {
-  ui.sel.project = p; ui.sel.team = null; ui.detail = null;
-  if (!projectViews().some((v) => v[0] === ui.sel.view)) ui.sel.view = "attention";
-  afterSelect();
-}
-function selectTeam(p, t) { ui.sel.project = p; ui.sel.team = t; ui.sel.view = "chat"; ui.detail = null; afterSelect(); }
-function selectView(v) { ui.sel.view = v; afterSelect(); }
-function afterSelect() { writeHash(); render(); tick(); }
-
-function openEntity(type, id) {
-  if (type === "agent") { ui.detail = { type: "agent", id: id }; render(); return; }
-  if (type === "task") {
-    ui.detail = { type: "task", id: id, data: null };
-    api("/api/tasks/" + id).then((d) => { if (ui.detail && ui.detail.id === id) { ui.detail.data = d.error ? null : d; render(); } });
-    render(); return;
-  }
-  if (type === "message") {
-    ui.detail = { type: "message", id: id, data: null };
-    api("/api/messages/" + id + "?full=1").then((d) => { if (ui.detail && ui.detail.id === id) { ui.detail.data = d.error ? null : d; render(); } });
-    render(); return;
-  }
-}
-function clearEntity() { ui.detail = null; render(); }
-function toggleInspector() { ui.inspectorOpen = !ui.inspectorOpen; render(); }
-
-document.addEventListener("click", (e) => {
-  const el = e.target.closest("[data-act]");
-  if (!el) return;
-  const act = el.dataset.act;
-  if (act === "project") selectProject(el.dataset.project);
-  else if (act === "team") selectTeam(el.dataset.project, el.dataset.team);
-  else if (act === "view") selectView(el.dataset.view);
-  else if (act === "agent") openEntity("agent", el.dataset.name);
-  else if (act === "task") openEntity("task", el.dataset.id);
-  else if (act === "message") openEntity("message", el.dataset.id);
-  else if (act === "clear-entity") clearEntity();
-  else if (act === "toggle-inspector") toggleInspector();
-});
-
-async function tick() {
-  try {
-    const [sc, st] = await Promise.all([api("/api/scopes"), api(stateUrl())]);
-    if (sc.error) throw new Error(sc.error.message);
-    if (st.error) throw new Error(st.error.message);
-    ui.scopes = sc; ui.state = applyNullFilters(st);
-    if (ui.detail && ui.detail.type === "task") {
-      const d = await api("/api/tasks/" + ui.detail.id);
-      if (ui.detail && ui.detail.type === "task") ui.detail.data = d.error ? ui.detail.data : d;
-    }
-    render();
-  } catch (e) {
-    document.getElementById("mainBody").innerHTML = empty("Unable to read bus state: " + (e.message || String(e)));
-  }
-}
-
-function render() {
-  document.querySelector(".shell").classList.toggle("no-inspector", !ui.inspectorOpen);
-  if (!ui.scopes || !ui.state) return;
-  document.getElementById("scopeText").textContent = scopeLabel();
-  document.getElementById("updatedAt").textContent = new Date(ui.state.generated_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  renderProjectRail();
-  renderTeamRail();
-  renderHead();
-  renderBody();
-  renderInspector();
-}
-
-function projDisplay(p) { return p === "*" ? "all projects" : p === "__null__" ? "unscoped" : p; }
-function scopeLabel() {
-  const p = projDisplay(ui.sel.project);
-  const t = ui.sel.team === "__null__" ? "unteamed" : ui.sel.team;
-  return ui.sel.team ? p + " / #" + t : p;
-}
-
-function projectLabel(p) { return p === null ? "unscoped" : p; }
-function initials(p) { if (p === null) return "~"; const parts = p.split(/[-_.]/).filter(Boolean); return ((parts[0] || p)[0] + (parts[1] ? parts[1][0] : "")).toUpperCase(); }
-
-function renderProjectRail() {
-  const totals = ui.scopes.totals;
-  let html = "<div class='proj " + (ui.sel.project === "*" ? "active" : "") + "' data-act='project' data-project='*'>" +
-    "<div class='avatar'>⊙</div><span class='plabel'>All</span><span class='ponline'>" + totals.agents_online + " on</span>" +
-    (totals.attention ? "<span class='badge'>" + totals.attention + "</span>" : "") + "</div>";
-  html += ui.scopes.projects.map((p) => {
-    const key = p.project === null ? "__null__" : p.project;
-    const active = ui.sel.project === key;
-    return "<div class='proj " + (active ? "active" : "") + "' data-act='project' data-project='" + esc(key) + "' title='" + esc(projectLabel(p.project)) + "'>" +
-      "<div class='avatar'>" + esc(initials(p.project)) + "</div>" +
-      "<span class='plabel'>" + esc(projectLabel(p.project)) + "</span>" +
-      "<span class='ponline'>" + p.agents_online + " on</span>" +
-      (p.attention ? "<span class='badge'>" + p.attention + "</span>" : "") + "</div>";
-  }).join("");
-  document.getElementById("projectRail").innerHTML = html;
-}
-
-function teamsForRail() {
-  if (ui.sel.project === "*") {
-    const out = [];
-    for (const p of ui.scopes.projects) for (const t of p.teams) out.push(Object.assign({ project: p.project }, t));
-    return out;
-  }
-  const proj = ui.scopes.projects.find((p) => (p.project === null ? "__null__" : p.project) === ui.sel.project);
-  if (!proj) return [];
-  return proj.teams.map((t) => Object.assign({ project: proj.project }, t));
-}
-function teamKey(t) { return t === null ? "__null__" : t; }
-function teamLabel(t) { return t === null ? "(unteamed)" : t; }
-
-function renderTeamRail() {
-  let html = "<div class='rail-section'>Views</div>";
-  html += VIEWS_PROJECT.map((v) => {
-    const active = !ui.sel.team && ui.sel.view === v[0];
-    const badge = v[0] === "attention" && ui.state.stats.attention ? "<span class='badge'>" + ui.state.stats.attention + "</span>" : "";
-    return "<div class='rail-item " + (active ? "active" : "") + "' data-act='view' data-view='" + v[0] + "'>" +
-      "<span class='glyph'>" + v[2] + "</span><span class='rlabel'>" + v[1] + "</span>" + badge + "</div>";
-  }).join("");
-  const teams = teamsForRail();
-  html += "<div class='rail-section'>Teams" + (teams.length ? " · " + teams.length : "") + "</div>";
-  html += teams.length ? teams.map((t) => {
-    const tk = teamKey(t.team);
-    const pk = t.project === null ? "__null__" : t.project;
-    const active = ui.sel.team === tk && ui.sel.project === pk;
-    const prefix = ui.sel.project === "*" && t.project !== null ? esc(t.project) + " / " : "";
-    const dotClass = t.agents_online > 0 ? "online" : "idle";
-    const count = (t.active_tasks ? t.active_tasks + " task" + (t.active_tasks === 1 ? "" : "s") : (t.agents_total + " agent" + (t.agents_total === 1 ? "" : "s")));
-    return "<div class='rail-item " + (active ? "active" : "") + "' data-act='team' data-project='" + esc(pk) + "' data-team='" + esc(tk) + "'>" +
-      "<span class='glyph'><span class='dot " + dotClass + "'></span></span>" +
-      "<span class='rlabel'>" + prefix + "#" + esc(teamLabel(t.team)) + "</span>" +
-      (t.attention ? "<span class='badge'>" + t.attention + "</span>" : "<span class='rcount'>" + count + "</span>") + "</div>";
-  }).join("") : "<div class='empty'>No teams in scope.</div>";
-  document.getElementById("teamRail").innerHTML = html;
-}
-
-function renderHead() {
-  const s = ui.state.stats;
-  let html = "";
-  if (ui.sel.team) {
-    const members = ui.state.agents.map((a) =>
-      "<span class='member' data-act='agent' data-name='" + esc(a.name) + "'><span class='dot " + esc(a.presence) + "'></span>" + esc(a.name) + "</span>").join("");
-    html += "<div class='head-row'><div><div class='channel-title'><h2>#" + esc(teamLabel(ui.sel.team === "__null__" ? null : ui.sel.team)) + "</h2></div>" +
-      "<div class='members'>" + (members || "<span class='time'>no agents in this team</span>") + "</div></div>" +
-      metricsHtml(s) + "</div>";
-    html += "<div class='subtabs'>" + VIEWS_TEAM.map((v) =>
-      "<button class='subtab " + (ui.sel.view === v[0] ? "active" : "") + "' data-act='view' data-view='" + v[0] + "'>" + v[1] + "</button>").join("") + "</div>";
-  } else {
-    const title = (projectViews().find((v) => v[0] === ui.sel.view) || ["", "View"])[1];
-    html += "<div class='head-row'><div><div class='eyebrow'>" + esc(projDisplay(ui.sel.project)) + "</div>" +
-      "<h2>" + esc(title) + "</h2></div>" + metricsHtml(s) + "</div><div style='height:14px'></div>";
-  }
-  document.getElementById("mainHead").innerHTML = html;
-}
-
-function metricsHtml(s) {
-  const m = [["online", s.online], ["working", s.working], ["tasks", s.active_tasks], ["attention", s.attention]];
-  return "<div class='metrics'>" + m.map((x) => "<div class='metric'><strong>" + x[1] + "</strong><span>" + x[0] + "</span></div>").join("") + "</div>";
-}
-
-function renderBody() {
-  const view = ui.sel.view;
-  if (view === "chat") renderChat();
-  else if (view === "kanban") renderKanban();
-  else if (view === "activity") renderActivity();
-  else if (view === "people") renderPeople();
-  else renderAttention();
-}
-
-function renderChat() {
-  const messages = ui.state.messages;
-  document.getElementById("mainBody").innerHTML = "<div class='stream'>" + (messages.length ? messages.map((m) => {
-    const large = m.truncated ? "<div class='large'>Large message · " + m.content_length + " chars · click to open full body</div>" : "";
-    return "<article class='message' data-act='message' data-id='" + m.id + "'><div class='message-head'><div class='route'>" + esc(m.from_agent) + " → " + esc(m.to_agent) + "</div><span class='kind " + esc(m.kind) + "'>" + esc(m.kind) + "</span></div><p>" + esc(m.content_preview) + "</p>" + large + "<div class='time'>#" + m.id + " · " + time(m.created_at) + " · " + esc(m.status) + "</div></article>";
-  }).join("") : empty("No messages in this scope yet.")) + "</div>";
-}
-
-function renderKanban() {
-  const tasks = ui.state.tasks;
-  document.getElementById("mainBody").innerHTML = "<div class='kanban'>" + lanes.map((lane) => {
-    const title = lane[0], states = lane[1], phase = lane[2];
-    const laneTasks = tasks.filter((t) => states.includes(t.state) && (!phase || t.phase === phase));
-    return "<div class='lane'><div class='lane-title'><span>" + title + "</span><span>" + laneTasks.length + "</span></div><div class='lane-body'>" + (laneTasks.length ? laneTasks.map(taskCard).join("") : empty("empty")) + "</div></div>";
-  }).join("") + "</div>";
-}
-
-function taskCard(t) {
-  const owner = t.claimed_by || t.pending_assignee || t.requested_by;
-  return "<article class='task-card' data-act='task' data-id='" + t.id + "'><div class='task-head'><div class='task-title'>#" + t.id + " " + esc(t.title) + "</div><span class='state " + esc(t.state) + "'>" + esc(t.state) + "</span></div><p>" + esc((t.description || t.result || "No description").slice(0, 140)) + "</p><div class='task-meta'><span class='status-pill'>" + esc(owner || "-") + "</span><span class='status-pill'>" + esc(t.mode || "task") + "</span><span class='status-pill'>" + esc(t.phase || "no phase") + "</span></div></article>";
-}
-
-function renderActivity() {
-  const items = ui.state.activity;
-  document.getElementById("mainBody").innerHTML = "<div class='timeline'>" + (items.length ? items.slice().reverse().map((item) =>
-    "<article class='event'><div class='event-head'><div class='event-title'>" + esc(item.source) + "</div><span class='time'>" + time(item.at) + "</span></div><p>" + esc(item.summary) + "</p></article>").join("") : empty("No activity yet.")) + "</div>";
-}
-
-const PEOPLE_ORDER = ["Blocked", "Waiting review", "Working", "Idle", "Stale / away", "Sleeping", "Paused"];
-function peopleBucket(a) {
-  if (a.presence === "paused") return "Paused";
-  if (a.presence === "stale") return "Stale / away";
-  if (a.status === "blocked") return "Blocked";
-  if (a.status === "waiting_review") return "Waiting review";
-  if (a.status === "sleeping") return "Sleeping";
-  if (a.status === "working") return "Working";
-  return "Idle";
-}
-function renderPeople() {
-  const agents = ui.state.agents;
-  if (!agents.length) { document.getElementById("mainBody").innerHTML = empty("No agents registered in this scope."); return; }
-  const groups = {};
-  for (const a of agents) { const b = peopleBucket(a); (groups[b] = groups[b] || []).push(a); }
-  const html = PEOPLE_ORDER.filter((b) => groups[b]).map((b) => {
-    const rows = groups[b].map((a) => {
-      const caps = (a.capabilities || []).slice(0, 3).join(", ") || "no capabilities";
-      const task = a.active_task_id ? " · on task #" + a.active_task_id : "";
-      return "<div class='person' data-act='agent' data-name='" + esc(a.name) + "'><span class='dot " + esc(a.presence) + "'></span><div><div class='agent-name'>" + esc(a.name) + "</div><div class='agent-meta'>" + esc(a.role || "worker") + " · " + esc(caps) + " · seen " + ageText(a.age_s) + task + "</div></div><span class='status-pill " + esc(a.status) + "'>" + esc(a.status) + "</span></div>";
-    }).join("");
-    return "<div class='people-group'><h3>" + b + " <span class='time'>" + groups[b].length + "</span></h3>" + rows + "</div>";
-  }).join("");
-  document.getElementById("mainBody").innerHTML = html;
-}
-
-function attentionRows(board) {
-  const rows = [];
-  for (const t of board.blocked_tasks) rows.push({ sev: "blocked", label: "BLOCKED", id: t.id, title: t.title, note: t.blocked_reason || "no reason recorded", at: t.updated_at });
-  for (const t of board.stale_tasks) rows.push({ sev: "stale", label: "STALE", id: t.id, title: t.title, note: "holder " + (t.claimed_by || "?") + " went quiet", at: t.updated_at });
-  for (const t of board.waiting_review) rows.push({ sev: "review", label: "REVIEW", id: t.id, title: t.title, note: "needs a verifier to approve", at: t.updated_at });
-  for (const t of board.waiting_acknowledgement) rows.push({ sev: "ack", label: "ACK", id: t.id, title: t.title, note: "assigned to " + (t.pending_assignee || t.claimed_by || "?") + ", not acknowledged", at: t.updated_at });
-  for (const c of board.scope_conflicts) rows.push({ sev: "conflict", label: "CONFLICT", id: c.task_id, title: c.title, note: "edit scope overlaps " + c.conflicts.map((x) => "#" + x.task_id).join(", "), at: 0 });
-  return rows;
-}
-function renderAttention() {
-  const board = ui.state.cockpit.board;
-  const rows = attentionRows(board);
-  let html = "";
-  if (rows.length) {
-    html += "<div class='attn'>" + rows.map((r) =>
-      "<div class='attn-row " + r.sev + "' data-act='task' data-id='" + r.id + "'><div class='sev'>" + r.label + "</div>" +
-      "<div class='attn-main'><strong>#" + r.id + " " + esc(r.title) + "</strong><p>" + esc(r.note) + "</p></div>" +
-      "<div class='at'>" + (r.at ? relTime(r.at) : "") + "</div></div>").join("") + "</div>";
-  } else {
-    html += empty("Nothing needs attention in this scope. ✨");
-  }
-  const ready = ui.state.cockpit.ready;
-  if (ready.length) html += "<div class='memory-block'><h3>Ready to pick up</h3><div class='cockpit-list ready'>" + ready.map(note).join("") + "</div></div>";
-  document.getElementById("mainBody").innerHTML = html;
-}
-
-function renderInspector() {
-  const box = document.getElementById("inspector");
-  if (ui.detail && ui.detail.type === "agent") { box.innerHTML = inspectorHead("Agent") + agentProfile(ui.detail.id); return; }
-  if (ui.detail && ui.detail.type === "task") { box.innerHTML = inspectorHead("Task #" + ui.detail.id) + (ui.detail.data ? taskDetail(ui.detail.data) : empty("Loading task…")); return; }
-  if (ui.detail && ui.detail.type === "message") { box.innerHTML = inspectorHead("Message #" + ui.detail.id) + (ui.detail.data ? messageDetail(ui.detail.data) : empty("Loading message…")); return; }
-  box.innerHTML = inspectorHead("Cockpit", false) + cockpitSummary();
-}
-function inspectorHead(title, closable) {
-  const btn = closable === false ? "" : "<button class='ghost' data-act='clear-entity'>back</button>";
-  return "<div class='insp-head'><h2>" + esc(title) + "</h2>" + btn + "</div>";
-}
-
-function cockpitSummary() {
-  const c = ui.state.cockpit;
-  const sections = [["waiting", "Waiting on", c.waiting_on], ["ready", "Ready", c.ready], ["blockers", "Blockers", c.blockers], ["suggested", "Suggested next", c.suggested_next_actions]];
-  let html = sections.map((sec) => "<h3>" + sec[1] + "</h3><div class='cockpit-list " + sec[0] + "'>" + (sec[2].length ? sec[2].map(note).join("") : note("none")) + "</div>").join("");
-  html += "<div class='memory-block'><h3>Pinned memory</h3>" + (ui.state.memories.length ? ui.state.memories.map((m) => note("[" + m.kind + "] " + m.content)).join("") : note("none")) + "</div>";
-  html += "<div class='memory-block'><h3>Decisions</h3>" + (ui.state.decisions.length ? ui.state.decisions.map((d) => note(d.decision + (d.implemented ? " (implemented)" : ""))).join("") : note("none")) + "</div>";
-  return html;
-}
-
-function agentProfile(name) {
-  const a = (ui.state.agents || []).find((x) => x.name === name);
-  if (!a) return empty("Agent " + esc(name) + " is not in the current scope.");
-  const caps = (a.capabilities || []).join(", ") || "none";
-  let html = "<div class='profile-name'><span class='dot " + esc(a.presence) + "'></span>" + esc(a.name) + "</div>";
-  html += "<div class='profile-sub'>" + esc(a.role || "worker") + " · " + esc(a.presence) + " · seen " + ageText(a.age_s) + "</div>";
-  html += "<dl class='kv'>" +
-    kv("status", a.status) + kv("project", a.project || "—") + kv("team", a.team || "—") +
-    kv("capabilities", caps) + kv("active task", a.active_task_id ? "#" + a.active_task_id : "—") + "</dl>";
-  const mine = (ui.state.messages || []).filter((m) => m.from_agent === name || m.to_agent === name).slice(0, 6);
-  html += "<h3>Recent messages</h3><div class='stream'>" + (mine.length ? mine.map((m) =>
-    "<article class='message' data-act='message' data-id='" + m.id + "'><div class='message-head'><div class='route'>" + esc(m.from_agent) + " → " + esc(m.to_agent) + "</div><span class='kind " + esc(m.kind) + "'>" + esc(m.kind) + "</span></div><p>" + esc(m.content_preview) + "</p></article>").join("") : empty("No recent messages.")) + "</div>";
-  return html;
-}
-
-function taskDetail(d) {
-  const t = d.task;
-  const owner = t.claimed_by || t.pending_assignee || t.requested_by;
-  let html = "<div class='profile-name'>#" + t.id + " <span class='state " + esc(t.state) + "'>" + esc(t.state) + "</span></div>";
-  html += "<div class='profile-sub'>" + esc(t.title) + "</div>";
-  html += "<dl class='kv'>" +
-    kv("owner", owner || "—") + kv("requested", t.requested_by) + kv("mode", t.mode) +
-    kv("phase", t.phase || "—") + kv("review", t.review_required ? t.review_state : "not required") +
-    kv("ack", t.ack_required ? (t.acknowledged_at ? "yes" : "pending") : "not required") +
-    kv("edit", (t.edit_scope || []).join(", ") || "—") + "</dl>";
-  if (t.description) html += "<div class='note'><p>" + esc(t.description) + "</p></div>";
-  html += "<div class='memory-block'><h3>Events</h3><div class='timeline'>" + (d.events.length ? d.events.slice().reverse().map((e) =>
-    "<article class='event'><div class='event-head'><div class='event-title'>" + esc(e.by_agent) + " · " + esc(e.event_type) + (e.phase ? " → " + esc(e.phase) : "") + "</div><span class='time'>" + time(e.created_at) + "</span></div><p>" + esc(e.message) + "</p></article>").join("") : empty("No events.")) + "</div></div>";
-  if (d.test_results.length) html += "<div class='memory-block'><h3>Test results</h3>" + d.test_results.map((r) => note("[" + r.status + "] " + r.command + (r.output_summary ? " — " + r.output_summary : ""))).join("") + "</div>";
-  html += "<div class='memory-block'><h3>Thread</h3><div class='stream'>" + (d.messages.length ? d.messages.slice(-8).map((m) =>
-    "<article class='message' data-act='message' data-id='" + m.id + "'><div class='message-head'><div class='route'>" + esc(m.from_agent) + " → " + esc(m.to_agent) + "</div><span class='kind " + esc(m.kind) + "'>" + esc(m.kind) + "</span></div><p>" + esc((m.content || "").slice(0, 360)) + "</p></article>").join("") : empty("No thread messages.")) + "</div></div>";
-  return html;
-}
-
-function messageDetail(m) {
-  const body = m.content != null ? m.content : (m.content_preview || "");
-  let html = "<dl class='kv'>" + kv("from", m.from_agent) + kv("to", m.to_agent) + kv("kind", m.kind) +
-    kv("status", m.status) + kv("thread", m.thread_id || "—") + kv("sent", time(m.created_at)) + "</dl>";
-  html += "<div class='note'><p>" + esc(body) + "</p></div>";
-  if (m.truncated && m.content == null) html += "<div class='large'>" + m.content_length + " chars total.</div>";
-  return html;
-}
-
-function kv(k, v) { return "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>"; }
-function note(value) { return "<div class='note'><p>" + esc(value) + "</p></div>"; }
-function empty(value) { return "<div class='empty'>" + esc(value) + "</div>"; }
-function time(ms) { return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
-function relTime(ms) { const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return ageText(s); }
-function ageText(s) {
-  if (s == null) return "—";
-  if (s < 60) return s + "s";
-  const m = Math.round(s / 60); if (m < 60) return m + "m";
-  const h = Math.round(m / 60); if (h < 24) return h + "h";
-  return Math.round(h / 24) + "d";
-}
-function esc(value) {
-  return String(value == null ? "" : value).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-}
-
-window.addEventListener("hashchange", () => { readHash(); render(); tick(); });
-readHash();
-tick();
-setInterval(tick, 2000);`;
-}
+// Client script served at /app.js. Plain ES5-ish JS using string concatenation
+// (no template literals) so it lives safely inside this module's template.
+const CLIENT_JS = [
+  "var ui={scopes:null,state:null,metrics:null,sel:{project:'*',team:null,view:'chat'},inited:false,",
+  "  chat:{msgs:[],cursor:null,hasMore:false,loading:false,scope:'',expanded:{},full:{},atBottom:true}};",
+  "function api(p){return fetch(p,{cache:'no-store'}).then(function(r){return r.json();});}",
+  "function esc(v){return String(v==null?'':v).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}",
+  "function mdInline(s){s=s.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>');s=s.replace(/`([^`]+)`/g,'<code>$1</code>');return s;}",
+  "function md(raw){var e=esc(raw);var lines=e.split('\\n');var out=[];var inList=false;for(var i=0;i<lines.length;i++){var ln=lines[i];var b=ln.match(/^\\s*[-*]\\s+(.+)$/);var h2=ln.match(/^\\s*={2,}\\s*(.+?)\\s*=*\\s*$/);var h1=ln.match(/^(#{1,6})\\s+(.+)$/);if(b){if(!inList){out.push('<ul>');inList=true;}out.push('<li>'+mdInline(b[1])+'</li>');continue;}if(inList){out.push('</ul>');inList=false;}if(h1){out.push('<div class=\"md-h\">'+mdInline(h1[2])+'</div>');continue;}if(h2){out.push('<div class=\"md-h\">'+mdInline(h2[1])+'</div>');continue;}if(ln.trim()===''){out.push('<div class=\"md-sp\"></div>');continue;}out.push('<div>'+mdInline(ln)+'</div>');}if(inList)out.push('</ul>');return out.join('');}",
+  "function fmtTime(ms){return new Date(ms).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});}",
+  "function ago(ms){var s=Math.max(0,Math.round((Date.now()-ms)/1000));if(s<60)return s+'s';var m=Math.round(s/60);if(m<60)return m+'m';var h=Math.round(m/60);if(h<24)return h+'h';return Math.round(h/24)+'d';}",
+  "function initials(n){n=n||'?';var parts=n.split(/[-_. ]/).filter(Boolean);var a=(parts[0]||n)[0]||'?';var b=parts[1]?parts[1][0]:'';return (a+b).toUpperCase();}",
+  "function hue(s){var h=0;s=s||'?';for(var i=0;i<s.length;i++){h=(h*31+s.charCodeAt(i))%360;}return h;}",
+  "function ava(name){var a=null;if(ui.state&&ui.state.agents){for(var i=0;i<ui.state.agents.length;i++){if(ui.state.agents[i].name===name){a=ui.state.agents[i];break;}}}var h=hue(name);return {ini:initials(name),grad:'linear-gradient(135deg,hsl('+h+' 68% 56%),hsl('+((h+48)%360)+' 68% 56%))',role:a?(a.role||'agent'):'',online:a?a.presence==='online':false};}",
+  "function spark(vals,w,hh){if(!vals||!vals.length)return '';var max=Math.max.apply(null,vals.concat([1]));var min=Math.min.apply(null,vals.concat([0]));var span=(max-min)||1;var step=w/(vals.length-1||1);var d='';for(var i=0;i<vals.length;i++){var x=i*step;var y=hh-((vals[i]-min)/span)*hh;d+=(i?'L':'M')+x.toFixed(1)+' '+y.toFixed(1)+' ';}return d;}",
+  "function projKey(p){return p===null?'__null__':p;}",
+  "function projDisplay(p){return p==='*'?'all projects':p==='__null__'?'unscoped':p;}",
+  // scope query for state/metrics/messages
+  "function qScope(){var p=new URLSearchParams();p.set('project',ui.sel.project==='__null__'?'*':(ui.sel.project||'*'));if(ui.sel.team&&ui.sel.team!=='__null__')p.set('team',ui.sel.team);return p;}",
+  "function chatKey(){return (ui.sel.project||'*')+'|'+(ui.sel.team||'');}",
+  // null-bucket client filter for state (bus has no IS-NULL-only query)
+  "function applyNullFilters(st){var pn=ui.sel.project==='__null__',tn=ui.sel.team==='__null__';if(!pn&&!tn)return st;var keep=function(p,t){return (!pn||p==null)&&(!tn||t==null);};st.agents=st.agents.filter(function(a){return keep(a.project,a.team);});st.tasks=st.tasks.filter(function(t){return keep(t.project,t.team);});st.activity=st.activity.filter(function(it){var o=it.message||it.event||it.decision||it.memory||it.test_result||{};return keep(o.project,o.team);});var b=st.cockpit.board;var ft=function(arr){return arr.filter(function(t){return keep(t.project,t.team);});};b.active_tasks=ft(b.active_tasks);b.open_tasks=ft(b.open_tasks);b.blocked_tasks=ft(b.blocked_tasks);b.waiting_review=ft(b.waiting_review);b.waiting_acknowledgement=ft(b.waiting_acknowledgement);b.stale_tasks=ft(b.stale_tasks);st.stats.online=st.agents.filter(function(a){return a.presence==='online';}).length;st.stats.working=st.agents.filter(function(a){return a.status==='working';}).length;st.stats.active_tasks=b.active_tasks.length;st.stats.attention=b.blocked_tasks.length+b.stale_tasks.length+b.waiting_review.length+b.waiting_acknowledgement.length+b.scope_conflicts.length;return st;}",
+  // hash routing
+  "function readHash(){var h=location.hash.replace(/^#/,'');if(!h)return;var q=new URLSearchParams(h);if(q.has('p'))ui.sel.project=q.get('p');ui.sel.team=q.has('t')?q.get('t'):null;if(q.has('v'))ui.sel.view=q.get('v');}",
+  "function writeHash(){var q=new URLSearchParams();q.set('p',ui.sel.project||'*');if(ui.sel.team)q.set('t',ui.sel.team);q.set('v',ui.sel.view);history.replaceState(null,'','#'+q.toString());}",
+  // selection
+  "function setView(v){ui.sel.view=v;document.querySelectorAll('.team-row').forEach(function(x){x.classList.remove('active');});afterSel();}",
+  "function pickTeam(pk,tk){ui.sel.project=pk;ui.sel.team=tk;ui.sel.view='chat';afterSel();}",
+  "function afterSel(){writeHash();render();tick();}",
+  "window.setView=setView;window.pickTeam=pickTeam;",
+  // main fetch loop
+  "function tick(){var qs=qScope().toString();return Promise.all([api('/api/scopes'),api('/api/state?'+qs),api('/api/metrics?'+qs)]).then(function(res){var sc=res[0],st=res[1],me=res[2];if(!sc.error)ui.scopes=sc;if(!st.error)ui.state=applyNullFilters(st);if(!me.error)ui.metrics=me;var next;if(ui.chat.scope!==chatKey()){next=loadChat(true);}else if(ui.sel.view==='chat'){next=refreshLatest();}else{next=Promise.resolve();}return next;}).then(function(){render();}).catch(function(e){var b=document.getElementById('mainBody');if(b)b.innerHTML='<div class=\"empty\">Unable to read bus: '+esc(e.message||e)+'</div>';});}",
+  // chat paging
+  "function loadChat(reset){if(reset){ui.chat={msgs:[],cursor:null,hasMore:false,loading:false,scope:chatKey(),expanded:{},full:{},atBottom:true};}var p=qScope();p.set('limit','30');return api('/api/messages?'+p.toString()).then(function(r){if(r.error)return;ui.chat.msgs=r.messages.slice();ui.chat.cursor=r.next_cursor;ui.chat.hasMore=r.has_more;});}",
+  "function expandMsg(id){if(ui.chat.expanded[id]){delete ui.chat.expanded[id];renderChat();return;}if(ui.chat.full[id]!=null){ui.chat.expanded[id]=1;renderChat();return;}api('/api/messages/'+id+'?full=1').then(function(r){if(r.error)return;var mm=r.message||{};ui.chat.full[id]=(mm.content!=null?mm.content:mm.content_preview);ui.chat.expanded[id]=1;renderChat();});}",
+  "window.expandMsg=expandMsg;",
+  "function loadEarlier(){if(!ui.chat.hasMore||ui.chat.loading)return;ui.chat.loading=true;var p=qScope();p.set('limit','30');if(ui.chat.cursor!=null)p.set('before',ui.chat.cursor);api('/api/messages?'+p.toString()).then(function(r){ui.chat.loading=false;if(r.error)return;ui.chat.msgs=r.messages.concat(ui.chat.msgs);ui.chat.cursor=r.next_cursor;ui.chat.hasMore=r.has_more;renderChat('earlier');});}",
+  "function refreshLatest(){var p=qScope();p.set('limit','30');return api('/api/messages?'+p.toString()).then(function(r){if(r.error||!r.messages)return;var newest=ui.chat.msgs.length?ui.chat.msgs[ui.chat.msgs.length-1].id:0;var added=r.messages.filter(function(m){return m.id>newest;});if(added.length)ui.chat.msgs=ui.chat.msgs.concat(added);});}",
+  "window.loadEarlier=loadEarlier;",
+  // top-level render
+  "function render(){if(!ui.scopes||!ui.state){return;}if(!ui.inited){initSelection();ui.inited=true;}document.getElementById('scopeText').textContent=ui.sel.team?(projDisplay(ui.sel.project)+' / #'+(ui.sel.team==='__null__'?'unteamed':ui.sel.team)):projDisplay(ui.sel.project);document.getElementById('clock').textContent=new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});renderKpis();renderSidebar();renderMetrics();renderMain();renderRight();}",
+  "function initSelection(){if(location.hash){return;}var ps=ui.scopes.projects;if(ps&&ps.length){ui.sel.project=projKey(ps[0].project);var t=ps[0].teams&&ps[0].teams[0];ui.sel.team=t?(t.team===null?'__null__':t.team):null;ui.sel.view='chat';writeHash();}}",
+  // kpis
+  "function renderKpis(){var t=ui.scopes.totals;var arr=[[t.projects,'projects'],[t.teams,'teams'],[t.agents_online,'online'],[t.active_tasks,'tasks'],[t.attention,'attn',true]];document.getElementById('kpis').innerHTML=arr.map(function(k){return '<div class=\"kchip '+(k[2]?'alert':'')+'\"><span class=\"v\">'+k[0]+'</span><span class=\"l\">'+k[1]+'</span></div>';}).join('');}",
+  // sidebar
+  "function renderSidebar(){var st=ui.state.stats;document.getElementById('vc-attention').textContent=st.attention||'';document.getElementById('vc-kanban').textContent=(ui.state.tasks||[]).length;document.getElementById('vc-activity').textContent=(ui.state.activity||[]).length;document.getElementById('vc-people').textContent=(ui.state.agents||[]).length;document.getElementById('projCount').textContent=ui.scopes.totals.projects;",
+  "  document.querySelectorAll('.viewitem').forEach(function(it){it.classList.toggle('active',!ui.sel.team&&it.dataset.view===ui.sel.view);});",
+  "  document.getElementById('projects').innerHTML=ui.scopes.projects.map(function(p){var pk=projKey(p.project);var lbl=projDisplay(p.project==='*'?'*':pk);var ini=p.project===null?'~':initials(p.project);var open=(ui.sel.project===pk);var teams=p.teams.map(function(t){var tk=t.team===null?'__null__':t.team;var tn=t.team===null?'(unteamed)':'# '+t.team;var active=ui.sel.team===tk&&ui.sel.project===pk;return '<div class=\"team-row '+(active?'active':'')+'\" onclick=\"event.stopPropagation();pickTeam(\\''+esc(pk)+'\\',\\''+esc(tk)+'\\')\"><span class=\"d '+(t.online?'on':'')+'\"></span><span class=\"tn\">'+esc(tn)+'</span>'+(t.attention?'<span class=\"badge\">'+t.attention+'</span>':'<span class=\"tc\">'+(t.active_tasks?t.active_tasks+'t':t.agents_total+'a')+'</span>')+'</div>';}).join('');return '<div class=\"proj '+(open?'active open':'')+'\"><div class=\"proj-row\" onclick=\"this.parentElement.classList.toggle(\\'open\\')\"><span class=\"chev\">&#9654;</span><span class=\"pava\">'+esc(ini)+'</span><span class=\"pname\">'+esc(projDisplay(pk))+'</span>'+(p.attention?'<span class=\"badge\">'+p.attention+'</span>':'<span class=\"pmeta\">'+p.agents_online+'/'+p.agents_total+'</span>')+'</div><div class=\"teams\">'+teams+'</div></div>';}).join('');}",
+  // metrics strip (real)
+  "function renderMetrics(){var m=ui.metrics||{messages:[],activity:[],totals:{messages:0},deltas:{messages_pct:0},daily:{tasks_created:[]}};var st=ui.state.stats;var d=m.deltas.messages_pct;var dcls=d>0?'up':d<0?'down':'';var dtxt=(d>0?'+':'')+d+'% vs prev';",
+  "  var h='';",
+  "  h+='<div class=\"mtile\"><h3>Messages (24h)</h3><div class=\"big\">'+m.totals.messages+'</div><svg class=\"spark\" viewBox=\"0 0 200 24\" preserveAspectRatio=\"none\"><path d=\"'+spark(m.messages,200,22)+'\" fill=\"none\" stroke=\"#3ad6b6\" stroke-width=\"2\"/></svg><div class=\"sub '+dcls+'\">'+dtxt+'</div></div>';",
+  "  h+='<div class=\"mtile\"><h3>Active tasks</h3><div class=\"big\">'+st.active_tasks+'</div><div class=\"sub\">'+st.open_tasks+' open · '+st.blocked+' blocked</div></div>';",
+  "  h+='<div class=\"mtile\"><h3>Agents online</h3><div class=\"big\">'+st.online+' <span style=\"font-size:13px;color:var(--soft)\">/'+ui.state.agents.length+'</span></div><svg class=\"spark\" viewBox=\"0 0 200 24\" preserveAspectRatio=\"none\"><path d=\"'+spark(m.activity,200,22)+'\" fill=\"none\" stroke=\"#6ea8fe\" stroke-width=\"2\"/></svg></div>';",
+  "  h+='<div class=\"mtile\"><h3>Attention</h3><div class=\"big\" style=\"color:'+(st.attention?'var(--red)':'var(--text)')+'\">'+st.attention+'</div><div class=\"sub\">'+ui.state.cockpit.board.blocked_tasks.length+' blocked · '+ui.state.cockpit.board.stale_tasks.length+' stale · '+ui.state.cockpit.board.waiting_review.length+' review</div></div>';",
+  "  document.getElementById('metrics').innerHTML=h;}",
+  // main view dispatch
+  "function renderMain(){var v=ui.sel.view;if(v==='chat')return renderChat();var BODY=document.getElementById('mainBody');var top=BODY.scrollTop;var bd=BODY.querySelector('.board');var left=bd?bd.scrollLeft:0;if(v==='kanban')renderKanban();else if(v==='activity')renderActivity();else if(v==='people')renderPeople();else renderAttention();BODY.scrollTop=top;var bd2=BODY.querySelector('.board');if(bd2)bd2.scrollLeft=left;}",
+  // chat (bubbles)
+  "function dayLabel(ms){var d=new Date(ms),t=new Date();return d.toDateString()===t.toDateString()?'Today':d.toLocaleDateString([], {month:'short',day:'numeric'});}",
+  "function renderChat(mode){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var members={};var msgs=ui.chat.msgs;for(var i=0;i<msgs.length;i++){members[msgs[i].from_agent]=1;}var mh='';for(var k in members){mh+='<span class=\"mini-ava\" style=\"background:'+ava(k).grad+'\">'+esc(initials(k))+'</span>';}",
+  "  HEAD.innerHTML='<div class=\"ttl\">'+(ui.sel.team?'# '+esc(ui.sel.team==='__null__'?'unteamed':ui.sel.team):esc(projDisplay(ui.sel.project)))+' <span class=\"members\">'+mh+'</span></div><div class=\"meta\">'+msgs.length+' loaded'+(ui.chat.hasMore?' · more available':'')+'</div>';",
+  "  var prevH=BODY.scrollHeight,prevTop=BODY.scrollTop;",
+  "  var answered={};for(var a=0;a<msgs.length;a++){if(msgs[a].reply_to!=null)answered[msgs[a].reply_to]=1;}",
+  "  var byId={};for(var b=0;b<msgs.length;b++){byId[msgs[b].id]=msgs[b];}",
+  "  var html='';if(ui.chat.hasMore)html+='<div class=\"loadmore\"><button onclick=\"loadEarlier()\">↑ Load earlier</button></div>';",
+  "  if(!msgs.length)html+='<div class=\"empty\">No messages in this scope yet.</div>';",
+  "  var lastDay=null,lastSender=null;",
+  "  msgs.forEach(function(m){var day=dayLabel(m.created_at);if(day!==lastDay){html+='<div class=\"daydiv\">'+day+'</div>';lastDay=day;lastSender=null;}var av=ava(m.from_agent);var self=ui.state.scope&&false;var ng=m.from_agent!==lastSender;var q=(m.reply_to!=null&&byId[m.reply_to])?byId[m.reply_to]:null;",
+  "    html+='<div class=\"grp\">'+(ng?'<div class=\"ava '+(av.online?'online':'')+'\" style=\"background:'+av.grad+'\">'+esc(av.ini)+'</div>':'<div></div>')+'<div class=\"col\">';",
+  "    if(ng)html+='<div class=\"head\"><span class=\"nm\">'+esc(m.from_agent)+'</span><span class=\"role\">'+esc(av.role||'agent')+'</span><span class=\"tm\">'+fmtTime(m.created_at)+'</span></div>';",
+  "    var kc=m.kind==='ask'?'ask':m.kind==='reply'?'reply':'msg';html+='<div class=\"bub '+kc+'\">';",
+  "    if(q)html+='<div class=\"quote\">↩ replying to <b>'+esc(q.from_agent)+'</b>: '+esc(q.content_preview.slice(0,64))+'…</div>';",
+  "    var expanded=ui.chat.expanded[m.id];html+='<div class=\"bub-text\">'+md(expanded&&ui.chat.full[m.id]!=null?ui.chat.full[m.id]:m.content_preview)+'</div>';",
+  "    if(m.truncated)html+='<div class=\"collapsed\" onclick=\"expandMsg('+m.id+')\">'+(expanded?'⤡ Show less':'⤢ Large message · '+m.content_length+' chars · click to expand')+'</div>';",
+  "    html+='<div class=\"kind-row\"><span class=\"kpill '+kc+'\">'+(m.kind==='ask'?'ask':m.kind==='reply'?'reply':'message')+'</span>';",
+  "    if(m.kind==='ask')html+='<span class=\"kpill '+(answered[m.id]?'done':'await')+'\">'+(answered[m.id]?'✓ answered':'⏳ awaiting reply')+'</span>';",
+  "    else if(m.kind==='reply'&&!q)html+='<span class=\"kpill reply\">↩ in reply</span>';",
+  "    html+='</div>';",
+  "    html+='<div class=\"id\">#'+m.id+' · '+esc(m.kind)+' → '+esc(m.to_agent)+'</div></div></div></div>';lastSender=m.from_agent;});",
+  "  BODY.innerHTML=html;if(mode==='earlier'){BODY.scrollTop=BODY.scrollHeight-prevH+prevTop;}else if(mode==='reset'||ui.chat.atBottom!==false){BODY.scrollTop=BODY.scrollHeight;ui.chat.atBottom=true;}else{BODY.scrollTop=prevTop;}",
+  "  FOOT.innerHTML='<span class=\"count\">'+msgs.length+' messages loaded'+(ui.chat.hasMore?' (paged)':'')+'</span><div class=\"actions\">'+(ui.chat.hasMore?'<button onclick=\"loadEarlier()\">↑ earlier</button>':'')+'<span class=\"readonly\">read-only</span></div>';}",
+  // kanban
+  "function tcard(t){var o=ava(t.claimed_by||t.pending_assignee||t.requested_by);var stale=t.stale===true;var flags='';if(t.state==='blocked')flags+='<span class=\"flag blocked\">blocked</span>';if(t.phase==='review'||(t.review_required&&t.review_state==='pending'))flags+='<span class=\"flag review\">review</span>';if(stale)flags+='<span class=\"flag stale\">stale</span>';return '<div class=\"tcard\" onclick=\"openTask('+t.id+')\"><div class=\"tid\">#'+t.id+'</div><div class=\"ttitle\">'+esc(t.title)+'</div><div class=\"trow\"><span class=\"owner\"><span class=\"oava\" style=\"background:'+o.grad+'\">'+esc(initials(t.claimed_by||t.pending_assignee||t.requested_by))+'</span>'+esc(t.claimed_by||t.pending_assignee||t.requested_by||'-')+'</span></div><div class=\"trow\"><span class=\"mtag\">'+esc(t.mode||'task')+'</span><span class=\"mtag\">'+esc(t.phase||'—')+'</span>'+flags+'</div></div>';}",
+  "function renderKanban(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var tasks=ui.state.tasks||[];var lanes=[['todo','Todo',function(t){return t.state==='open';}],['accepted','Accepted',function(t){return t.state==='claimed';}],['doing','Doing',function(t){return t.state==='working'&&t.phase!=='testing'&&t.phase!=='review';}],['testing','Testing',function(t){return t.phase==='testing';}],['review','Review',function(t){return t.state==='working'&&t.phase==='review';}],['blocked','Blocked',function(t){return t.state==='blocked';}],['done','Done',function(t){return t.state==='completed'||t.state==='failed'||t.state==='canceled';}]];",
+  "  HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">▤ Kanban <span class=\"vsub\">· '+esc(projDisplay(ui.sel.project))+(ui.sel.team?' / #'+esc(ui.sel.team):'')+'</span></div><div class=\"vsub\">'+tasks.length+' tasks</div></div>';",
+  "  BODY.innerHTML='<div class=\"board\">'+lanes.map(function(l){var cards=tasks.filter(l[2]);return '<div class=\"bcol '+l[0]+'\"><div class=\"bhead\"><span class=\"bname\"><span class=\"bdot\"></span>'+l[1]+'</span><span class=\"bcount\">'+cards.length+'</span></div><div class=\"bbody\">'+(cards.length?cards.map(tcard).join(''):'<div class=\"bempty\">—</div>')+'</div></div>';}).join('')+'</div>';",
+  "  FOOT.innerHTML='<span class=\"count\">'+tasks.length+' tasks</span><span class=\"readonly\">read-only</span>';}",
+  // activity
+  "function renderActivity(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var items=(ui.state.activity||[]).slice().reverse();HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">◴ Activity</div><div class=\"vsub\">recent first</div></div>';BODY.innerHTML='<div class=\"tlfeed\">'+(items.length?items.map(function(it){return '<div class=\"tlitem\"><div class=\"td '+esc(it.source)+'\"></div><div><div class=\"tx\"><span class=\"src\">'+esc(it.source.replace('_',' '))+'</span>'+esc(it.summary)+'</div><div class=\"tts\">'+fmtTime(it.at)+' · '+ago(it.at)+' ago</div></div></div>';}).join(''):'<div class=\"empty\">No activity yet.</div>')+'</div>';FOOT.innerHTML='<span class=\"count\">'+items.length+' events</span><span class=\"readonly\">read-only</span>';}",
+  // people
+  "var PORDER=['Blocked','Waiting review','Working','Idle','Stale / away','Sleeping'];",
+  "function pbucket(a){if(a.presence==='paused')return 'Sleeping';if(a.presence==='stale')return a.status==='sleeping'?'Sleeping':'Stale / away';if(a.status==='blocked')return 'Blocked';if(a.status==='waiting_review')return 'Waiting review';if(a.status==='sleeping')return 'Sleeping';if(a.status==='working')return 'Working';return 'Idle';}",
+  "function renderPeople(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var agents=ui.state.agents||[];HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">◉ People <span class=\"vsub\">· '+agents.length+' agents · '+ui.state.stats.online+' online</span></div></div>';if(!agents.length){BODY.innerHTML='<div class=\"empty\">No agents in this scope.</div>';FOOT.innerHTML='';return;}var groups={};agents.forEach(function(a){var b=pbucket(a);(groups[b]=groups[b]||[]).push(a);});BODY.innerHTML='<div class=\"people\">'+PORDER.filter(function(g){return groups[g];}).map(function(g){return '<div class=\"pgroup\"><h4>'+g+' <span style=\"color:var(--soft);font-family:var(--mono)\">'+groups[g].length+'</span></h4>'+groups[g].map(function(a){var av=ava(a.name);var caps=(a.capabilities||[]).slice(0,3).join(', ');var ring=a.presence==='online'?'online':a.presence==='stale'?'stale':'';return '<div class=\"person\"><div class=\"pava2 '+ring+'\" style=\"background:'+av.grad+'\">'+esc(initials(a.name))+'</div><div><div class=\"pn\">'+esc(a.name)+'</div><div class=\"pm\">'+esc(a.role||'agent')+' · '+esc(caps)+' · #'+esc(a.team||'none')+' · seen '+a.age_s+'s'+(a.active_task_id?' · task #'+a.active_task_id:'')+'</div></div><span class=\"ps '+esc(a.status)+'\">'+esc(a.status)+'</span></div>';}).join('')+'</div>';}).join('')+'</div>';FOOT.innerHTML='<span class=\"count\">'+agents.length+' agents</span><span class=\"readonly\">presence + status</span>';}",
+  // attention
+  "function attnRows(b){var rows=[];b.blocked_tasks.forEach(function(t){rows.push({sev:'blocked',label:'BLOCKED',id:t.id,title:t.title,note:t.blocked_reason||'no reason recorded',at:t.updated_at});});b.stale_tasks.forEach(function(t){rows.push({sev:'stale',label:'STALE',id:t.id,title:t.title,note:'holder '+(t.claimed_by||'?')+' went quiet',at:t.updated_at});});b.waiting_review.forEach(function(t){rows.push({sev:'review',label:'REVIEW',id:t.id,title:t.title,note:'needs a verifier to approve',at:t.updated_at});});b.waiting_acknowledgement.forEach(function(t){rows.push({sev:'ack',label:'ACK',id:t.id,title:t.title,note:'assigned to '+(t.pending_assignee||t.claimed_by||'?')+', not acknowledged',at:t.updated_at});});b.scope_conflicts.forEach(function(c){rows.push({sev:'conflict',label:'CONFLICT',id:c.task_id,title:c.title,note:'edit scope overlaps '+c.conflicts.map(function(x){return '#'+x.task_id;}).join(', '),at:0});});return rows;}",
+  "function renderAttention(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var rows=attnRows(ui.state.cockpit.board);HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">⚡ Attention <span class=\"vsub\">· what needs a human next</span></div><div class=\"vsub\" style=\"color:'+(rows.length?'var(--red)':'var(--soft)')+'\">'+rows.length+' items</div></div>';BODY.innerHTML='<div class=\"attnfull\">'+(rows.length?rows.map(function(r){return '<div class=\"afrow '+r.sev+'\" onclick=\"openTask('+r.id+')\"><div class=\"afsev\">'+r.label+'</div><div><strong>#'+r.id+' '+esc(r.title)+'</strong><p>'+esc(r.note)+'</p></div><div class=\"afat\">'+(r.at?ago(r.at):'')+'</div></div>';}).join(''):'<div class=\"empty\">Nothing needs attention in this scope. ✨</div>')+'</div>';FOOT.innerHTML='<span class=\"count\">'+rows.length+' attention items</span><span class=\"readonly\">read-only</span>';}",
+  // right rail
+  "function renderRight(){var m=ui.metrics||{daily:{tasks_created:[]},messages:[]};var b=ui.state.cockpit.board;var st=ui.state.stats;var h='';",
+  "  var rows=attnRows(b).slice(0,4);h+='<div class=\"card\"><h3>Attention <span style=\"color:'+(st.attention?'var(--red)':'var(--soft)')+'\">'+st.attention+'</span></h3><div class=\"attn\">'+(rows.length?rows.map(function(r){return '<div class=\"attn-row '+r.sev+'\" onclick=\"openTask('+r.id+')\"><div class=\"sev\">'+r.label+'</div><div><strong>#'+r.id+'</strong><p>'+esc(r.note.slice(0,42))+'</p></div></div>';}).join(''):'<div class=\"empty\">clear ✨</div>')+'</div></div>';",
+  // roster heatmap
+  "  var teams={};(ui.state.agents||[]).forEach(function(a){var k='#'+(a.team||'none');(teams[k]=teams[k]||[]).push(a);});var hk='';for(var tn in teams){hk+='<div class=\"heat-row\"><div class=\"tname\">'+esc(tn)+'</div><div class=\"cells\">'+teams[tn].map(function(a){return '<div class=\"cell '+(a.presence==='stale'?'stale':a.status)+'\" title=\"'+esc(a.name)+'\"></div>';}).join('')+'</div></div>';}h+='<div class=\"card\"><h3>Roster · agent × status</h3><div class=\"heat\">'+(hk||'<div class=\"empty\">no agents</div>')+'</div><div class=\"legend\"><span><i style=\"background:var(--accent)\"></i>work</span><span><i style=\"background:var(--blue)\"></i>idle</span><span><i style=\"background:var(--purple)\"></i>review</span><span><i style=\"background:var(--red)\"></i>blocked</span><span><i style=\"background:var(--amber)\"></i>stale</span></div></div>';",
+  // mini kanban
+  "  var tasks=ui.state.tasks||[];var ml=[['Todo',['open']],['Doing',['claimed','working']],['Blocked',['blocked']],['Done',['completed','failed','canceled']]];h+='<div class=\"card\"><h3>Kanban</h3><div class=\"kmini\">'+ml.map(function(l){var cs=tasks.filter(function(t){return l[1].indexOf(t.state)>=0;});return '<div class=\"klane\"><div class=\"kt\"><span>'+l[0]+'</span><span>'+cs.length+'</span></div>'+(cs.length?cs.slice(0,4).map(function(c){return '<div class=\"kcard\" onclick=\"openTask('+c.id+')\"><span class=\"id\">#'+c.id+'</span> '+esc(c.title.slice(0,22))+'</div>';}).join(''):'<div style=\"font-size:9.5px;color:var(--soft)\">—</div>')+'</div>';}).join('')+'</div></div>';",
+  // throughput
+  "  var daily=(m.daily&&m.daily.tasks_created)||[];var mx=Math.max.apply(null,daily.concat([1]));h+='<div class=\"card\"><h3>Throughput · tasks/day ('+(m.daily?m.daily.days:0)+'d)</h3><div class=\"bars\">'+(daily.length?daily.map(function(v){return '<div class=\"bar\" style=\"height:'+(v/mx*100).toFixed(0)+'%\"></div>';}).join(''):'<div class=\"empty\">no tasks</div>')+'</div></div>';",
+  // decisions + memory
+  "  var decs=ui.state.decisions||[];var mems=ui.state.memories||[];h+='<div class=\"card\"><h3>Decisions</h3>'+(decs.length?decs.slice(0,4).map(function(d){return '<div class=\"dec\">'+esc(d.decision)+'<small>'+esc(d.by_agent||'')+(d.implemented?' · implemented':'')+'</small></div>';}).join(''):'<div class=\"empty\">none</div>')+'</div>';",
+  "  if(mems.length)h+='<div class=\"card\"><h3>Pinned memory</h3>'+mems.slice(0,4).map(function(mm){return '<div class=\"dec\">['+esc(mm.kind)+'] '+esc(mm.content.slice(0,80))+'</div>';}).join('')+'</div>';",
+  "  document.getElementById('right').innerHTML=h;}",
+  // view item clicks + boot
+  "function closeDrawer(){document.getElementById('drawer').classList.remove('open');}window.closeDrawer=closeDrawer;",
+  "function openTask(id){var d=document.getElementById('drawer');d.classList.add('open');d.innerHTML='<div class=\"drawer-bd\" onclick=\"closeDrawer()\"></div><div class=\"drawer-panel\"><div class=\"empty\">Loading task #'+id+'…</div></div>';api('/api/tasks/'+id).then(function(r){if(r.error){d.innerHTML='<div class=\"drawer-bd\" onclick=\"closeDrawer()\"></div><div class=\"drawer-panel\"><div class=\"empty\">'+esc(r.error.message||'not found')+'</div></div>';return;}renderTaskDetail(r);});}window.openTask=openTask;",
+  "function renderTaskDetail(d){var t=d.task;var owner=t.claimed_by||t.pending_assignee||t.requested_by;var ev=(d.events||[]).slice().reverse();var tr=d.test_results||[];var th=(d.messages||[]).slice(-12);var H='';",
+  "  H+='<div class=\"dk-head\"><span class=\"dk-close\" onclick=\"closeDrawer()\">✕ close</span><span class=\"dk-id\">#'+t.id+' · '+esc(t.state)+'</span><div class=\"dk-title\">'+esc(t.title)+'</div><div class=\"dk-meta\"><span class=\"mtag\">'+esc(t.mode||'task')+'</span><span class=\"mtag\">phase: '+esc(t.phase||'—')+'</span>'+(t.review_required?'<span class=\"kpill review\">review: '+esc(t.review_state)+'</span>':'')+(t.stale?'<span class=\"kpill\" style=\"color:var(--amber);border-color:rgba(244,192,106,.4)\">stale</span>':'')+'</div></div><div class=\"dk-body\">';",
+  "  H+='<dl class=\"dl\"><dt>owner</dt><dd>'+esc(owner||'-')+'</dd><dt>requested by</dt><dd>'+esc(t.requested_by)+'</dd><dt>project</dt><dd>'+esc(t.project||'—')+'</dd><dt>team</dt><dd>#'+esc(t.team||'none')+'</dd><dt>ack</dt><dd>'+(t.ack_required?(t.acknowledged_at?'acknowledged'+(t.acknowledged_by?' by '+esc(t.acknowledged_by):''):'pending'):'not required')+'</dd><dt>review</dt><dd>'+(t.review_required?esc(t.review_state)+(t.reviewed_by?' by '+esc(t.reviewed_by):''):'not required')+'</dd><dt>edit scope</dt><dd>'+esc((t.edit_scope||[]).join(', ')||'—')+'</dd><dt>updated</dt><dd>'+ago(t.updated_at)+' ago</dd></dl>';",
+  "  if(t.description)H+='<div><div class=\"dsec\">Description</div><div class=\"dec\">'+esc(t.description)+'</div></div>';",
+  "  if(t.result)H+='<div><div class=\"dsec\">Result</div><div class=\"dec\">'+esc(t.result)+'</div></div>';",
+  "  H+='<div><div class=\"dsec\">Events ('+ev.length+')</div>'+(ev.length?'<div class=\"tlfeed\" style=\"padding:0\">'+ev.map(function(e){return '<div class=\"tlitem\"><div class=\"td task_event\"></div><div><div class=\"tx\">'+esc(e.by_agent)+' · '+esc(e.event_type)+(e.phase?' → '+esc(e.phase):'')+'</div><div class=\"tx\" style=\"color:var(--muted)\">'+esc(e.message)+'</div><div class=\"tts\">'+fmtTime(e.created_at)+'</div></div></div>';}).join('')+'</div>':'<div class=\"empty\">no events</div>')+'</div>';",
+  "  if(tr.length)H+='<div><div class=\"dsec\">Test results</div>'+tr.map(function(r){return '<div class=\"dec\"><span style=\"color:'+(r.status==='passed'?'var(--green)':r.status==='failed'?'var(--red)':'var(--soft)')+'\">['+esc(r.status)+']</span> '+esc(r.command)+(r.output_summary?' — '+esc(r.output_summary):'')+'</div>';}).join('')+'</div>';",
+  "  H+='<div><div class=\"dsec\">Thread ('+(d.messages||[]).length+')</div>'+(th.length?th.map(function(m){return '<div class=\"dmsg\"><div class=\"dmsg-h\">'+esc(m.from_agent)+' → '+esc(m.to_agent)+' · '+esc(m.kind)+'</div><div class=\"dmsg-b\">'+esc((m.content||'').slice(0,800))+'</div></div>';}).join(''):'<div class=\"empty\">no thread</div>')+'</div>';",
+  "  H+='</div>';document.getElementById('drawer').innerHTML='<div class=\"drawer-bd\" onclick=\"closeDrawer()\"></div><div class=\"drawer-panel\">'+H+'</div>';}",
+  "document.addEventListener('keydown',function(e){if(e.key==='Escape')closeDrawer();});",
+  "document.querySelectorAll('.viewitem').forEach(function(it){it.onclick=function(){setView(it.dataset.view);};});",
+  "window.addEventListener('hashchange',function(){readHash();render();tick();});",
+  "(function(){var mb=document.getElementById('mainBody');if(mb)mb.addEventListener('scroll',function(){ui.chat.atBottom=(mb.scrollHeight-mb.scrollTop-mb.clientHeight)<80;});})();",
+  "readHash();tick();setInterval(tick,3000);",
+].join("\n");

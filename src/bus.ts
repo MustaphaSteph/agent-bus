@@ -1549,6 +1549,72 @@ export function threadMessages(threadId: string, limit = 200): Message[] {
   return rows.map(toMessage);
 }
 
+export interface MessagePageOptions {
+  project?: string;
+  area?: string;
+  team?: string;
+  before_id?: number;
+  limit?: number;
+  preview_chars?: number;
+}
+
+export interface MessagePageResult {
+  messages: MessagePreview[];
+  next_cursor: number | null;
+  has_more: boolean;
+}
+
+/**
+ * Cursor-paged message history for the cockpit chat. Returns one page of
+ * truncation-safe previews in ascending (oldest -> newest) order plus a cursor
+ * to fetch the next older page. Pass the returned next_cursor as before_id to
+ * page backwards through history without ever loading the whole table.
+ */
+export function messagePage(opts: MessagePageOptions = {}): MessagePageResult {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  // Show normal messages in full inline; only genuinely huge bodies collapse.
+  const previewChars = Math.min(Math.max(opts.preview_chars ?? 4000, 1), 4000);
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (opts.before_id !== undefined) {
+    where.push("id < ?");
+    params.push(opts.before_id);
+  }
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    validateProject(opts.project);
+    where.push("(project = ? OR project IS NULL)");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    validateArea(opts.area);
+    where.push("(area = ? OR area IS NULL)");
+    params.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    validateTeam(opts.team);
+    where.push("team = ?");
+    params.push(opts.team);
+  }
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM messages${where.length ? ` WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY id DESC
+         LIMIT ?`,
+    )
+    .all(...params, limit + 1) as MessageRow[];
+  const hasMore = rows.length > limit;
+  const page = rows.slice(0, limit); // newest -> oldest within this page
+  const oldest = page[page.length - 1];
+  return {
+    messages: page
+      .slice()
+      .reverse()
+      .map((row) => toMessagePreview(row, previewChars)),
+    next_cursor: hasMore && oldest ? oldest.id : null,
+    has_more: hasMore,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------
@@ -3972,6 +4038,133 @@ function compareScopeBuckets(a: ScopeBucketOrder, b: ScopeBucketOrder): number {
   if (an === null) return bn === null ? 0 : 1;
   if (bn === null) return -1;
   return an.localeCompare(bn);
+}
+
+export interface TimeseriesOptions {
+  project?: string;
+  area?: string;
+  team?: string;
+  window_ms?: number;
+  buckets?: number;
+  days?: number;
+  now_ms?: number;
+}
+
+export interface TimeseriesResult {
+  now: number;
+  window_ms: number;
+  bucket_ms: number;
+  buckets: Array<{ from: number; to: number }>;
+  messages: number[];
+  task_events: number[];
+  activity: number[];
+  totals: { messages: number; task_events: number };
+  deltas: { messages_pct: number; task_events_pct: number };
+  daily: { days: number; day_ms: number; tasks_created: number[]; from: number[] };
+}
+
+function scopedTimestamps(
+  table: "messages" | "task_events" | "tasks",
+  scope: { project?: string; area?: string; team?: string },
+  sinceMs: number,
+): number[] {
+  const where: string[] = ["created_at >= ?"];
+  const params: unknown[] = [sinceMs];
+  if (scope.project !== undefined && scope.project !== PROJECT_WILDCARD) {
+    validateProject(scope.project);
+    where.push("(project = ? OR project IS NULL)");
+    params.push(scope.project);
+  }
+  if (scope.area !== undefined && scope.area !== AREA_WILDCARD) {
+    validateArea(scope.area);
+    where.push("(area = ? OR area IS NULL)");
+    params.push(scope.area);
+  }
+  if (scope.team !== undefined && scope.team !== TEAM_WILDCARD) {
+    validateTeam(scope.team);
+    where.push("team = ?");
+    params.push(scope.team);
+  }
+  // `table` is a fixed literal union, never user input — safe to interpolate.
+  const rows = getDb()
+    .prepare(`SELECT created_at FROM ${table} WHERE ${where.join(" AND ")}`)
+    .all(...params) as Array<{ created_at: number }>;
+  return rows.map((r) => r.created_at);
+}
+
+/**
+ * Real time-series for the cockpit charts: message and task-event volume
+ * bucketed over a rolling window, plus a daily tasks-created cadence and
+ * percentage deltas versus the previous equal window. Pure read over existing
+ * tables — no new columns, no stored aggregates. now_ms is injectable for tests.
+ */
+export function timeseries(opts: TimeseriesOptions = {}): TimeseriesResult {
+  const nowMs = opts.now_ms ?? now();
+  const buckets = Math.min(Math.max(opts.buckets ?? 24, 1), 168);
+  const windowMs = Math.min(Math.max(opts.window_ms ?? 24 * 3600 * 1000, buckets), 31 * 24 * 3600 * 1000);
+  const bucketMs = Math.max(1, Math.floor(windowMs / buckets));
+  const span = bucketMs * buckets;
+  const start = nowMs - span;
+  const prevStart = start - span;
+  const scope = { project: opts.project, area: opts.area, team: opts.team };
+
+  const msgTimes = scopedTimestamps("messages", scope, prevStart);
+  const evtTimes = scopedTimestamps("task_events", scope, prevStart);
+
+  const bucketize = (times: number[]): number[] => {
+    const arr: number[] = new Array(buckets).fill(0);
+    for (const t of times) {
+      if (t < start || t > nowMs) continue;
+      let i = Math.floor((t - start) / bucketMs);
+      if (i >= buckets) i = buckets - 1;
+      if (i < 0) i = 0;
+      arr[i] = (arr[i] ?? 0) + 1;
+    }
+    return arr;
+  };
+  const inRange = (times: number[], lo: number, hi: number): number =>
+    times.reduce((n, t) => n + (t >= lo && t < hi ? 1 : 0), 0);
+  const pct = (cur: number, prev: number): number =>
+    prev === 0 ? (cur === 0 ? 0 : 100) : Math.round(((cur - prev) / prev) * 100);
+
+  const messages = bucketize(msgTimes);
+  const taskEvents = bucketize(evtTimes);
+  const activity = messages.map((m, i) => m + (taskEvents[i] ?? 0));
+  const bucketRanges = Array.from({ length: buckets }, (_, i) => ({
+    from: start + i * bucketMs,
+    to: start + (i + 1) * bucketMs,
+  }));
+  const curMsg = inRange(msgTimes, start, nowMs + 1);
+  const prevMsg = inRange(msgTimes, prevStart, start);
+  const curEvt = inRange(evtTimes, start, nowMs + 1);
+  const prevEvt = inRange(evtTimes, prevStart, start);
+
+  const days = Math.min(Math.max(opts.days ?? 7, 1), 31);
+  const dayMs = 24 * 3600 * 1000;
+  const dayStart = nowMs - days * dayMs;
+  const taskTimes = scopedTimestamps("tasks", scope, dayStart);
+  const tasksDaily: number[] = new Array(days).fill(0);
+  const dailyFrom = Array.from({ length: days }, (_, i) => dayStart + i * dayMs);
+  for (const t of taskTimes) {
+    if (t < dayStart || t > nowMs) continue;
+    let i = Math.floor((t - dayStart) / dayMs);
+    if (i >= days) i = days - 1;
+    if (i < 0) i = 0;
+    tasksDaily[i] = (tasksDaily[i] ?? 0) + 1;
+  }
+
+  return {
+    now: nowMs,
+    window_ms: span,
+    bucket_ms: bucketMs,
+    buckets: bucketRanges,
+    messages,
+    task_events: taskEvents,
+    activity,
+    totals: { messages: curMsg, task_events: curEvt },
+    deltas: { messages_pct: pct(curMsg, prevMsg), task_events_pct: pct(curEvt, prevEvt) },
+    daily: { days, day_ms: dayMs, tasks_created: tasksDaily, from: dailyFrom },
+  };
 }
 
 export interface AgentNowOptions {

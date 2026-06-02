@@ -57,27 +57,28 @@ does not create a task by itself.
 
 ### `agent-bus ui`
 
-Start the local Agent Bus Cockpit web UI — a Slack-style dashboard over
-the same local SQLite bus database. The browser is the cockpit; you do
-**not** restart the server to change scope.
+Start the local Agent Bus Cockpit web UI — a dense, enterprise-style
+"command center" over the same local SQLite bus database. The browser is
+the cockpit; you do **not** restart the server to change scope. Every
+widget is backed by real bus data (no demo/sample numbers).
 
-The layout has four panes:
+The layout has three regions plus a global KPI strip:
 
-- **Project rail** (far left) — every project on the bus, with an
-  online-agent count and an attention badge. An "All" entry shows the
-  whole machine.
-- **Team/view rail** — the project-level views (Attention, Kanban,
-  Activity, People) plus every team inside the selected project. Teams
-  show a presence dot and live task/attention counts. Selecting a team
-  opens its channel with `Chat / Kanban / Activity / People` sub-tabs.
-- **Main pane** — team chat, the task Kanban, the activity timeline, a
-  People roster grouped by presence and work status (online / idle /
-  working / blocked / waiting review / stale / sleeping), or the
-  Attention view (blocked, stale, pending-review, unacknowledged, and
-  scope-conflict items, sorted by severity).
-- **Inspector** (right, collapsible) — the cockpit summary by default;
-  click an agent, task, or message to drill into its profile, event
-  log / test results / thread, or full body.
+- **Wide project sidebar** (left) — full project names, each expandable
+  to its nested teams with presence dots and live task/attention counts.
+  A **Views** section (Attention, Kanban, Activity, People) switches the
+  center pane at project scope.
+- **Center view switcher** — **Chat** (Slack-style bubbles: avatars,
+  sender grouping, day dividers, ask→reply quoting with
+  awaiting/answered pills, large-message collapse, **cursor-paged "load
+  earlier" history**), **Kanban** (full Todo/Accepted/Doing/Testing/
+  Review/Blocked/Done board), **Activity** (timeline), **People**
+  (roster grouped by presence + work status), and **Attention**
+  (blocked / stale / pending-review / unacknowledged / scope-conflict,
+  sorted by severity).
+- **Ops right rail** — KPIs, real time-series sparklines (message volume
+  + trend delta), an agent×status roster heatmap, a mini-Kanban, a
+  tasks/day throughput chart, decisions, and pinned memory.
 
 ```bash
 agent-bus ui
@@ -100,11 +101,17 @@ http://127.0.0.1:8787
 JSON endpoints (read-only, same origin):
 
 - `GET /api/scopes` — all projects → teams with live counts (the rails).
-- `GET /api/state?project=&area=&team=` — agents, chat, tasks, activity,
+- `GET /api/state?project=&area=&team=` — agents, tasks, activity,
   cockpit, memories, and decisions for one scope (`*` or `all` =
   everything; omit `team` for all teams in a project).
+- `GET /api/metrics?project=&area=&team=&buckets=&window_h=&days=` —
+  real time-series: message + task-event volume bucketed over a window,
+  daily tasks-created, and percentage deltas vs the previous window.
+- `GET /api/messages?project=&area=&team=&before=&limit=` — cursor-paged
+  chat history (ascending page + `next_cursor` + `has_more`); pass the
+  returned `next_cursor` as `before` to page backwards.
 - `GET /api/tasks/:id` — task detail bundle (events, test results,
-  thread) for the inspector.
+  thread) for drill-down.
 - `GET /api/messages/:id?full=1` — one message, optionally full body.
 
 The UI is local-only and read-only by design: it binds to `127.0.0.1`,

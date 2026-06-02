@@ -34,6 +34,7 @@ const {
   listTaskEvents,
   listTestResults,
   listMemories,
+  messagePage,
   messagesSince,
   pinMemory,
   projectBoard,
@@ -41,6 +42,7 @@ const {
   recentMessages,
   register,
   scopes,
+  timeseries,
   recordDecision,
   recordTaskEvent,
   recordTestResult,
@@ -1566,6 +1568,47 @@ await test("scopes enumerates projects and teams with counts", async () => {
   assert.ok(result.totals.projects >= 2);
   assert.ok(result.totals.agents >= 4);
   assert.equal(result.totals.attention, result.projects.reduce((sum, p) => sum + p.attention, 0));
+});
+
+await test("messagePage pages history with a cursor", async () => {
+  register({ name: "mp-a", capabilities: [], project: "mpproj", team: "mpteam", replace: true });
+  register({ name: "mp-b", capabilities: [], project: "mpproj", team: "mpteam", replace: true });
+  for (let i = 0; i < 7; i++) send({ from: "mp-a", to: "mp-b", content: "mp-msg-" + i });
+
+  const p1 = messagePage({ project: "mpproj", team: "mpteam", limit: 3 });
+  assert.equal(p1.messages.length, 3);
+  assert.equal(p1.has_more, true);
+  assert.ok(p1.next_cursor !== null);
+  assert.ok((p1.messages[0]?.id ?? 0) < (p1.messages[2]?.id ?? 0)); // ascending within page
+
+  const p2 = messagePage({ project: "mpproj", team: "mpteam", limit: 3, before_id: p1.next_cursor ?? undefined });
+  assert.equal(p2.messages.length, 3);
+  assert.ok((p2.messages[2]?.id ?? 0) < (p1.messages[0]?.id ?? 0)); // strictly older than page 1
+
+  const p3 = messagePage({ project: "mpproj", team: "mpteam", limit: 3, before_id: p2.next_cursor ?? undefined });
+  assert.equal(p3.messages.length, 1);
+  assert.equal(p3.has_more, false);
+  assert.equal(p3.next_cursor, null);
+});
+
+await test("timeseries buckets messages and tasks over a window", async () => {
+  register({ name: "ts-a", capabilities: [], project: "tsproj", team: "tsteam", replace: true });
+  register({ name: "ts-b", capabilities: [], project: "tsproj", team: "tsteam", replace: true });
+  for (let i = 0; i < 4; i++) send({ from: "ts-a", to: "ts-b", content: "ts-msg-" + i });
+  const task = createTask({ requested_by: "ts-a", title: "ts task", project: "tsproj", team: "tsteam" });
+  recordTaskEvent({ by_agent: "ts-a", task_id: task.id, event_type: "progress", message: "ping" });
+
+  const ts = timeseries({ project: "tsproj", team: "tsteam" });
+  assert.equal(ts.messages.length, 24); // default buckets
+  assert.equal(ts.totals.messages, 4); // exact: team filter isolates this scope
+  assert.equal(ts.messages.reduce((a, b) => a + b, 0), 4);
+  assert.ok(ts.totals.task_events >= 1);
+  assert.ok(ts.daily.tasks_created.reduce((a, b) => a + b, 0) >= 1);
+  assert.equal(typeof ts.deltas.messages_pct, "number");
+
+  const ts6 = timeseries({ project: "tsproj", team: "tsteam", buckets: 6 });
+  assert.equal(ts6.messages.length, 6);
+  assert.equal(ts6.totals.messages, 4);
 });
 
 closeDb();
