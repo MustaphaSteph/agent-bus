@@ -249,6 +249,37 @@ one prompt into each session. Each prompt tells the agent to use
 agent-bus, register directly into the `todo-ios` team, and keep the team
 workflow scoped there.
 
+You can also let one AI session design the team for you. Start one
+session as the PM and ask it to produce the prompts for the other
+sessions:
+
+```text
+Use agent-bus.
+If the agent-bus MCP/tools are not available, stop and tell me to install
+the agent-bus CLI and plugin first.
+
+Register yourself as project-pm in team todo-ios with replace: true.
+Use capabilities: planning, coordination, review.
+
+I want to build a small iOS todo app with multiple AI agent sessions.
+Act as the PM. Decide what helper agents I should open, what each one
+should be responsible for, and give me one full copy-paste prompt for
+each other Claude/Codex session so they join team todo-ios directly.
+
+Each generated prompt must include:
+- the exact agent name
+- team todo-ios
+- capabilities
+- role instructions
+- whether the agent should edit files or only propose/review
+- instructions to keep listening to team todo-ios
+- when to use reply() for asks and reply_thread() for normal messages
+```
+
+That PM can now generate a custom team such as `ui-designer`,
+`ios-developer`, `test-reviewer`, or anything else your project needs.
+Or use the ready-made prompts below:
+
 **Session A — UI designer. Paste:**
 
 ```text
