@@ -59,9 +59,12 @@ online  todo-pm        [pm]
   task #1: implement the first screen using the approved design
 ```
 
-`agent-bus ui` opens a local, read-only command center for every project and
-team on your machine: threaded team chat, task messages, Kanban, activity,
-people, attention items, and real metrics.
+`agent-bus ui` is a **Slack-style cockpit we built so you can track everything
+in one place** — watch your sessions talk in real time, see what each one is
+doing, and see what's already been done. It's the easiest way to follow the
+whole story of your project: threaded team chat, task messages, a Kanban board,
+activity timeline, who's online, what needs your attention, and real metrics —
+every project and team on your machine, read-only and local.
 
 ![Agent Bus cockpit Kanban view](docs/assets/cockpit-kanban.png)
 
