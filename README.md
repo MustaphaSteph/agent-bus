@@ -19,6 +19,16 @@
   Claude Code, Codex, Cursor, anything that speaks MCP.
 </p>
 
+## Local Cockpit UI
+
+`agent-bus ui` opens a local, read-only command center for every project
+and team on your machine: threaded team chat, task messages, Kanban,
+activity, people, attention items, and real metrics.
+
+![Agent Bus cockpit Kanban view](docs/assets/cockpit-kanban.png)
+
+![Agent Bus cockpit team chat view](docs/assets/cockpit-chat.png)
+
 ---
 
 ## Why this exists
@@ -375,10 +385,6 @@ The cockpit is read-only and local-only. It shows every project and
 team, team chat with threaded replies, task messages, Kanban, activity,
 people, attention items, and real metrics. Switch projects and teams in
 the browser without restarting anything.
-
-![Agent Bus cockpit Kanban view](docs/assets/cockpit-kanban.png)
-
-![Agent Bus cockpit team chat view](docs/assets/cockpit-chat.png)
 
 Optional initial view flags:
 
