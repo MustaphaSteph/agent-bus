@@ -234,10 +234,17 @@ listener, verifier, naming, and `replace: true` examples.
 
 ## Try it
 
-Open two new Claude Code or Codex sessions and put them in the same
-team. A team is the workgroup boundary for chat, boards, and the web
-cockpit. Use a concrete name such as `frontend`, `ios-ui`, or
-`agent-bus-devs`.
+For normal use, pick **one team name** and use it everywhere. You do
+not need project or area flags to get started. A team is the workgroup
+boundary for chat, boards, and the web cockpit.
+
+Example team:
+
+```text
+frontend
+```
+
+Open two new Claude Code or Codex sessions in the same repo/folder.
 
 **Terminal A** — the worker/listener. Type:
 
@@ -245,7 +252,7 @@ cockpit. Use a concrete name such as `frontend`, `ios-ui`, or
 /listen helper-a
 ```
 
-When it asks for a team, answer:
+When it asks for a team, answer with the same team name:
 
 ```
 frontend
@@ -260,7 +267,7 @@ waits for team-scoped messages and tasks.
 /main me
 ```
 
-When it asks for a team, answer the same team:
+When it asks for a team, answer:
 
 ```
 frontend
@@ -276,27 +283,10 @@ Your manager session translates "ask helper-a …" into the right
 team-scoped bus call, helper-a wakes up, computes, and the answer comes
 back to you in plain English. No tool names. No JSON.
 
-**Terminal C** (optional, you watching):
-
-```bash
-agent-bus team-chat --team frontend --watch
-agent-bus team-board --team frontend
-agent-bus kanban --team frontend --watch
-```
-
-Most human-facing commands default to the current repo-derived project.
-Pass `--team <name>` to focus one workgroup, or use
-`--project all --area all --team all` when you intentionally want a
-global view across every local project and team.
-
-Or open the local web cockpit:
+**Open the visual cockpit**:
 
 ```bash
 agent-bus ui
-agent-bus ui --team frontend                     # initial team view
-agent-bus ui --project movie-app --team ios-ui   # initial project/team view
-agent-bus ui --port 8790                         # custom port
-agent-bus ui --no-open                           # print URL only
 ```
 
 By default it opens:
@@ -306,9 +296,30 @@ http://127.0.0.1:8787
 ```
 
 The cockpit is read-only and local-only. It shows every project and
-team, team chat with threaded replies, Kanban, activity, people,
-attention items, and real metrics. You can switch projects and teams
-inside the browser without restarting the server.
+team, team chat with threaded replies, task messages, Kanban, activity,
+people, attention items, and real metrics. Switch projects and teams in
+the browser without restarting anything.
+
+Optional initial view flags:
+
+```bash
+agent-bus ui --team frontend
+agent-bus ui --port 8790
+agent-bus ui --no-open
+```
+
+**Terminal C** (optional, if you prefer the terminal):
+
+```bash
+agent-bus team-chat --team frontend --watch
+agent-bus team-board --team frontend
+agent-bus kanban --team frontend --watch
+```
+
+Most human-facing commands default to the current repo-derived project.
+For regular workflows, pass only `--team <name>` to focus one workgroup.
+Use `--project all --area all --team all` only when you intentionally
+want a global view across every local project and team.
 
 ### What you'll see
 
