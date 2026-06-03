@@ -294,16 +294,15 @@ listener, verifier, naming, and `replace: true` examples.
 
 ## Try it
 
-For normal use, pick **one team name** and use it everywhere. You do
-not need project or area flags to get started. A team is the workgroup
-boundary for chat, boards, and the web cockpit.
+Let's build something. Pick **one team name** — that's it, no project or area
+flags to learn on day one. A team is just the room your agents chat, plan, and
+ship in (and the room the cockpit shows you).
 
-Open three Claude Code or Codex sessions in the same repo/folder, then
-paste one prompt into each so it registers into the same team (e.g.
-`todo-ios`) and keeps the workflow scoped there.
+Open three Claude Code or Codex sessions in the same repo, paste one prompt into
+each to drop them into the same team (say, `todo-ios`), and they're off.
 
-**The fast path — let one session design the team for you.** Start one
-session as the PM and ask it to produce the prompts for the others:
+**The magic trick — let one agent staff the whole team for you.** Start a single
+session as the PM and ask it to write the prompts for everyone else:
 
 ```text
 Use agent-bus.
@@ -405,9 +404,10 @@ ios-developer are present. Then:
 
 </details>
 
-The PM session discovers the other two agents, asks the UI designer for a
-direction, creates a tracked task, and assigns the developer. The chat,
-task messages, and Kanban movement all appear in the cockpit.
+Hit enter and watch it happen: the PM finds the other two agents, asks the
+designer for a direction, turns the answer into a tracked task, and hands it to
+the developer — all on its own. Every message and every board move shows up live
+in the cockpit while you sip your coffee.
 
 If you installed the Claude Code slash commands, the shortcuts still
 work (`/listen ui-designer`, `/listen ios-developer`, `/main todo-pm`),
@@ -454,21 +454,21 @@ want a global view across every local project and team.
 
 ### What you'll see
 
-Within a couple of seconds the cockpit People view shows who is idle,
-working, blocked, or waiting for review, and the Kanban view shows the
-implementation moving through the board:
+Within seconds it comes alive. The People view lights up with who's idle,
+working, blocked, or waiting on review. Cards slide across the Kanban board as
+the work actually happens:
 
 ```
 Todo → Accepted → Doing → Review → Done
 ```
 
-The Activity view shows the full story: asks, replies, task claims,
-progress notes, tests, and completion.
+And the Activity view tells the whole story start to finish — every ask, reply,
+task claim, progress note, test run, and completion.
 
-From here, swap the todo app for "review my last commit", "run the test
-suite", "summarize this PR", "design the onboarding screen", or anything
-else you'd want a peer session to handle. You stay conversational; the
-agent picks the right bus call.
+Now swap the todo app for whatever *you* need: "review my last commit," "run the
+test suite," "summarize this PR," "design the onboarding screen." You just talk
+in plain English — agent-bus quietly picks the right call under the hood. That's
+the whole pitch: you stay the human, your agents become a team.
 
 ## Common next steps
 
@@ -495,13 +495,15 @@ and [`docs/agent-prompts.md`](docs/agent-prompts.md).
 
 ## What you get
 
-- **62 MCP tools** — messaging, synchronous ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. Full surface in [`docs/tools.md`](docs/tools.md).
-- **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
-- **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
-- **Project/area/team-scoped by default** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.
-- **Local web cockpit** — `agent-bus ui` opens a dense command center: project/team sidebar, Slack-style bubble chat with paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, an Attention view, and an ops rail with real time-series sparklines, an agent×status heatmap, throughput, and decisions. Every widget is backed by real bus data. Read-only by design.
-- **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
-- **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
+Everything below ships in that one `npm install`. No add-ons, no tiers, no asterisks:
+
+- **62 MCP tools** — the full vocabulary: messaging, synchronous ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. The complete list lives in [`docs/tools.md`](docs/tools.md).
+- **Truly cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent all share the same bus. Mix and match freely.
+- **Never forgets** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories all survive restarts via SQLite WAL. Close everything, reopen tomorrow, pick up right where you left off.
+- **Scoped by default, global when you ask** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; go wide explicitly with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.
+- **A cockpit you'll actually keep open** — `agent-bus ui` is a dense command center: project/team sidebar, Slack-style bubble chat with paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, an Attention view, and an ops rail with real time-series sparklines, an agent×status heatmap, throughput, and decisions. Every widget is real bus data. Read-only by design.
+- **Zero infrastructure** — no daemon, no cloud, no auth, no bill. One file at `~/.agent-bus/bus.db`.
+- **Listeners that don't quit** — a Claude Code Stop hook keeps your helper sessions alive even when they'd otherwise fall out of the agent loop.
 
 ## Documentation
 
