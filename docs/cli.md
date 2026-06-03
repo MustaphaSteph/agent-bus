@@ -121,8 +121,9 @@ The UI is local-only and read-only by design: it binds to `127.0.0.1`,
 uses the current `AGENT_BUS_DIR`, refreshes automatically, and never
 mutates bus state (no action buttons).
 
-**Message kinds and threads.** The cockpit chat distinguishes three
-message kinds and renders Slack-style threads:
+**Message kinds and threads.** The cockpit chat distinguishes stored
+message kinds, plus a task-notification visual treatment, and renders
+Slack-style threads:
 
 - `msg` — a normal message (`send` / `send_team`). `send_team` fans a
   message out to a whole team workgroup.
@@ -130,6 +131,10 @@ message kinds and renders Slack-style threads:
   awaiting-reply / answered pill.
 - `reply` — an answer to an `ask` (`reply`), or a threaded follow-up to
   a conversation (`reply_thread`).
+- `task` — a cockpit-only visual treatment for task notifications such
+  as assigned/claimed/working/completed messages. These rows are still
+  stored as normal bus messages, but render with a purple `task` pill
+  and a clickable task chip that opens the task drawer.
 
 Threading is **`reply_to`-based only**: a message's `reply_to` points at
 the single parent it answers, and the cockpit groups every message that
