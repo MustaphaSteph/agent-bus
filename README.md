@@ -27,22 +27,30 @@
 
 ## Quick start
 
-No signup, no API key, no config file to babysit. **Three lines and you're live**
+No signup, no API key, no config file to babysit. **Two steps and you're live**
 (Node.js ≥ 20):
 
 ```bash
-npm i -g @agent-bus-connect/cli@latest          # 1. install the CLI + MCP server
-claude mcp add -s user agent-bus -- agent-bus-mcp   # 2. wire it into Claude Code
-agent-bus ui                                     # 3. open the local cockpit
+npm i -g @agent-bus-connect/cli@latest          # 1. install the CLI
 ```
+
+Then, inside Claude Code, install the plugin — it wires the MCP server **and**
+installs the skills, slash commands, and listener hook in one move:
+
+```
+/plugin  →  Marketplaces  →  Add MustaphaSteph/agent-bus-plugins  →  Install agent-bus
+```
+
+(On Codex or Cursor? Same idea, one command — see [**Install**](#install) below.)
+Now run `agent-bus ui` to open the local cockpit.
 
 That's the whole setup. One tiny SQLite file appears at `~/.agent-bus/bus.db`, no
 daemon hums in the background, and nothing — *nothing* — leaves your machine. Open a
 second session, give it a name, and the two are instantly messaging, asking, and
 delegating to each other. Add a third. Add a tenth. It scales as fast as you can open tabs.
 
-> Using Codex, Cursor, or the one-click plugins instead of the manual `mcp add`?
-> See [**Install**](#install) below or [`docs/install.md`](docs/install.md).
+> On Codex, Cursor, or another MCP tool? Each has its own one-command plugin
+> install — see [**Install**](#install) below or [`docs/install.md`](docs/install.md).
 
 ### See it in 10 seconds
 
@@ -150,38 +158,34 @@ blocking `inbox(wait_s)`.
 
 ## Install
 
-**Install order matters:** install the npm CLI first, then install the
-Claude/Codex plugin. The plugin declares the MCP server command, but the
-`@agent-bus-connect/cli` npm package provides the actual `agent-bus-mcp`
-binary. If you install the plugin first, Claude Code can fail with
-`ENOENT` because `agent-bus-mcp` is not on PATH yet.
+Two steps. Install the CLI, then install the plugin — **that's the whole
+thing.** The plugin is the way you install agent-bus: it doesn't just connect
+the MCP server, it drops in the **skills, the `/main` + `/listen` slash
+commands, and the listener hook** that make your agents actually good at using
+the bus. Skip the plugin and you've got a raw message bus; install it and you've
+got a team that knows how to behave.
 
-### 1. Install agent-bus globally
+### 1. Install the CLI
 
 **Prerequisite:** Node.js ≥ 20.
 
 ```bash
 npm i -g @agent-bus-connect/cli@latest
-which agent-bus-mcp
-agent-bus --version
 ```
 
 That puts two binaries on your PATH:
 
-- `agent-bus` — the CLI (`watch`, `whois`, `log`, `tasks`, `kanban`, `done`, `inject`, …)
-- `agent-bus-mcp` — the MCP stdio server that Claude Code / Codex spawn
+- `agent-bus` — the CLI (`watch`, `whois`, `ui`, `tasks`, `kanban`, `inject`, …)
+- `agent-bus-mcp` — the MCP server the plugin points your agents at
 
-The npm package lives under the `@agent-bus-connect` scope; the project,
-the CLI commands, the MCP server identifier, and the docs all still say
-`agent-bus`.
+> **Order matters:** install the CLI *first*. The plugin only declares the MCP
+> command — the actual `agent-bus-mcp` binary comes from this package. Install
+> the plugin first and you'll hit `ENOENT` because the binary isn't on PATH yet.
 
-Prefer building from source? `git clone … && npm install && npm run build && npm link` works too.
+### 2. Install the plugin
 
-### 2. Install the plugin/skill
-
-Pick the one that matches your tool. The plugin/installer wires the MCP
-config and installs the skill, slash commands, and listener hook. It
-expects `agent-bus-mcp` from step 1 to already be available.
+Pick the card for your tool. Each one wires the MCP config **and installs the
+bundled skills, slash commands, and listener hook** in a single step.
 
 <table>
 <tr>
@@ -232,61 +236,17 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/mai
 </tr>
 </table>
 
-If you prefer manual setup instead of plugins, the steps below give you
-the same MCP connection without slash commands or bundled skills.
+That's it — the plugin installs the skills and slash commands (`/main`,
+`/listen`) for you, so there's nothing to wire by hand.
 
-### 3. Register with Claude Code manually
-
-```bash
-claude mcp add -s user agent-bus -- agent-bus-mcp
-```
-
-### 4. Register with Codex CLI + Codex Desktop manually
-
-Both read `~/.codex/config.toml`. Grab the absolute paths:
-
-```bash
-readlink -f "$(which node)"            # copy this output
-readlink -f "$(which agent-bus-mcp)"   # copy this output too
-```
-
-Then add the block (substitute the paths you just copied):
-
-```toml
-[mcp_servers.agent-bus]
-command = "<paste node path here>"
-args = ["<paste agent-bus-mcp path here>"]
-```
-
-Absolute paths matter because Codex Desktop doesn't inherit your shell
-PATH. After editing, **Cmd+Q + reopen** Codex Desktop fully.
-
-### 5. (Recommended) Install the `/main` and `/listen` slash commands
-
-Two one-line slash commands that make day-to-day use natural:
-
-- `/main <name>` — primes a team manager session
-  to talk to the bus in plain English ("ask the reviewer to…",
-  "delegate this…", "show team board").
-- `/listen <name>` — turns a session into a passive helper that just
-  responds when called.
-
-One-time install:
-
-```bash
-mkdir -p ~/.claude/commands
-curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/main.md   -o ~/.claude/commands/main.md
-curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/commands/listen.md -o ~/.claude/commands/listen.md
-```
-
-### 6. Verify
+### 3. Verify
 
 ```bash
 agent-bus --version                # 0.23.1
-claude mcp list | grep agent-bus   # ✓ Connected
+claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
-Full install details + troubleshooting: [`docs/install.md`](docs/install.md).
+Full install walkthrough + troubleshooting: [`docs/install.md`](docs/install.md).
 
 Need a prompt to paste into Claude, Codex, or Cursor? See
 [`docs/agent-prompts.md`](docs/agent-prompts.md) for registration,
@@ -409,10 +369,10 @@ designer for a direction, turns the answer into a tracked task, and hands it to
 the developer — all on its own. Every message and every board move shows up live
 in the cockpit while you sip your coffee.
 
-If you installed the Claude Code slash commands, the shortcuts still
-work (`/listen ui-designer`, `/listen ios-developer`, `/main todo-pm`),
-but full prompts are better for demos because the team and role are
-explicit from the first message.
+The plugin also gives you slash-command shortcuts
+(`/listen ui-designer`, `/listen ios-developer`, `/main todo-pm`), but full
+prompts are better for demos because the team and role are explicit from the
+first message.
 
 **Open the visual cockpit**:
 
