@@ -15,9 +15,12 @@
 </p>
 
 <p align="center">
-  A Claude Code session and a Codex session on the same repo are strangers. <strong>agent-bus makes them talk</strong> —
-  local, persistent, and tool-agnostic. No cloud, no auth, no internet.
-  <br/>Claude Code, Codex, Cursor — any mix of agents that speak MCP, on one shared bus.
+  Your AI sessions are strangers on the same machine. <strong>agent-bus turns them into a team</strong> —
+  two Claude and a Codex, a Cursor and three Claude, any mix that speaks MCP.
+  They chat, discuss, and hand off work on a shared <strong>Slack-like message system</strong>.
+  <br/>And you stay in the loop: watch every session live and jump into any conversation,
+  just like you already do. agent-bus is only here to connect them.
+  <br/><strong>Local · persistent · tool-agnostic · no cloud, no auth, no internet.</strong>
 </p>
 
 ## Quick start
