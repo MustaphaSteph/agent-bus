@@ -9,6 +9,7 @@ import {
   listMemories,
   listTasks,
   messagePage,
+  messageThread,
   recentMessages,
   scopes,
   taskResult,
@@ -130,6 +131,13 @@ function handleRequest(req: IncomingMessage, res: ServerResponse, defaultScope: 
         limit: limit ? Number(limit) : undefined,
       }));
       return;
+    }
+    if (url.pathname === "/api/thread") {
+      const root = url.searchParams.get("root");
+      if (root) {
+        sendJson(res, messageThread(Number(root)));
+        return;
+      }
     }
     const taskMatch = /^\/api\/tasks\/(\d+)$/.exec(url.pathname);
     if (taskMatch) {
@@ -369,6 +377,8 @@ svg.spark{width:100%;height:26px;display:block;margin-top:6px}
 .bub .collapsed{color:var(--amber);font-size:11px;margin-top:7px;background:rgba(244,192,106,.06);border:1px solid rgba(244,192,106,.22);border-radius:8px;padding:6px 10px;cursor:pointer}
 .bub .collapsed:hover{background:rgba(244,192,106,.12)}
 .bub .id{font-family:var(--mono);font-size:9.5px;color:var(--soft);margin-top:6px}
+.bub .replies-link{margin-top:8px;font-size:11.5px;color:var(--blue);cursor:pointer;display:inline-flex;gap:5px;border:1px solid rgba(110,168,254,.3);border-radius:8px;padding:4px 9px;background:rgba(110,168,254,.06)}
+.bub .replies-link:hover{border-color:var(--blue);color:var(--text)}
 .chat-foot{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--line-soft)}
 .chat-foot .count{font-family:var(--mono);font-size:11px;color:var(--soft)}
 .chat-foot .actions{display:flex;gap:6px;align-items:center}
@@ -413,6 +423,7 @@ svg.spark{width:100%;height:26px;display:block;margin-top:6px}
 .person .pn{font-size:13.5px;font-weight:650}.person .pm{font-size:11px;color:var(--muted);margin-top:2px}
 .person .ps{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--muted)}
 .ps.working{color:var(--accent);border-color:rgba(58,214,182,.4)}.ps.blocked{color:var(--red);border-color:rgba(255,111,111,.4)}.ps.waiting_review{color:var(--purple);border-color:rgba(199,155,255,.4)}.ps.sleeping{color:var(--soft)}
+.ps.muted{color:var(--soft);border-color:var(--line-soft);opacity:.8}
 .attnfull{padding:10px 18px;display:grid;gap:10px}
 .afrow{display:grid;grid-template-columns:96px 1fr auto;gap:14px;align-items:center;background:var(--panel-2);border:1px solid var(--line-soft);border-left:3px solid var(--line);border-radius:12px;padding:14px 16px}
 .afrow.stale{border-left-color:var(--amber)}.afrow.review{border-left-color:var(--purple)}.afrow.blocked{border-left-color:var(--red)}.afrow.ack{border-left-color:var(--blue)}.afrow.conflict{border-left-color:var(--red)}
@@ -554,6 +565,7 @@ const CLIENT_JS = [
   "    if(m.kind==='ask')html+='<span class=\"kpill '+(answered[m.id]?'done':'await')+'\">'+(answered[m.id]?'✓ answered':'⏳ awaiting reply')+'</span>';",
   "    else if(m.kind==='reply'&&!q)html+='<span class=\"kpill reply\">↩ in reply</span>';",
   "    html+='</div>';",
+  "    if(m.has_replies)html+='<div class=\"replies-link\" onclick=\"openThread('+m.id+')\">💬 '+m.replies_count+' '+(m.replies_count===1?'reply':'replies')+' · view thread</div>';",
   "    html+='<div class=\"id\">#'+m.id+' · '+esc(m.kind)+' → '+esc(m.to_agent)+'</div></div></div></div>';lastSender=m.from_agent;});",
   "  BODY.innerHTML=html;if(mode==='earlier'){BODY.scrollTop=BODY.scrollHeight-prevH+prevTop;}else if(mode==='reset'||ui.chat.atBottom!==false){BODY.scrollTop=BODY.scrollHeight;ui.chat.atBottom=true;}else{BODY.scrollTop=prevTop;}",
   "  FOOT.innerHTML='<span class=\"count\">'+msgs.length+' messages loaded'+(ui.chat.hasMore?' (paged)':'')+'</span><div class=\"actions\">'+(ui.chat.hasMore?'<button onclick=\"loadEarlier()\">↑ earlier</button>':'')+'<span class=\"readonly\">read-only</span></div>';}",
@@ -568,7 +580,7 @@ const CLIENT_JS = [
   // people
   "var PORDER=['Blocked','Waiting review','Working','Idle','Stale / away','Sleeping'];",
   "function pbucket(a){if(a.presence==='paused')return 'Sleeping';if(a.presence==='stale')return a.status==='sleeping'?'Sleeping':'Stale / away';if(a.status==='blocked')return 'Blocked';if(a.status==='waiting_review')return 'Waiting review';if(a.status==='sleeping')return 'Sleeping';if(a.status==='working')return 'Working';return 'Idle';}",
-  "function renderPeople(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var agents=ui.state.agents||[];HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">◉ People <span class=\"vsub\">· '+agents.length+' agents · '+ui.state.stats.online+' online</span></div></div>';if(!agents.length){BODY.innerHTML='<div class=\"empty\">No agents in this scope.</div>';FOOT.innerHTML='';return;}var groups={};agents.forEach(function(a){var b=pbucket(a);(groups[b]=groups[b]||[]).push(a);});BODY.innerHTML='<div class=\"people\">'+PORDER.filter(function(g){return groups[g];}).map(function(g){return '<div class=\"pgroup\"><h4>'+g+' <span style=\"color:var(--soft);font-family:var(--mono)\">'+groups[g].length+'</span></h4>'+groups[g].map(function(a){var av=ava(a.name);var caps=(a.capabilities||[]).slice(0,3).join(', ');var ring=a.presence==='online'?'online':a.presence==='stale'?'stale':'';return '<div class=\"person\"><div class=\"pava2 '+ring+'\" style=\"background:'+av.grad+'\">'+esc(initials(a.name))+'</div><div><div class=\"pn\">'+esc(a.name)+'</div><div class=\"pm\">'+esc(a.role||'agent')+' · '+esc(caps)+' · #'+esc(a.team||'none')+' · seen '+a.age_s+'s'+(a.active_task_id?' · task #'+a.active_task_id:'')+'</div></div><span class=\"ps '+esc(a.status)+'\">'+esc(a.status)+'</span></div>';}).join('')+'</div>';}).join('')+'</div>';FOOT.innerHTML='<span class=\"count\">'+agents.length+' agents</span><span class=\"readonly\">presence + status</span>';}",
+  "function renderPeople(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var agents=ui.state.agents||[];HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">◉ People <span class=\"vsub\">· '+agents.length+' agents · '+ui.state.stats.online+' online</span></div></div>';if(!agents.length){BODY.innerHTML='<div class=\"empty\">No agents in this scope.</div>';FOOT.innerHTML='';return;}var groups={};agents.forEach(function(a){var b=pbucket(a);(groups[b]=groups[b]||[]).push(a);});BODY.innerHTML='<div class=\"people\">'+PORDER.filter(function(g){return groups[g];}).map(function(g){return '<div class=\"pgroup\"><h4>'+g+' <span style=\"color:var(--soft);font-family:var(--mono)\">'+groups[g].length+'</span></h4>'+groups[g].map(function(a){var av=ava(a.name);var caps=(a.capabilities||[]).slice(0,3).join(', ');var ring=a.presence==='online'?'online':a.presence==='stale'?'stale':'';var seen=a.age_s<60?a.age_s+'s':a.age_s<3600?Math.round(a.age_s/60)+'m':Math.round(a.age_s/3600)+'h';var stale=(a.presence==='stale'||a.presence==='paused');return '<div class=\"person\"><div class=\"pava2 '+ring+'\" style=\"background:'+av.grad+'\">'+esc(initials(a.name))+'</div><div><div class=\"pn\">'+esc(a.name)+'</div><div class=\"pm\">'+esc(a.role||'agent')+' · '+esc(caps)+' · #'+esc(a.team||'none')+' · seen '+seen+(a.active_task_id?' · task #'+a.active_task_id:'')+'</div></div><span class=\"ps '+(stale?'muted':esc(a.status))+'\" title=\"last reported: '+esc(a.status)+'\">'+esc(a.status)+(stale?' · stale':'')+'</span></div>';}).join('')+'</div>';}).join('')+'</div>';FOOT.innerHTML='<span class=\"count\">'+agents.length+' agents</span><span class=\"readonly\">presence + status</span>';}",
   // attention
   "function attnRows(b){var rows=[];b.blocked_tasks.forEach(function(t){rows.push({sev:'blocked',label:'BLOCKED',id:t.id,title:t.title,note:t.blocked_reason||'no reason recorded',at:t.updated_at});});b.stale_tasks.forEach(function(t){rows.push({sev:'stale',label:'STALE',id:t.id,title:t.title,note:'holder '+(t.claimed_by||'?')+' went quiet',at:t.updated_at});});b.waiting_review.forEach(function(t){rows.push({sev:'review',label:'REVIEW',id:t.id,title:t.title,note:'needs a verifier to approve',at:t.updated_at});});b.waiting_acknowledgement.forEach(function(t){rows.push({sev:'ack',label:'ACK',id:t.id,title:t.title,note:'assigned to '+(t.pending_assignee||t.claimed_by||'?')+', not acknowledged',at:t.updated_at});});b.scope_conflicts.forEach(function(c){rows.push({sev:'conflict',label:'CONFLICT',id:c.task_id,title:c.title,note:'edit scope overlaps '+c.conflicts.map(function(x){return '#'+x.task_id;}).join(', '),at:0});});return rows;}",
   "function renderAttention(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var rows=attnRows(ui.state.cockpit.board);HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">⚡ Attention <span class=\"vsub\">· what needs a human next</span></div><div class=\"vsub\" style=\"color:'+(rows.length?'var(--red)':'var(--soft)')+'\">'+rows.length+' items</div></div>';BODY.innerHTML='<div class=\"attnfull\">'+(rows.length?rows.map(function(r){return '<div class=\"afrow '+r.sev+'\" onclick=\"openTask('+r.id+')\"><div class=\"afsev\">'+r.label+'</div><div><strong>#'+r.id+' '+esc(r.title)+'</strong><p>'+esc(r.note)+'</p></div><div class=\"afat\">'+(r.at?ago(r.at):'')+'</div></div>';}).join(''):'<div class=\"empty\">Nothing needs attention in this scope. ✨</div>')+'</div>';FOOT.innerHTML='<span class=\"count\">'+rows.length+' attention items</span><span class=\"readonly\">read-only</span>';}",
@@ -597,6 +609,9 @@ const CLIENT_JS = [
   "  if(tr.length)H+='<div><div class=\"dsec\">Test results</div>'+tr.map(function(r){return '<div class=\"dec\"><span style=\"color:'+(r.status==='passed'?'var(--green)':r.status==='failed'?'var(--red)':'var(--soft)')+'\">['+esc(r.status)+']</span> '+esc(r.command)+(r.output_summary?' — '+esc(r.output_summary):'')+'</div>';}).join('')+'</div>';",
   "  H+='<div><div class=\"dsec\">Thread ('+(d.messages||[]).length+')</div>'+(th.length?th.map(function(m){return '<div class=\"dmsg\"><div class=\"dmsg-h\">'+esc(m.from_agent)+' → '+esc(m.to_agent)+' · '+esc(m.kind)+'</div><div class=\"dmsg-b\">'+esc((m.content||'').slice(0,800))+'</div></div>';}).join(''):'<div class=\"empty\">no thread</div>')+'</div>';",
   "  H+='</div>';document.getElementById('drawer').innerHTML='<div class=\"drawer-bd\" onclick=\"closeDrawer()\"></div><div class=\"drawer-panel\">'+H+'</div>';}",
+  "function openThread(rootId){var d=document.getElementById('drawer');d.classList.add('open');d.innerHTML='<div class=\"drawer-bd\" onclick=\"closeDrawer()\"></div><div class=\"drawer-panel\"><div class=\"empty\">Loading thread…</div></div>';api('/api/thread?root='+rootId).then(function(r){if(r.error){d.innerHTML='<div class=\"drawer-bd\" onclick=\"closeDrawer()\"></div><div class=\"drawer-panel\"><div class=\"empty\">'+esc(r.error.message||'not found')+'</div></div>';return;}renderThreadDrawer(r);});}window.openThread=openThread;",
+  "function threadMsgHtml(m,isRoot){var av=ava(m.from_agent);return '<div class=\"grp\"><div class=\"ava '+(av.online?'online':'')+'\" style=\"background:'+av.grad+'\">'+esc(av.ini)+'</div><div class=\"col\"><div class=\"head\"><span class=\"nm\">'+esc(m.from_agent)+'</span><span class=\"role\">'+esc(m.kind)+'</span><span class=\"tm\">'+fmtTime(m.created_at)+'</span></div><div class=\"bub '+(isRoot?'msg':'reply')+'\"><div class=\"bub-text\">'+md(m.content||'')+'</div><div class=\"id\">#'+m.id+' → '+esc(m.to_agent)+'</div></div></div></div>';}",
+  "function renderThreadDrawer(r){var root=r.root;var H='';H+='<div class=\"dk-head\"><span class=\"dk-close\" onclick=\"closeDrawer()\">✕ close</span><span class=\"dk-id\">thread · rooted at #'+root.id+'</span><div class=\"dk-title\">'+r.count+' '+(r.count===1?'reply':'replies')+'</div></div><div class=\"dk-body\">';H+='<div class=\"dsec\">Root message</div>'+threadMsgHtml(root,true);H+='<div class=\"dsec\">Replies</div>'+(r.replies.length?r.replies.map(function(m){return threadMsgHtml(m,false);}).join(''):'<div class=\"empty\">no replies yet</div>');H+='</div>';document.getElementById('drawer').innerHTML='<div class=\"drawer-bd\" onclick=\"closeDrawer()\"></div><div class=\"drawer-panel\">'+H+'</div>';}",
   "document.addEventListener('keydown',function(e){if(e.key==='Escape')closeDrawer();});",
   "document.querySelectorAll('.viewitem').forEach(function(it){it.onclick=function(){setView(it.dataset.view);};});",
   "window.addEventListener('hashchange',function(){readHash();render();tick();});",

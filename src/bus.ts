@@ -1558,8 +1558,13 @@ export interface MessagePageOptions {
   preview_chars?: number;
 }
 
+export interface MessagePagePreview extends MessagePreview {
+  replies_count: number;
+  has_replies: boolean;
+}
+
 export interface MessagePageResult {
-  messages: MessagePreview[];
+  messages: MessagePagePreview[];
   next_cursor: number | null;
   has_more: boolean;
 }
@@ -1605,14 +1610,55 @@ export function messagePage(opts: MessagePageOptions = {}): MessagePageResult {
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit); // newest -> oldest within this page
   const oldest = page[page.length - 1];
+  const previews = page
+    .slice()
+    .reverse()
+    .map((row) => toMessagePreview(row, previewChars));
+  // One grouped query for reply counts so roots can show "N replies" without
+  // a request per message. Threading is strictly reply_to-based.
+  const counts = new Map<number, number>();
+  const ids = previews.map((m) => m.id);
+  if (ids.length > 0) {
+    const countRows = getDb()
+      .prepare(
+        `SELECT reply_to AS rid, COUNT(*) AS c FROM messages
+           WHERE reply_to IN (${ids.map(() => "?").join(",")})
+           GROUP BY reply_to`,
+      )
+      .all(...ids) as Array<{ rid: number; c: number }>;
+    for (const row of countRows) counts.set(row.rid, row.c);
+  }
   return {
-    messages: page
-      .slice()
-      .reverse()
-      .map((row) => toMessagePreview(row, previewChars)),
+    messages: previews.map((m) => {
+      const c = counts.get(m.id) ?? 0;
+      return { ...m, replies_count: c, has_replies: c > 0 };
+    }),
     next_cursor: hasMore && oldest ? oldest.id : null,
     has_more: hasMore,
   };
+}
+
+export interface MessageThreadResult {
+  root: Message;
+  replies: Message[];
+  count: number;
+}
+
+/**
+ * Fetch a message thread: a root message plus every message that replies to it
+ * (reply_to = root id), oldest first. Threading is reply_to-based only; it is
+ * never inferred from thread_id (which stays the broad conversation grouping).
+ */
+export function messageThread(rootId: number, limit = 200): MessageThreadResult {
+  const root = toMessage(getMessageRow(rootId));
+  const bounded = Math.min(Math.max(limit, 1), 500);
+  const total = (getDb()
+    .prepare("SELECT COUNT(*) AS c FROM messages WHERE reply_to = ?")
+    .get(rootId) as { c: number }).c;
+  const rows = getDb()
+    .prepare("SELECT * FROM messages WHERE reply_to = ? ORDER BY id ASC LIMIT ?")
+    .all(rootId, bounded) as MessageRow[];
+  return { root, replies: rows.map(toMessage), count: total };
 }
 
 // ---------------------------------------------------------------------------

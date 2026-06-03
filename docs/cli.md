@@ -108,8 +108,11 @@ JSON endpoints (read-only, same origin):
   real time-series: message + task-event volume bucketed over a window,
   daily tasks-created, and percentage deltas vs the previous window.
 - `GET /api/messages?project=&area=&team=&before=&limit=` — cursor-paged
-  chat history (ascending page + `next_cursor` + `has_more`); pass the
-  returned `next_cursor` as `before` to page backwards.
+  chat history (ascending page + `next_cursor` + `has_more`); each row
+  also carries `replies_count` / `has_replies` so root messages can show
+  a thread affordance.
+- `GET /api/thread?root=<id>` — a message thread: the root message plus
+  every message whose `reply_to` is that root (oldest first).
 - `GET /api/tasks/:id` — task detail bundle (events, test results,
   thread) for drill-down.
 - `GET /api/messages/:id?full=1` — one message, optionally full body.
@@ -117,6 +120,25 @@ JSON endpoints (read-only, same origin):
 The UI is local-only and read-only by design: it binds to `127.0.0.1`,
 uses the current `AGENT_BUS_DIR`, refreshes automatically, and never
 mutates bus state (no action buttons).
+
+**Message kinds and threads.** The cockpit chat distinguishes three
+message kinds and renders Slack-style threads:
+
+- `msg` — a normal message (`send` / `send_team`). `send_team` fans a
+  message out to a whole team workgroup.
+- `ask` — a blocking question (`ask` / `ask_team`); shows an
+  awaiting-reply / answered pill.
+- `reply` — an answer to an `ask` (`reply`), or a threaded follow-up to
+  a conversation (`reply_thread`).
+
+Threading is **`reply_to`-based only**: a message's `reply_to` points at
+the single parent it answers, and the cockpit groups every message that
+shares a parent into that parent's thread (the "N replies → view
+thread" affordance). `thread_id` is the *broad* conversation grouping
+(the whole back-and-forth) and is **not** used to infer threaded
+replies. So: use `reply` for asks and `reply_thread` for normal message
+follow-ups when you want a message to appear as a threaded reply; use
+`send`/`send_team` for top-level channel messages.
 
 ### `agent-bus activity`
 

@@ -35,6 +35,7 @@ const {
   listTestResults,
   listMemories,
   messagePage,
+  messageThread,
   messagesSince,
   pinMemory,
   projectBoard,
@@ -1609,6 +1610,31 @@ await test("timeseries buckets messages and tasks over a window", async () => {
   const ts6 = timeseries({ project: "tsproj", team: "tsteam", buckets: 6 });
   assert.equal(ts6.messages.length, 6);
   assert.equal(ts6.totals.messages, 4);
+});
+
+await test("messageThread + replies_count expose reply_to threads", async () => {
+  register({ name: "th-a", capabilities: [], project: "thproj", team: "thteam", replace: true });
+  register({ name: "th-b", capabilities: [], project: "thproj", team: "thteam", replace: true });
+  const root = send({ from: "th-a", to: "th-b", content: "thread root question" });
+  send({ from: "th-b", to: "th-a", content: "reply one", reply_to: root.id });
+  send({ from: "th-b", to: "th-a", content: "reply two", reply_to: root.id });
+  send({ from: "th-a", to: "th-b", content: "unrelated message" });
+
+  const thread = messageThread(root.id);
+  assert.equal(thread.root.id, root.id);
+  assert.equal(thread.count, 2);
+  assert.deepEqual(thread.replies.map((m) => m.content), ["reply one", "reply two"]);
+  const limitedThread = messageThread(root.id, 1);
+  assert.equal(limitedThread.count, 2);
+  assert.deepEqual(limitedThread.replies.map((m) => m.content), ["reply one"]);
+
+  const page = messagePage({ project: "thproj", team: "thteam", limit: 50 });
+  const rootRow = page.messages.find((m) => m.id === root.id);
+  assert.ok(rootRow, "root should be in the page");
+  assert.equal(rootRow?.replies_count, 2);
+  assert.equal(rootRow?.has_replies, true);
+  const unrelated = page.messages.find((m) => m.content_preview === "unrelated message");
+  assert.equal(unrelated?.has_replies, false);
 });
 
 closeDb();
