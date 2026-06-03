@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  Two Claude Code windows on the same repo are strangers. <strong>agent-bus makes them a team</strong> —
+  Two Claude Code or Codex sessions on the same repo are strangers. <strong>agent-bus makes them a team</strong> —
   local, persistent, and tool-agnostic. No cloud, no auth, no internet.
   <br/>Claude Code, Codex, Cursor — anything that speaks MCP.
 </p>
@@ -70,8 +70,8 @@ people, attention items, and real metrics.
 
 AI coding agents are powerful — they just don't know about each other.
 Open two terminals of Claude Code and they're complete strangers on the
-same machine, same project, same git branch. Open a Codex window next to
-a Claude window — still strangers. The moment you want one agent to ask
+same machine, same project, same git branch. Open a Codex session next to
+a Claude session — still strangers. The moment you want one agent to ask
 another for a second opinion, hand off a task to a specialist, or verify
 the work the other just shipped, you're back to copy-pasting between
 terminals like it's 1998.
