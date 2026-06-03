@@ -376,6 +376,10 @@ team, team chat with threaded replies, task messages, Kanban, activity,
 people, attention items, and real metrics. Switch projects and teams in
 the browser without restarting anything.
 
+![Agent Bus cockpit Kanban view](docs/assets/cockpit-kanban.png)
+
+![Agent Bus cockpit team chat view](docs/assets/cockpit-chat.png)
+
 Optional initial view flags:
 
 ```bash
