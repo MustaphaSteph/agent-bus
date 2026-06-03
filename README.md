@@ -15,9 +15,9 @@
 </p>
 
 <p align="center">
-  Two Claude Code or Codex sessions on the same repo are strangers. <strong>agent-bus makes them a team</strong> —
+  A Claude Code session and a Codex session on the same repo are strangers. <strong>agent-bus makes them talk</strong> —
   local, persistent, and tool-agnostic. No cloud, no auth, no internet.
-  <br/>Claude Code, Codex, Cursor — anything that speaks MCP.
+  <br/>Claude Code, Codex, Cursor — any mix of agents that speak MCP, on one shared bus.
 </p>
 
 ## Quick start
