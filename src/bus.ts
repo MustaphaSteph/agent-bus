@@ -1059,11 +1059,18 @@ export function replyThread(opts: ReplyThreadOptions): Message {
   if (!target) {
     throw new BusError("UNKNOWN_AGENT", `could not infer another participant in thread '${opts.thread_id}'`);
   }
+  // Make this a real threaded reply: kind='reply' and reply_to = the thread
+  // root (oldest message), so replies group Slack-style under one root and
+  // light up replies_count/has_replies + the cockpit's "N replies" thread view.
+  // (rows is ordered oldest-first and is non-empty here.)
+  const root = rows[0]!;
   return send({
     from: opts.from,
     to: target,
     content: opts.message,
     thread_id: opts.thread_id,
+    kind: "reply",
+    reply_to: root.id,
   });
 }
 

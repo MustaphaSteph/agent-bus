@@ -259,14 +259,19 @@ reply({ from: "beta", ask_id: 42, answer: "4" })
 ## reply_thread
 
 Continue an existing thread without remembering the exact recipient. It
-sends to the last other participant in the thread.
+sends to the last other participant in the thread, and creates a **real
+threaded reply**: the message is `kind: "reply"` with `reply_to` set to
+the thread's root (oldest) message. That groups every reply Slack-style
+under one root, so the cockpit shows a "N replies → view thread"
+affordance. Use this for conversational follow-ups; use `reply` to answer
+a specific `ask` (which sets `reply_to` to that ask instead).
 
 ```ts
 reply_thread({
   from: string,
   thread_id: string,
   message: string,
-}) -> Message
+}) -> Message  // kind: "reply", reply_to: <thread root id>
 ```
 
 ## message_status / why_no_reply

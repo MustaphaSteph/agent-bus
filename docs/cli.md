@@ -136,9 +136,12 @@ the single parent it answers, and the cockpit groups every message that
 shares a parent into that parent's thread (the "N replies → view
 thread" affordance). `thread_id` is the *broad* conversation grouping
 (the whole back-and-forth) and is **not** used to infer threaded
-replies. So: use `reply` for asks and `reply_thread` for normal message
-follow-ups when you want a message to appear as a threaded reply; use
-`send`/`send_team` for top-level channel messages.
+replies. So: use `reply` to answer an `ask` (sets `reply_to` = the ask),
+and `reply_thread` for conversational follow-ups (sets `kind: "reply"`
+and `reply_to` = the thread's root, so replies group under one root and
+show the thread affordance). Use `send`/`send_team` for top-level channel
+messages — a plain `send(..., thread_id=…)` only continues the
+conversation group and does **not** create a threaded reply.
 
 ### `agent-bus activity`
 

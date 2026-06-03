@@ -231,14 +231,18 @@ Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
 
 ### reply_thread
 
-Continue a thread without remembering the recipient.
+Continue a thread without remembering the recipient. Creates a real
+threaded reply: `kind: "reply"` with `reply_to` set to the thread's root
+(oldest) message, so replies group under one root and render as a thread
+in the cockpit. Use `reply` to answer a specific `ask` instead.
 
 Input:
 - `from: string`
 - `thread_id: string`
 - `message: string`
 
-Returns a sent `Message` addressed to the last other participant.
+Returns a sent `Message` (kind `reply`, `reply_to` = thread root)
+addressed to the last other participant.
 
 ### message_status / why_no_reply
 

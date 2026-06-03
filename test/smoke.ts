@@ -1637,6 +1637,27 @@ await test("messageThread + replies_count expose reply_to threads", async () => 
   assert.equal(unrelated?.has_replies, false);
 });
 
+await test("replyThread creates a threaded reply (reply_to=root, kind=reply)", async () => {
+  register({ name: "rt-a", capabilities: [], project: "rtproj", team: "rtteam", replace: true });
+  register({ name: "rt-b", capabilities: [], project: "rtproj", team: "rtteam", replace: true });
+  const root = send({ from: "rt-a", to: "rt-b", content: "rt root" });
+  const r1 = replyThread({ from: "rt-b", thread_id: root.thread_id, message: "rt reply one" });
+  assert.equal(r1.kind, "reply");
+  assert.equal(r1.reply_to, root.id);
+  assert.equal(r1.thread_id, root.thread_id);
+  const r2 = replyThread({ from: "rt-a", thread_id: root.thread_id, message: "rt reply two" });
+  assert.equal(r2.reply_to, root.id); // groups under the root, not chained to r1
+
+  const thread = messageThread(root.id);
+  assert.equal(thread.count, 2);
+  assert.deepEqual(thread.replies.map((m) => m.content), ["rt reply one", "rt reply two"]);
+
+  const page = messagePage({ project: "rtproj", team: "rtteam", limit: 50 });
+  const rootRow = page.messages.find((m) => m.id === root.id);
+  assert.equal(rootRow?.replies_count, 2);
+  assert.equal(rootRow?.has_replies, true);
+});
+
 closeDb();
 rmSync(tmp, { recursive: true, force: true });
 
