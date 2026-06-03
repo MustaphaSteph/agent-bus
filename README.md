@@ -15,15 +15,50 @@
 </p>
 
 <p align="center">
-  Let multiple AI agent sessions on the same machine talk to each other.
-  Claude Code, Codex, Cursor, anything that speaks MCP.
+  Two Claude Code windows on the same repo are strangers. <strong>agent-bus makes them a team</strong> —
+  local, persistent, and tool-agnostic. No cloud, no auth, no internet.
+  <br/>Claude Code, Codex, Cursor — anything that speaks MCP.
 </p>
 
-## Local Cockpit UI
+## Quick start
 
-`agent-bus ui` opens a local, read-only command center for every project
-and team on your machine: threaded team chat, task messages, Kanban,
-activity, people, attention items, and real metrics.
+**Prerequisite:** Node.js ≥ 20. Three lines and you're running:
+
+```bash
+npm i -g @agent-bus-connect/cli@latest          # 1. install the CLI + MCP server
+claude mcp add -s user agent-bus -- agent-bus-mcp   # 2. wire it into Claude Code
+agent-bus ui                                     # 3. open the local cockpit
+```
+
+That's it. One SQLite file lands at `~/.agent-bus/bus.db`, no daemon spins up,
+nothing leaves your machine. Now open a second agent session, register it with a
+name, and the two can message, ask, and delegate to each other.
+
+> Using Codex, Cursor, or the one-click plugins instead of the manual `mcp add`?
+> See [**Install**](#install) below or [`docs/install.md`](docs/install.md).
+
+### See it in 10 seconds
+
+Three sessions joined to one team, talking through the bus — exactly what the
+cockpit shows live:
+
+```
+team todo-ios
+online  ui-designer    [listener]
+online  ios-developer  [listener]
+online  todo-pm        [pm]
+---
+14:52:01 #1 todo-pm → ui-designer  ASK
+  propose the first screen and interaction model
+14:52:10 #2 ui-designer → todo-pm  REPLY ↪#1
+  Use a single Today list, inline add, swipe complete/delete, and a compact filter.
+14:52:18 #3 todo-pm → ios-developer  TASK
+  task #1: implement the first screen using the approved design
+```
+
+`agent-bus ui` opens a local, read-only command center for every project and
+team on your machine: threaded team chat, task messages, Kanban, activity,
+people, attention items, and real metrics.
 
 ![Agent Bus cockpit Kanban view](docs/assets/cockpit-kanban.png)
 
@@ -232,7 +267,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 6. Verify
 
 ```bash
-agent-bus --version                # 0.22.0
+agent-bus --version                # 0.23.1
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
@@ -248,20 +283,12 @@ For normal use, pick **one team name** and use it everywhere. You do
 not need project or area flags to get started. A team is the workgroup
 boundary for chat, boards, and the web cockpit.
 
-Example team:
+Open three Claude Code or Codex sessions in the same repo/folder, then
+paste one prompt into each so it registers into the same team (e.g.
+`todo-ios`) and keeps the workflow scoped there.
 
-```text
-todo-ios
-```
-
-Open three Claude Code or Codex sessions in the same repo/folder. Paste
-one prompt into each session. Each prompt tells the agent to use
-agent-bus, register directly into the `todo-ios` team, and keep the team
-workflow scoped there.
-
-You can also let one AI session design the team for you. Start one
-session as the PM and ask it to produce the prompts for the other
-sessions:
+**The fast path — let one session design the team for you.** Start one
+session as the PM and ask it to produce the prompts for the others:
 
 ```text
 Use agent-bus.
@@ -288,7 +315,9 @@ Each generated prompt must include:
 
 That PM can now generate a custom team such as `ui-designer`,
 `ios-developer`, `test-reviewer`, or anything else your project needs.
-Or use the ready-made prompts below:
+
+<details>
+<summary><strong>Prefer ready-made prompts? Three sessions, copy-paste each one.</strong></summary>
 
 **Session A — UI designer. Paste:**
 
@@ -359,10 +388,11 @@ ios-developer are present. Then:
    ask for it.
 ```
 
-The PM session should now discover the other two agents, ask the UI
-designer for a design direction, create a tracked task, and assign the
-developer. The chat, task messages, and Kanban movement will appear in
-the cockpit.
+</details>
+
+The PM session discovers the other two agents, asks the UI designer for a
+direction, creates a tracked task, and assigns the developer. The chat,
+task messages, and Kanban movement all appear in the cockpit.
 
 If you installed the Claude Code slash commands, the shortcuts still
 work (`/listen ui-designer`, `/listen ios-developer`, `/main todo-pm`),
@@ -409,33 +439,16 @@ want a global view across every local project and team.
 
 ### What you'll see
 
-Within a couple of seconds:
-
-The cockpit chat shows the team conversation:
-
-```
-team todo-ios
-online  ui-designer    [listener]
-online  ios-developer  [listener]
-online  todo-pm        [pm]
----
-14:52:01 #1 todo-pm → ui-designer  ASK
-  propose the first screen and interaction model
-14:52:10 #2 ui-designer → todo-pm  REPLY ↪#1
-  Use a single Today list, inline add, swipe complete/delete, and a compact filter.
-14:52:18 #3 todo-pm → ios-developer  TASK
-  task #1: implement the first screen using the approved design
-```
-
-The Kanban view shows the implementation moving through the board:
+Within a couple of seconds the cockpit People view shows who is idle,
+working, blocked, or waiting for review, and the Kanban view shows the
+implementation moving through the board:
 
 ```
 Todo → Accepted → Doing → Review → Done
 ```
 
-The People view shows who is idle, working, blocked, or waiting for
-review. The Activity view shows the full story: asks, replies, task
-claims, progress notes, tests, and completion.
+The Activity view shows the full story: asks, replies, task claims,
+progress notes, tests, and completion.
 
 From here, swap the todo app for "review my last commit", "run the test
 suite", "summarize this PR", "design the onboarding screen", or anything
@@ -467,13 +480,11 @@ and [`docs/agent-prompts.md`](docs/agent-prompts.md).
 
 ## What you get
 
-- **62 MCP tools** — direct messages, synchronous ask/reply, thread replies, truncation-safe inbox previews and exact message fetches, non-consuming inbox diagnostics, message/reply diagnostics, team-scoped send/ask/boards, activity timelines, cockpit dashboards, current-work updates, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, one-call direct and team delegation, task waiting, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
+- **62 MCP tools** — messaging, synchronous ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. Full surface in [`docs/tools.md`](docs/tools.md).
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
-- **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; active workflows should register a concrete `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
-- **Terminal project management views** — `agent-bus activity` explains what happened recently, `agent-bus cockpit` shows what needs attention next, `agent-bus team-chat` shows one team's conversation, `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
-- **Local web cockpit** — `agent-bus ui` opens a dense "command center" local dashboard: a wide project/team sidebar, a center view-switcher (Slack-style **bubble chat** with cursor-paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, and an Attention view of what needs a human next), and an ops right rail with real time-series sparklines, an agent×status heatmap, mini-Kanban, throughput, and decisions. Every widget is backed by real bus data. Switch projects and teams live in the browser — no restart. Read-only by design.
-- **Large-message recovery** — `agent-bus inbox-previews` shows pending messages without full bodies, and `agent-bus message <id> --no-content` fetches one exact message safely before an agent chooses to pull the full content.
+- **Project/area/team-scoped by default** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.
+- **Local web cockpit** — `agent-bus ui` opens a dense command center: project/team sidebar, Slack-style bubble chat with paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, an Attention view, and an ops rail with real time-series sparklines, an agent×status heatmap, throughput, and decisions. Every widget is backed by real bus data. Read-only by design.
 - **Zero infra** — no daemon, no cloud, no auth. One file at `~/.agent-bus/bus.db`.
 - **Listener resilience** — Claude Code Stop hook keeps listeners alive even when they fall out of the agent loop.
 
