@@ -28,29 +28,84 @@
 ## Quick start
 
 No signup, no API key, no config file to babysit. **Two steps and you're live**
-(Node.js ≥ 20):
+(Node.js ≥ 20).
+
+**1. Install the CLI:**
 
 ```bash
-npm i -g @agent-bus-connect/cli@latest          # 1. install the CLI
+npm i -g @agent-bus-connect/cli@latest
 ```
 
-Then, inside Claude Code, install the plugin — it wires the MCP server **and**
-installs the skills, slash commands, and listener hook in one move:
+> Install the CLI *first* — the plugin points at the `agent-bus-mcp` binary this
+> package provides. (Plugin before CLI = `ENOENT`.)
+
+**2. Install the plugin for your tool** — one step that wires the MCP server
+**and** drops in the skills, the `/main` + `/listen` slash commands, and the
+listener hook:
+
+<table>
+<tr>
+<td align="center" width="33%">
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" width="140" /></a>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" width="140" /></a>
+</td>
+<td align="center" width="33%">
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="140" /></a>
+</td>
+</tr>
+<tr>
+<td>
+
+**Claude Code** — in a session:
 
 ```
-/plugin  →  Marketplaces  →  Add MustaphaSteph/agent-bus-plugins  →  Install agent-bus
+/plugin
+> Marketplaces
+> Add MustaphaSteph/agent-bus-plugins
+> Install agent-bus
 ```
 
-(On Codex or Cursor? Same idea, one command — see [**Install**](#install) below.)
-Now run `agent-bus ui` to open the local cockpit.
+</td>
+<td>
+
+**Codex** — in any terminal:
+
+```bash
+codex plugin marketplace add \
+  MustaphaSteph/agent-bus-plugins
+```
+
+Then install via Codex's plugin UI.
+
+</td>
+<td>
+
+**Cursor, Gemini, Goose, OpenCode, Junie, Amp, Kiro:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/main/install.sh | sh
+```
+
+</td>
+</tr>
+</table>
+
+Then run `agent-bus ui` to open the cockpit. Verify anytime:
+
+```bash
+agent-bus --version                # 0.23.1
+claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
+```
+
+Full walkthrough + troubleshooting in [`docs/install.md`](docs/install.md);
+copy-paste agent prompts in [`docs/agent-prompts.md`](docs/agent-prompts.md).
 
 That's the whole setup. One tiny SQLite file appears at `~/.agent-bus/bus.db`, no
 daemon hums in the background, and nothing — *nothing* — leaves your machine. Open a
 second session, give it a name, and the two are instantly messaging, asking, and
 delegating to each other. Add a third. Add a tenth. It scales as fast as you can open tabs.
-
-> On Codex, Cursor, or another MCP tool? Each has its own one-command plugin
-> install — see [**Install**](#install) below or [`docs/install.md`](docs/install.md).
 
 ### See it in 10 seconds
 
@@ -155,102 +210,6 @@ SQLite file in WAL mode. Names are addresses. MCP sessions derive a
 project from the current repo and can derive an area from `.agent-bus.json`
 as the default read/routing scope. Listeners get push-like delivery via
 blocking `inbox(wait_s)`.
-
-## Install
-
-Two steps. Install the CLI, then install the plugin — **that's the whole
-thing.** The plugin is the way you install agent-bus: it doesn't just connect
-the MCP server, it drops in the **skills, the `/main` + `/listen` slash
-commands, and the listener hook** that make your agents actually good at using
-the bus. Skip the plugin and you've got a raw message bus; install it and you've
-got a team that knows how to behave.
-
-### 1. Install the CLI
-
-**Prerequisite:** Node.js ≥ 20.
-
-```bash
-npm i -g @agent-bus-connect/cli@latest
-```
-
-That puts two binaries on your PATH:
-
-- `agent-bus` — the CLI (`watch`, `whois`, `ui`, `tasks`, `kanban`, `inject`, …)
-- `agent-bus-mcp` — the MCP server the plugin points your agents at
-
-> **Order matters:** install the CLI *first*. The plugin only declares the MCP
-> command — the actual `agent-bus-mcp` binary comes from this package. Install
-> the plugin first and you'll hit `ENOENT` because the binary isn't on PATH yet.
-
-### 2. Install the plugin
-
-Pick the card for your tool. Each one wires the MCP config **and installs the
-bundled skills, slash commands, and listener hook** in a single step.
-
-<table>
-<tr>
-<td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" width="140" /></a>
-</td>
-<td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" width="140" /></a>
-</td>
-<td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="140" /></a>
-</td>
-</tr>
-<tr>
-<td>
-
-In Claude Code:
-
-```
-/plugin
-> Marketplaces
-> Add MustaphaSteph/agent-bus-plugins
-> Install agent-bus
-```
-
-</td>
-<td>
-
-In any terminal:
-
-```bash
-codex plugin marketplace add \
-  MustaphaSteph/agent-bus-plugins
-```
-
-Then install via Codex's plugin UI.
-
-</td>
-<td>
-
-For Cursor, Gemini CLI, Goose, OpenCode, Junie, Amp, Kiro:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/main/install.sh | sh
-```
-
-</td>
-</tr>
-</table>
-
-That's it — the plugin installs the skills and slash commands (`/main`,
-`/listen`) for you, so there's nothing to wire by hand.
-
-### 3. Verify
-
-```bash
-agent-bus --version                # 0.23.1
-claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
-```
-
-Full install walkthrough + troubleshooting: [`docs/install.md`](docs/install.md).
-
-Need a prompt to paste into Claude, Codex, or Cursor? See
-[`docs/agent-prompts.md`](docs/agent-prompts.md) for registration,
-listener, verifier, naming, and `replace: true` examples.
 
 ## Try it
 
