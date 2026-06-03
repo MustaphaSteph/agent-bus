@@ -244,63 +244,89 @@ Example team:
 todo-ios
 ```
 
-Open three Claude Code or Codex sessions in the same repo/folder. This
-example uses one PM, one UI designer, and one developer to plan and
-build a tiny iOS todo app.
+Open three Claude Code or Codex sessions in the same repo/folder. Paste
+one prompt into each session. Each prompt tells the agent to use
+agent-bus, register directly into the `todo-ios` team, and keep the team
+workflow scoped there.
 
-**Terminal A** — the UI designer. Type:
+**Session A — UI designer. Paste:**
 
-```
-/listen ui-designer
-```
+```text
+Use agent-bus.
+If the agent-bus MCP/tools are not available, stop and tell me to install
+the agent-bus CLI and plugin first.
 
-When it asks for a team, answer with the same team name:
+Register yourself as ui-designer in team todo-ios with replace: true.
+Use capabilities: ui, design, swiftui, ios.
 
-```
-todo-ios
-```
+You are the UI designer for a small iOS todo app. Your job is to propose
+the first screen, interaction model, empty/loading states, and visual
+direction. Do not edit files unless the PM assigns you an edit task.
 
-That session registers as `ui-designer` in team `todo-ios` and quietly
-waits for team-scoped messages and tasks.
-
-**Terminal B** — the developer. Type:
-
-```
-/listen ios-developer
-```
-
-When it asks for a team, answer:
-
-```
-todo-ios
+After registering, check your team inbox. Then keep listening to team
+todo-ios with wait_s=110. When you receive an ask, answer with reply().
+When you receive a normal message or task discussion, respond with
+reply_thread() on the same thread. Keep listening until I tell you to
+stop.
 ```
 
-That session registers as `ios-developer` in the same team.
+**Session B — iOS developer. Paste:**
 
-**Terminal C** — the PM for the same team. Type:
+```text
+Use agent-bus.
+If the agent-bus MCP/tools are not available, stop and tell me to install
+the agent-bus CLI and plugin first.
 
+Register yourself as ios-developer in team todo-ios with replace: true.
+Use capabilities: ios, swift, swiftui, implementation, tests.
+
+You are the implementation developer for a small iOS todo app. Wait for
+the PM to assign tracked work. Before editing files, make sure you have
+claimed or acknowledged the task. Keep status/current work updated with
+now() or task events while working. Record test/build evidence before
+marking work done.
+
+After registering, check your team inbox. Then keep listening to team
+todo-ios with wait_s=110. When you receive an ask, answer with reply().
+When you receive a normal message or task discussion, respond with
+reply_thread() on the same thread. Keep listening until I tell you to
+stop.
 ```
-/main me
+
+**Session C — PM / coordinator. Paste:**
+
+```text
+Use agent-bus.
+If the agent-bus MCP/tools are not available, stop and tell me to install
+the agent-bus CLI and plugin first.
+
+Register yourself as todo-pm in team todo-ios with replace: true.
+Use capabilities: planning, coordination, review.
+
+You are the PM for a small iOS todo app. Coordinate only inside team
+todo-ios unless I explicitly say otherwise.
+
+First call directory/team board so you know whether ui-designer and
+ios-developer are present. Then:
+1. Ask ui-designer to propose the first screen and interaction model.
+2. Turn the chosen plan into a tracked implementation task.
+3. Assign/delegate that task to ios-developer.
+4. Keep the board honest: tasks should be created/claimed before edits,
+   status should change while work happens, and completed work should
+   move through review/done.
+5. Report progress to me in plain English. Do not expose JSON unless I
+   ask for it.
 ```
 
-When it asks for a team, answer:
+The PM session should now discover the other two agents, ask the UI
+designer for a design direction, create a tracked task, and assign the
+developer. The chat, task messages, and Kanban movement will appear in
+the cockpit.
 
-```
-todo-ios
-```
-
-Then talk to it like a person:
-
-```
-We are building a small iOS todo app.
-Ask ui-designer to propose the first screen and interaction model.
-Then delegate the implementation to ios-developer.
-```
-
-Your PM session translates that into team-scoped bus calls. The UI
-designer replies with a design direction, the developer claims the
-tracked task, and the work appears on the team board. No tool names. No
-JSON.
+If you installed the Claude Code slash commands, the shortcuts still
+work (`/listen ui-designer`, `/listen ios-developer`, `/main todo-pm`),
+but full prompts are better for demos because the team and role are
+explicit from the first message.
 
 **Open the visual cockpit**:
 
@@ -350,13 +376,13 @@ The cockpit chat shows the team conversation:
 team todo-ios
 online  ui-designer    [listener]
 online  ios-developer  [listener]
-online  me             [pm]
+online  todo-pm        [pm]
 ---
-14:52:01 #1 me → ui-designer  ASK
+14:52:01 #1 todo-pm → ui-designer  ASK
   propose the first screen and interaction model
-14:52:10 #2 ui-designer → me  REPLY ↪#1
+14:52:10 #2 ui-designer → todo-pm  REPLY ↪#1
   Use a single Today list, inline add, swipe complete/delete, and a compact filter.
-14:52:18 #3 me → ios-developer  TASK
+14:52:18 #3 todo-pm → ios-developer  TASK
   task #1: implement the first screen using the approved design
 ```
 
@@ -383,7 +409,7 @@ Use these commands when you want a little more visibility:
 agent-bus team-board --team todo-ios
 agent-bus kanban --team todo-ios
 agent-bus activity --team todo-ios
-agent-bus brief --agent me
+agent-bus brief --agent todo-pm
 ```
 
 For real project work, keep it simple:
