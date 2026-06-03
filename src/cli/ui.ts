@@ -365,8 +365,12 @@ svg.spark{width:100%;height:26px;display:block;margin-top:6px}
 .kpill{font-size:9.5px;border-radius:999px;padding:2px 8px;border:1px solid var(--line);color:var(--muted);font-weight:600}
 .kpill.ask{color:var(--amber);border-color:rgba(244,192,106,.4)}.kpill.reply{color:var(--accent);border-color:rgba(58,214,182,.4)}
 .kpill.msg{color:var(--blue);border-color:rgba(110,168,254,.4)}
+.kpill.task{color:var(--purple);border-color:rgba(199,155,255,.4)}
 .kpill.await{color:var(--amber);background:rgba(244,192,106,.08)}.kpill.done{color:var(--green);border-color:rgba(98,217,138,.4)}
 .bub.msg{border-left:3px solid rgba(110,168,254,.45)}
+.bub.task{border-left:3px solid var(--purple)}
+.bub .task-chip{font-family:var(--mono);font-size:10px;color:var(--purple);border:1px solid rgba(199,155,255,.4);border-radius:999px;padding:2px 8px;cursor:pointer;background:rgba(199,155,255,.08)}
+.bub .task-chip:hover{color:var(--text);border-color:var(--purple)}
 .bub .bub-text{overflow-wrap:anywhere;display:block}
 .bub .bub-text .md-h{font-weight:700;color:var(--text);margin:9px 0 3px;font-size:13px}
 .bub .bub-text .md-sp{height:6px}
@@ -551,19 +555,21 @@ const CLIENT_JS = [
   "  var prevH=BODY.scrollHeight,prevTop=BODY.scrollTop;",
   "  var answered={};for(var a=0;a<msgs.length;a++){if(msgs[a].reply_to!=null)answered[msgs[a].reply_to]=1;}",
   "  var byId={};for(var b=0;b<msgs.length;b++){byId[msgs[b].id]=msgs[b];}",
+  "  var taskByThread={};(ui.state&&ui.state.tasks||[]).forEach(function(t){if(t.thread_id)taskByThread[t.thread_id]=t.id;});",
   "  var html='';if(ui.chat.hasMore)html+='<div class=\"loadmore\"><button onclick=\"loadEarlier()\">↑ Load earlier</button></div>';",
   "  if(!msgs.length)html+='<div class=\"empty\">No messages in this scope yet.</div>';",
   "  var lastDay=null,lastSender=null;",
   "  msgs.forEach(function(m){var day=dayLabel(m.created_at);if(day!==lastDay){html+='<div class=\"daydiv\">'+day+'</div>';lastDay=day;lastSender=null;}var av=ava(m.from_agent);var self=ui.state.scope&&false;var ng=m.from_agent!==lastSender;var q=(m.reply_to!=null&&byId[m.reply_to])?byId[m.reply_to]:null;",
   "    html+='<div class=\"grp\">'+(ng?'<div class=\"ava '+(av.online?'online':'')+'\" style=\"background:'+av.grad+'\">'+esc(av.ini)+'</div>':'<div></div>')+'<div class=\"col\">';",
   "    if(ng)html+='<div class=\"head\"><span class=\"nm\">'+esc(m.from_agent)+'</span><span class=\"role\">'+esc(av.role||'agent')+'</span><span class=\"tm\">'+fmtTime(m.created_at)+'</span></div>';",
-  "    var kc=m.kind==='ask'?'ask':m.kind==='reply'?'reply':'msg';html+='<div class=\"bub '+kc+'\">';",
+  "    var tcontent=(m.content_preview||'');var tidm=/task #(\\d+)/i.exec(tcontent);var tnotify=/^\\s*(assigned|pending assignment|acknowledged|claimed|released|reassigned|handed off|canceled|cancelled|reopened)\\b/i.test(tcontent)||/^\\s*task #\\d+\\s+(working|completed|blocked|in review|review|testing|done)\\b/i.test(tcontent);var isTask=(m.kind!=='ask'&&m.kind!=='reply')&&tnotify&&tidm!=null;var taskId=tidm?Number(tidm[1]):taskByThread[m.thread_id];var kc=m.kind==='ask'?'ask':m.kind==='reply'?'reply':(isTask?'task':'msg');html+='<div class=\"bub '+kc+'\">';",
   "    if(q)html+='<div class=\"quote\">↩ replying to <b>'+esc(q.from_agent)+'</b>: '+esc(q.content_preview.slice(0,64))+'…</div>';",
   "    var expanded=ui.chat.expanded[m.id];html+='<div class=\"bub-text\">'+md(expanded&&ui.chat.full[m.id]!=null?ui.chat.full[m.id]:m.content_preview)+'</div>';",
   "    if(m.truncated)html+='<div class=\"collapsed\" onclick=\"expandMsg('+m.id+')\">'+(expanded?'⤡ Show less':'⤢ Large message · '+m.content_length+' chars · click to expand')+'</div>';",
-  "    html+='<div class=\"kind-row\"><span class=\"kpill '+kc+'\">'+(m.kind==='ask'?'ask':m.kind==='reply'?'reply':'message')+'</span>';",
+  "    html+='<div class=\"kind-row\"><span class=\"kpill '+kc+'\">'+(m.kind==='ask'?'ask':m.kind==='reply'?'reply':(isTask?'task':'message'))+'</span>';",
   "    if(m.kind==='ask')html+='<span class=\"kpill '+(answered[m.id]?'done':'await')+'\">'+(answered[m.id]?'✓ answered':'⏳ awaiting reply')+'</span>';",
   "    else if(m.kind==='reply'&&!q)html+='<span class=\"kpill reply\">↩ in reply</span>';",
+  "    if(isTask)html+='<span class=\"task-chip\" onclick=\"openTask('+taskId+')\">📋 #'+taskId+'</span>';",
   "    html+='</div>';",
   "    if(m.has_replies)html+='<div class=\"replies-link\" onclick=\"openThread('+m.id+')\">💬 '+m.replies_count+' '+(m.replies_count===1?'reply':'replies')+' · view thread</div>';",
   "    html+='<div class=\"id\">#'+m.id+' · '+esc(m.kind)+' → '+esc(m.to_agent)+'</div></div></div></div>';lastSender=m.from_agent;});",
