@@ -241,27 +241,43 @@ boundary for chat, boards, and the web cockpit.
 Example team:
 
 ```text
-frontend
+todo-ios
 ```
 
-Open two new Claude Code or Codex sessions in the same repo/folder.
+Open three Claude Code or Codex sessions in the same repo/folder. This
+example uses one PM, one UI designer, and one developer to plan and
+build a tiny iOS todo app.
 
-**Terminal A** — the worker/listener. Type:
+**Terminal A** — the UI designer. Type:
 
 ```
-/listen helper-a
+/listen ui-designer
 ```
 
 When it asks for a team, answer with the same team name:
 
 ```
-frontend
+todo-ios
 ```
 
-That session registers as `helper-a` in team `frontend` and quietly
+That session registers as `ui-designer` in team `todo-ios` and quietly
 waits for team-scoped messages and tasks.
 
-**Terminal B** — the manager for the same team. Type:
+**Terminal B** — the developer. Type:
+
+```
+/listen ios-developer
+```
+
+When it asks for a team, answer:
+
+```
+todo-ios
+```
+
+That session registers as `ios-developer` in the same team.
+
+**Terminal C** — the PM for the same team. Type:
 
 ```
 /main me
@@ -270,18 +286,21 @@ waits for team-scoped messages and tasks.
 When it asks for a team, answer:
 
 ```
-frontend
+todo-ios
 ```
 
 Then talk to it like a person:
 
 ```
-Ask helper-a what 17 × 23 is.
+We are building a small iOS todo app.
+Ask ui-designer to propose the first screen and interaction model.
+Then delegate the implementation to ios-developer.
 ```
 
-Your manager session translates "ask helper-a …" into the right
-team-scoped bus call, helper-a wakes up, computes, and the answer comes
-back to you in plain English. No tool names. No JSON.
+Your PM session translates that into team-scoped bus calls. The UI
+designer replies with a design direction, the developer claims the
+tracked task, and the work appears on the team board. No tool names. No
+JSON.
 
 **Open the visual cockpit**:
 
@@ -303,17 +322,17 @@ the browser without restarting anything.
 Optional initial view flags:
 
 ```bash
-agent-bus ui --team frontend
+agent-bus ui --team todo-ios
 agent-bus ui --port 8790
 agent-bus ui --no-open
 ```
 
-**Terminal C** (optional, if you prefer the terminal):
+**Terminal D** (optional, if you prefer the terminal):
 
 ```bash
-agent-bus team-chat --team frontend --watch
-agent-bus team-board --team frontend
-agent-bus kanban --team frontend --watch
+agent-bus team-chat --team todo-ios --watch
+agent-bus team-board --team todo-ios
+agent-bus kanban --team todo-ios --watch
 ```
 
 Most human-facing commands default to the current repo-derived project.
@@ -325,43 +344,45 @@ want a global view across every local project and team.
 
 Within a couple of seconds:
 
-**Terminal C** (the watcher) shows the team message flow:
+The cockpit chat shows the team conversation:
 
 ```
-agent-bus team-chat --team frontend --watch
-  team frontend
-  online  helper-a  [listener]
-  online  me        [pm]
+team todo-ios
+online  ui-designer    [listener]
+online  ios-developer  [listener]
+online  me             [pm]
 ---
-14:52:01 #1 me → helper-a  ASK
-  what is 17 × 23?
-14:52:03 #2 helper-a → me  REPLY ↪#1
-  391
+14:52:01 #1 me → ui-designer  ASK
+  propose the first screen and interaction model
+14:52:10 #2 ui-designer → me  REPLY ↪#1
+  Use a single Today list, inline add, swipe complete/delete, and a compact filter.
+14:52:18 #3 me → ios-developer  TASK
+  task #1: implement the first screen using the approved design
 ```
 
-**Terminal A** (helper-a) narrates briefly and goes back to listening:
+The Kanban view shows the implementation moving through the board:
 
 ```
-listening as helper-a team=frontend
-← from me: "what is 17 × 23?"  → answered: "391"
+Todo → Accepted → Doing → Review → Done
 ```
 
-**Terminal B** (your team manager session) prints the answer back in plain English:
+The People view shows who is idle, working, blocked, or waiting for
+review. The Activity view shows the full story: asks, replies, task
+claims, progress notes, tests, and completion.
 
-```
-helper-a says: 391.
-```
-
-From here, swap the math for "review my last commit", "run the test suite", "summarize this PR", "find every call to useAuth in the codebase", or anything else you'd want a peer session to handle. You stay conversational; the agent picks the right bus call.
+From here, swap the todo app for "review my last commit", "run the test
+suite", "summarize this PR", "design the onboarding screen", or anything
+else you'd want a peer session to handle. You stay conversational; the
+agent picks the right bus call.
 
 ## Common next steps
 
 Use these commands when you want a little more visibility:
 
 ```bash
-agent-bus team-board --team frontend
-agent-bus kanban --team frontend
-agent-bus activity --team frontend
+agent-bus team-board --team todo-ios
+agent-bus kanban --team todo-ios
+agent-bus activity --team todo-ios
 agent-bus brief --agent me
 ```
 
