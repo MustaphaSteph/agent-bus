@@ -57,7 +57,7 @@ a file and a process.
 - **Pair debugging.** Ask a second Claude session to verify what the first one just shipped, without re-explaining context.
 - **Specialist routing.** Register one session as the React expert, another as the Postgres expert. Use `ask_best(capability=…)` and the bus picks.
 - **Role-aware teams.** Register agents as `pm`, `worker`, `verifier`, `reviewer`, or `listener`; routing can prefer role and weight.
-- **Scoped workgroups.** Add an optional `team` so UI, backend, review, or temporary feature squads can route messages and boards inside one project without hard-coded behavior.
+- **Scoped workgroups.** Register every active session with a concrete `team` so UI, backend, review, or temporary feature squads can route messages and boards inside one project without hard-coded behavior.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
@@ -205,8 +205,9 @@ PATH. After editing, **Cmd+Q + reopen** Codex Desktop fully.
 
 Two one-line slash commands that make day-to-day use natural:
 
-- `/main <name>` — primes a coordinator session to talk to the bus
-  in plain English ("ask the reviewer to…", "delegate this…").
+- `/main <name>` — primes a team manager session
+  to talk to the bus in plain English ("ask the reviewer to…",
+  "delegate this…", "show team board").
 - `/listen <name>` — turns a session into a passive helper that just
   responds when called.
 
@@ -233,20 +234,36 @@ listener, verifier, naming, and `replace: true` examples.
 
 ## Try it
 
-Open two new Claude Code sessions.
+Open two new Claude Code or Codex sessions and put them in the same
+team. A team is the workgroup boundary for chat, boards, and the web
+cockpit. Use a concrete name such as `frontend`, `ios-ui`, or
+`agent-bus-devs`.
 
-**Terminal A** — the helper. Type:
+**Terminal A** — the worker/listener. Type:
 
 ```
 /listen helper-a
 ```
 
-That session registers as `helper-a` and quietly waits for messages.
+When it asks for a team, answer:
 
-**Terminal B** — your main session. Type:
+```
+frontend
+```
+
+That session registers as `helper-a` in team `frontend` and quietly
+waits for team-scoped messages and tasks.
+
+**Terminal B** — the manager for the same team. Type:
 
 ```
 /main me
+```
+
+When it asks for a team, answer the same team:
+
+```
+frontend
 ```
 
 Then talk to it like a person:
@@ -255,196 +272,55 @@ Then talk to it like a person:
 Ask helper-a what 17 × 23 is.
 ```
 
-Your main session translates "ask helper-a …" into the right bus call,
-helper-a wakes up, computes, and the answer comes back to you in plain
-English. No tool names. No JSON.
+Your manager session translates "ask helper-a …" into the right
+team-scoped bus call, helper-a wakes up, computes, and the answer comes
+back to you in plain English. No tool names. No JSON.
 
 **Terminal C** (optional, you watching):
 
 ```bash
-agent-bus watch
 agent-bus team-chat --team frontend --watch
-```
-
-`watch` defaults to the current repo-derived project and, when
-configured, the current subfolder area; it hides old `{no-project}`
-traffic by default so demos stay focused. Use `agent-bus watch --global`
-when you want the whole local bus. `log`, `whois`, `tasks`, `kanban`,
-`team-chat`, and `done` use `--project all --area all --team all` for
-global views.
-
-Record durable context when a session is about to hand off work:
-
-```bash
-agent-bus remember --by me --kind handoff --pinned \
-  "helper-a verified auth; next session should inspect billing retries"
-
-agent-bus brief --agent me
-agent-bus memories --kind handoff --pinned
-```
-
-Use the manager board and scope checks when multiple agents may edit the
-same app:
-
-```bash
-agent-bus board
 agent-bus team-board --team frontend
-agent-bus cockpit --team frontend
-agent-bus activity --team frontend
-agent-bus team-chat --team frontend
-agent-bus team-chat --team frontend --from coordinator "status update?"
-agent-bus tasks --team frontend
-agent-bus kanban --team frontend
-agent-bus kanban --team frontend --all
 agent-bus kanban --team frontend --watch
-agent-bus done --team frontend
-agent-bus task 12
-agent-bus task-start 12 --by agent-a
-agent-bus now --agent agent-a --task 12 --phase testing --note "running simulator smoke"
-agent-bus task-testing 12 --by agent-a --message "running simulator smoke"
-agent-bus task-done 12 --by agent-a --result "implemented and tests passed"
-agent-bus wait-for-agents --names agent-a,agent-b,reviewer --area all
-agent-bus scope-conflicts --files "package-a/**,shared/**"
-agent-bus ack-task 12 --agent agent-a --response claimed
-agent-bus review-task 12 --reviewer reviewer --approve
-agent-bus test-result --by reviewer --task 12 --command "npm test" --status passed --summary "suite passed"
-agent-bus handoff 12 --from agent-a --to agent-b \
-  --reason "agent-a stopping; remaining checks need another session" \
-  --memory "Task handoff summary for the next session."
 ```
 
-Use `kanban` for the workflow view: `Todo`, `Accepted`, `Doing`,
-`Testing`, `Review`, and `Blocked`; pass `--state-columns` for the raw
-task states. `task-start`, `task-testing`, `task-phase`, and
-`task-done` are CLI shortcuts for moving tasks while recording durable
-events. Use `done` when you only want finished work, and `task <id>`
-when you need the full evidence bundle for one task.
+Most human-facing commands default to the current repo-derived project.
+Pass `--team <name>` to focus one workgroup, or use
+`--project all --area all --team all` when you intentionally want a
+global view across every local project and team.
 
-Optional area config at the repo root:
-
-```json
-{
-  "project": "my-app",
-  "areas": {
-    "area-a": ["area-a/**"],
-    "area-b": ["area-b/**"],
-    "docs": ["docs/**"]
-  }
-}
-```
-
-For separated folders that belong to the same product, use the same
-`project` and a fixed `area` in each folder:
-
-```json
-{
-  "project": "shop",
-  "area": "area-a"
-}
-```
-
-```json
-{
-  "project": "shop",
-  "area": "area-b"
-}
-```
-
-Those sessions are in different paths, but agent-bus treats them as one
-logical project with separate lanes.
-
-For repeated app builds under one parent folder, initialize each app
-subfolder as its own neutral project scope:
+Or open the local web cockpit:
 
 ```bash
-mkdir AppOne && cd AppOne
-agent-bus team init-folder --project app-one --area app
+agent-bus ui
+agent-bus ui --team frontend                     # initial team view
+agent-bus ui --project movie-app --team ios-ui   # initial project/team view
+agent-bus ui --port 8790                         # custom port
+agent-bus ui --no-open                           # print URL only
 ```
 
-That writes `{"project":"app-one","area":"app"}`. The agents or your
-own prompts decide the team structure and behavior.
-
-### Use one session as a coordinator
-
-In an existing project, open one AI session at the repo root and make it
-the coordinator:
+By default it opens:
 
 ```text
-You are <coordinator-name> for this repo. Use agent-bus as the coordination layer.
-
-Register as <coordinator-name> with role pm, area "*", capabilities
-["planning","coordination"], replace true.
-
-Your job:
-- inspect the project structure
-- wait for the expected roster with wait_for_agents before assuming workers are available
-- create tasks with clear mode, expected_output, and file_scope
-- use edit_scope for files a worker may change, and read_scope for verifier/test-only review
-- set ack_required for assigned work and review_required for implementation tasks
-- use delegate for long work that needs ownership/progress tracking; use allow_pending_agent when the worker session has not registered yet
-- check project_board and scope conflicts before overlapping edits
-- use ask_best when no exact agent is named
-- create review/test-only tasks only when the user wants independent review
-- record decisions with record_decision
-- record pinned handoffs with remember(kind="handoff", pinned=true)
-- record progress and phase changes with record_task_event
-- use send_team only for discussion/FYI; use delegate_team when a team assignment must appear on team-board, kanban, or done views
-- use wait_for_task for long-running work and task_result before verification or handoff
-- use inbox_status/message_status/why_no_reply to diagnose delivery before assuming an agent ignored a message
-- after a bus answer arrives, tell me what came back and continue locally; do not keep waiting on unrelated bus messages
-- record build/lint/test evidence with record_test_result
-- use session_brief at start and review_gate/final_report before commit/push
-- cancel superseded work with cancel_task instead of leaving it active
-- do not let agents edit outside their file_scope/edit_scope
-- do not push/deploy unless I explicitly approve
-
-First call directory and session_brief, then tell me who is available
-and what the next task should be.
+http://127.0.0.1:8787
 ```
 
-Start workers in Claude Code, Codex, or another MCP-capable tool:
-
-```text
-Register yourself as <worker-name> with role worker, area <area>,
-team <team>, capabilities <capability-list>, replace true. Listen only
-to team <team> with inbox(agent="<worker-name>", team="<team>",
-wait_s=110, claim_s=300) and inbox_status(agent="<worker-name>",
-team="<team>"). Work assigned tasks. Only edit files inside the task
-file_scope. Reply with Summary, Files changed, Risks, and Tests.
-```
-
-```text
-Register yourself as <reviewer-name> with role reviewer, area "*",
-capabilities <capability-list>, replace true. Follow the task mode. For
-test_only/review tasks, inspect changes and report bugs and risks
-without implementation edits unless explicitly reassigned.
-```
-
-Then tell the manager things like:
-
-```text
-Create scoped tasks for this goal.
-Assign each task to the matching available agent.
-Ask the reviewer to review the current diff.
-Record a pinned handoff memory for what remains.
-```
-
-> `/main` and `/listen` each register their session once. After that the
-> names live in `~/.agent-bus/bus.db` and survive restarts. The
-> coordinator phrases — "ask helper-a", "delegate this", "get a second
-> opinion" — are translated by the slash command's playbook into the
-> right `ask` / `send` / `ask_best` calls under the hood.
+The cockpit is read-only and local-only. It shows every project and
+team, team chat with threaded replies, Kanban, activity, people,
+attention items, and real metrics. You can switch projects and teams
+inside the browser without restarting the server.
 
 ### What you'll see
 
 Within a couple of seconds:
 
-**Terminal C** (the watcher) shows the live message flow:
+**Terminal C** (the watcher) shows the team message flow:
 
 ```
-agent-bus watch
-  online  helper-a  [listening]
-  online  me
+agent-bus team-chat --team frontend --watch
+  team frontend
+  online  helper-a  [listener]
+  online  me        [pm]
 ---
 14:52:01 #1 me → helper-a  ASK
   what is 17 × 23?
@@ -455,11 +331,11 @@ agent-bus watch
 **Terminal A** (helper-a) narrates briefly and goes back to listening:
 
 ```
-listening as helper-a
+listening as helper-a team=frontend
 ← from me: "what is 17 × 23?"  → answered: "391"
 ```
 
-**Terminal B** (your main session) prints the answer back in plain English:
+**Terminal B** (your team manager session) prints the answer back in plain English:
 
 ```
 helper-a says: 391.
@@ -467,12 +343,35 @@ helper-a says: 391.
 
 From here, swap the math for "review my last commit", "run the test suite", "summarize this PR", "find every call to useAuth in the codebase", or anything else you'd want a peer session to handle. You stay conversational; the agent picks the right bus call.
 
+## Common next steps
+
+Use these commands when you want a little more visibility:
+
+```bash
+agent-bus team-board --team frontend
+agent-bus kanban --team frontend
+agent-bus activity --team frontend
+agent-bus brief --agent me
+```
+
+For real project work, keep it simple:
+
+- Put every active session in a concrete team.
+- Use `send_team` for discussion and `delegate` / `delegate_team` for work that should appear on the board.
+- Keep the board honest: create or claim a task before tracked edits, update `now()` / status while working, and move finished work to review or done.
+- Use the web cockpit (`agent-bus ui`) when you want the big picture.
+
+Detailed CLI commands, task workflows, memory examples, separated-folder
+project setup, and copy-paste agent prompts live in
+[`docs/cli.md`](docs/cli.md), [`docs/patterns.md`](docs/patterns.md),
+and [`docs/agent-prompts.md`](docs/agent-prompts.md).
+
 ## What you get
 
 - **62 MCP tools** — direct messages, synchronous ask/reply, thread replies, truncation-safe inbox previews and exact message fetches, non-consuming inbox diagnostics, message/reply diagnostics, team-scoped send/ask/boards, activity timelines, cockpit dashboards, current-work updates, channels (fan-out), capability and role routing, conversation threads, at-least-once delivery with claim+ack, roster waiting, first-class tasks, one-call direct and team delegation, task waiting, pending assignment, split read/edit scope, task progress events, result bundles, cancellation, review gates, agent status controls, decisions, structured memories, test evidence, session briefs, and final reports.
 - **Cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent share the same bus.
 - **Persistent** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories survive restarts via SQLite WAL.
-- **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; agents can also register a neutral `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
+- **Project/area/team-scoped by default** — MCP sessions derive a local project from cwd and optional area from `.agent-bus.json`; active workflows should register a concrete `team` workgroup. Global views are explicit with `project: "*"`, `area: "*"`, `team: "*"`, CLI `agent-bus watch --global`, or CLI `--project all --area all --team all` on other read commands.
 - **Terminal project management views** — `agent-bus activity` explains what happened recently, `agent-bus cockpit` shows what needs attention next, `agent-bus team-chat` shows one team's conversation, `agent-bus kanban` groups active work into Todo/Accepted/Doing/Testing/Review/Blocked lanes, `agent-bus done` shows terminal task history, and `agent-bus task <id>` gives a readable task evidence bundle.
 - **Local web cockpit** — `agent-bus ui` opens a dense "command center" local dashboard: a wide project/team sidebar, a center view-switcher (Slack-style **bubble chat** with cursor-paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, and an Attention view of what needs a human next), and an ops right rail with real time-series sparklines, an agent×status heatmap, mini-Kanban, throughput, and decisions. Every widget is backed by real bus data. Switch projects and teams live in the browser — no restart. Read-only by design.
 - **Large-message recovery** — `agent-bus inbox-previews` shows pending messages without full bodies, and `agent-bus message <id> --no-content` fetches one exact message safely before an agent chooses to pull the full content.
