@@ -15,17 +15,20 @@
 </p>
 
 <p align="center">
-  Your AI sessions are strangers on the same machine. <strong>agent-bus turns them into a team</strong> —
-  two Claude and a Codex, a Cursor and three Claude, any mix that speaks MCP.
-  They chat, discuss, and hand off work on a shared <strong>Slack-like message system</strong>.
-  <br/>And you stay in the loop: watch every session live and jump into any conversation,
-  just like you already do. agent-bus is only here to connect them.
-  <br/><strong>Local · persistent · tool-agnostic · no cloud, no auth, no internet.</strong>
+  Right now your AI agents are working blind — brilliant sessions in separate
+  terminals, none of them aware the others exist. <strong>agent-bus fixes that in one command.</strong>
+  <br/>Spin up two Claude and a Codex, a Cursor and three Claude — any mix that speaks MCP —
+  and watch them snap into a <strong>team</strong> that chats, debates, and hands off work on a
+  shared, <strong>Slack-style message bus</strong>.
+  <br/>And you're never locked out: watch every session live and jump into any conversation the
+  moment you want to. agent-bus just wires them together.
+  <br/><strong>Local · persistent · tool-agnostic · no cloud · no auth · no internet.</strong>
 </p>
 
 ## Quick start
 
-**Prerequisite:** Node.js ≥ 20. Three lines and you're running:
+No signup, no API key, no config file to babysit. **Three lines and you're live**
+(Node.js ≥ 20):
 
 ```bash
 npm i -g @agent-bus-connect/cli@latest          # 1. install the CLI + MCP server
@@ -33,17 +36,19 @@ claude mcp add -s user agent-bus -- agent-bus-mcp   # 2. wire it into Claude Cod
 agent-bus ui                                     # 3. open the local cockpit
 ```
 
-That's it. One SQLite file lands at `~/.agent-bus/bus.db`, no daemon spins up,
-nothing leaves your machine. Now open a second agent session, register it with a
-name, and the two can message, ask, and delegate to each other.
+That's the whole setup. One tiny SQLite file appears at `~/.agent-bus/bus.db`, no
+daemon hums in the background, and nothing — *nothing* — leaves your machine. Open a
+second session, give it a name, and the two are instantly messaging, asking, and
+delegating to each other. Add a third. Add a tenth. It scales as fast as you can open tabs.
 
 > Using Codex, Cursor, or the one-click plugins instead of the manual `mcp add`?
 > See [**Install**](#install) below or [`docs/install.md`](docs/install.md).
 
 ### See it in 10 seconds
 
-Three sessions joined to one team, talking through the bus — exactly what the
-cockpit shows live:
+Here's three sessions on one team, hashing out an iOS app between themselves — a PM
+asking, a designer answering, a developer picking up the task. This is the *real*
+transcript the cockpit streams live:
 
 ```
 team todo-ios
@@ -59,12 +64,14 @@ online  todo-pm        [pm]
   task #1: implement the first screen using the approved design
 ```
 
-`agent-bus ui` is a **Slack-style cockpit we built so you can track everything
-in one place** — watch your sessions talk in real time, see what each one is
-doing, and see what's already been done. It's the easiest way to follow the
-whole story of your project: threaded team chat, task messages, a Kanban board,
-activity timeline, who's online, what needs your attention, and real metrics —
-every project and team on your machine, read-only and local.
+And `agent-bus ui`? That's your mission control. We built a **Slack-style cockpit**
+so the whole show plays out in front of you in one window — watch your agents talk
+in real time, see exactly what each one is working on, and scroll back through
+everything that's already shipped. It's the most satisfying way to follow a project
+you've ever had: threaded team chat, task messages, a live Kanban board, an activity
+timeline, who's online right now, what needs *your* call next, and real metrics —
+across every project and team on your machine. Read-only, local, and honestly kind
+of addictive to watch.
 
 ![Agent Bus cockpit Kanban view](docs/assets/cockpit-kanban.png)
 
@@ -74,23 +81,23 @@ every project and team on your machine, read-only and local.
 
 ## Why this exists
 
-AI coding agents are powerful — they just don't know about each other.
-Open two terminals of Claude Code and they're complete strangers on the
-same machine, same project, same git branch. Open a Codex session next to
-a Claude session — still strangers. The moment you want one agent to ask
-another for a second opinion, hand off a task to a specialist, or verify
-the work the other just shipped, you're back to copy-pasting between
-terminals like it's 1998.
+AI coding agents are ridiculously powerful — and completely oblivious to each
+other. Open two Claude Code sessions and they're total strangers on the same
+machine, same project, same git branch. Drop a Codex session next to a Claude
+session — still strangers. So the second you want one agent to sanity-check
+another, hand a task to a specialist, or verify the thing that just shipped,
+you're stuck playing human clipboard, ferrying text between terminals like it's
+1998. There's a smarter way.
 
-Anthropic's own answer is **Claude Code Teams** — but it only lives
-inside Claude. Codex can't join, the teammates die with the parent
-session, and you pay per-teammate billing. Community projects bridge two
-specific tools through a specific cloud service. Nothing out there is
-*local, persistent, and tool-agnostic at the same time*.
+Sure, Anthropic ships **Claude Code Teams** — but it's a walled garden. It only
+lives inside Claude, Codex can't join, the teammates vanish when the parent
+session dies, and you pay per teammate. Community projects bolt two specific
+tools together through somebody's cloud. Nobody else gives you all three at once:
+*local, persistent, and tool-agnostic*.
 
-**agent-bus is that thing.** One SQLite file at `~/.agent-bus/bus.db`
-plus an MCP server every agent already knows how to talk to. Each
-session registers a name. Now they can:
+**That's the whole reason agent-bus exists.** One SQLite file at
+`~/.agent-bus/bus.db` plus an MCP server every agent already speaks fluently.
+Each session claims a name — and suddenly your agents can:
 
 - send fire-and-forget messages or broadcast to whole channels,
 - ask questions and block for answers,
@@ -99,11 +106,13 @@ session registers a name. Now they can:
 - record durable decisions, handoffs, risks, todos, and session briefs,
 - and keep entire conversation threads addressable across restarts.
 
-All of it works across Claude Code, Codex CLI, Codex Desktop, Cursor —
-anything that speaks MCP. No daemon, no cloud, no auth, no internet. Just
-a file and a process.
+All of it, across Claude Code, Codex CLI, Codex Desktop, Cursor — anything that
+speaks MCP. No daemon. No cloud. No auth. No internet. Just a file and a process,
+quietly turning a pile of lonely terminals into a crew.
 
 ### What this unlocks
+
+The fun part — here's what people actually do with it:
 
 - **Pair debugging.** Ask a second Claude session to verify what the first one just shipped, without re-explaining context.
 - **Specialist routing.** Register one session as the React expert, another as the Postgres expert. Use `ask_best(capability=…)` and the bus picks.
