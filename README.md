@@ -221,7 +221,7 @@ curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus/main/docs/c
 ### 6. Verify
 
 ```bash
-agent-bus --version                # 0.21.0
+agent-bus --version                # 0.22.0
 claude mcp list | grep agent-bus   # ✓ Connected
 ```
 
