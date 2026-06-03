@@ -486,6 +486,22 @@ svg.spark{width:100%;height:26px;display:block;margin-top:6px}
 `;
 }
 
+// Task-notification classification — single source of truth shared by the
+// client renderer (its regexes are injected into CLIENT_JS from these sources)
+// and by tests. A message is a task notification when it opens with a task
+// verb or "task #N <state>" AND carries a `task #N` id. Detection is
+// content-based (NOT thread_id), because a task's thread can hold the whole
+// team conversation.
+const TASK_VERB_RE = /^\s*(assigned|pending assignment|acknowledged|claimed|released|reassigned|handed off|canceled|cancelled|reopened)\b/i;
+const TASK_STATE_RE = /^\s*task #\d+\s+(working|completed|blocked|in review|review|testing|done)\b/i;
+
+export function classifyTaskMessage(content: string): { isTask: boolean; taskId: number | null } {
+  const c = content ?? "";
+  const isNotify = TASK_VERB_RE.test(c) || TASK_STATE_RE.test(c);
+  const idm = /task #(\d+)/i.exec(c);
+  return { isTask: isNotify && idm !== null, taskId: idm ? Number(idm[1]) : null };
+}
+
 function js(): string {
   return CLIENT_JS;
 }
@@ -495,6 +511,8 @@ function js(): string {
 const CLIENT_JS = [
   "var ui={scopes:null,state:null,metrics:null,sel:{project:'*',team:null,view:'chat'},inited:false,",
   "  chat:{msgs:[],cursor:null,hasMore:false,loading:false,scope:'',expanded:{},full:{},atBottom:true}};",
+  // task-notification regexes injected from the server's single source of truth (classifyTaskMessage)
+  `var TASK_VERB_RE=new RegExp(${JSON.stringify(TASK_VERB_RE.source)},"i"),TASK_STATE_RE=new RegExp(${JSON.stringify(TASK_STATE_RE.source)},"i");`,
   "function api(p){return fetch(p,{cache:'no-store'}).then(function(r){return r.json();});}",
   "function esc(v){return String(v==null?'':v).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}",
   "function mdInline(s){s=s.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>');s=s.replace(/`([^`]+)`/g,'<code>$1</code>');return s;}",
@@ -562,7 +580,7 @@ const CLIENT_JS = [
   "  msgs.forEach(function(m){var day=dayLabel(m.created_at);if(day!==lastDay){html+='<div class=\"daydiv\">'+day+'</div>';lastDay=day;lastSender=null;}var av=ava(m.from_agent);var self=ui.state.scope&&false;var ng=m.from_agent!==lastSender;var q=(m.reply_to!=null&&byId[m.reply_to])?byId[m.reply_to]:null;",
   "    html+='<div class=\"grp\">'+(ng?'<div class=\"ava '+(av.online?'online':'')+'\" style=\"background:'+av.grad+'\">'+esc(av.ini)+'</div>':'<div></div>')+'<div class=\"col\">';",
   "    if(ng)html+='<div class=\"head\"><span class=\"nm\">'+esc(m.from_agent)+'</span><span class=\"role\">'+esc(av.role||'agent')+'</span><span class=\"tm\">'+fmtTime(m.created_at)+'</span></div>';",
-  "    var tcontent=(m.content_preview||'');var tidm=/task #(\\d+)/i.exec(tcontent);var tnotify=/^\\s*(assigned|pending assignment|acknowledged|claimed|released|reassigned|handed off|canceled|cancelled|reopened)\\b/i.test(tcontent)||/^\\s*task #\\d+\\s+(working|completed|blocked|in review|review|testing|done)\\b/i.test(tcontent);var isTask=(m.kind!=='ask'&&m.kind!=='reply')&&tnotify&&tidm!=null;var taskId=tidm?Number(tidm[1]):taskByThread[m.thread_id];var kc=m.kind==='ask'?'ask':m.kind==='reply'?'reply':(isTask?'task':'msg');html+='<div class=\"bub '+kc+'\">';",
+  "    var tcontent=(m.content_preview||'');var tidm=/task #(\\d+)/i.exec(tcontent);var tnotify=TASK_VERB_RE.test(tcontent)||TASK_STATE_RE.test(tcontent);var isTask=(m.kind!=='ask'&&m.kind!=='reply')&&tnotify&&(tidm!=null||taskByThread[m.thread_id]!=null);var taskId=tidm?Number(tidm[1]):taskByThread[m.thread_id];var kc=m.kind==='ask'?'ask':m.kind==='reply'?'reply':(isTask?'task':'msg');html+='<div class=\"bub '+kc+'\">';",
   "    if(q)html+='<div class=\"quote\">↩ replying to <b>'+esc(q.from_agent)+'</b>: '+esc(q.content_preview.slice(0,64))+'…</div>';",
   "    var expanded=ui.chat.expanded[m.id];html+='<div class=\"bub-text\">'+md(expanded&&ui.chat.full[m.id]!=null?ui.chat.full[m.id]:m.content_preview)+'</div>';",
   "    if(m.truncated)html+='<div class=\"collapsed\" onclick=\"expandMsg('+m.id+')\">'+(expanded?'⤡ Show less':'⤢ Large message · '+m.content_length+' chars · click to expand')+'</div>';",

@@ -75,6 +75,7 @@ const {
   messageStatus,
   whyNoReply,
 } = await import("../src/bus.js");
+const { classifyTaskMessage } = await import("../src/cli/ui.js");
 const { BusError } = await import("../src/util/errors.js");
 const { closeDb, getDb } = await import("../src/db.js");
 const { deriveProject, deriveScope } = await import("../src/util/project.js");
@@ -1656,6 +1657,19 @@ await test("replyThread creates a threaded reply (reply_to=root, kind=reply)", a
   const rootRow = page.messages.find((m) => m.id === root.id);
   assert.equal(rootRow?.replies_count, 2);
   assert.equal(rootRow?.has_replies, true);
+});
+
+await test("classifyTaskMessage tags task notifications, not normal chat", () => {
+  // actual task notifications -> task archetype with the right id
+  assert.deepEqual(classifyTaskMessage("assigned task #13: Build the cockpit. acknowledge_task."), { isTask: true, taskId: 13 });
+  assert.deepEqual(classifyTaskMessage("pending assignment task #12: Design UX"), { isTask: true, taskId: 12 });
+  assert.deepEqual(classifyTaskMessage("acknowledged task #14: claimed"), { isTask: true, taskId: 14 });
+  assert.deepEqual(classifyTaskMessage("task #15 working: building"), { isTask: true, taskId: 15 });
+  // normal conversation that merely mentions a task stays a normal message
+  assert.equal(classifyTaskMessage("Quick check before I start Phase 0 on task #13?").isTask, false);
+  assert.equal(classifyTaskMessage("#16 LANDED. reply_thread now threads, see task #16 above").isTask, false);
+  assert.equal(classifyTaskMessage("Phase 0 done: scopes() added").isTask, false);
+  assert.equal(classifyTaskMessage("what would you make the tiny bug be?").isTask, false);
 });
 
 closeDb();
