@@ -33,7 +33,7 @@ If the user or session prompt gives you a concrete team, pass that same
 - **Non-empty array returned** → for each message in order:
   - Do the minimum work required to answer.
   - If the message body is too large or appears truncated, use
-    `inbox_previews` / `get_message(include_content=false)` to inspect
+    `inbox_previews` / `get_message(team=..., include_content=false)` to inspect
     metadata first. Ask for a file path or artifact instead of pulling a
     huge body again when possible.
   - If the message assigns you a task, call `get_task`, then

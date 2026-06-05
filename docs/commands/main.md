@@ -43,7 +43,7 @@ patterns:
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=…, message=…)` |
 | "Show team chat" / "watch the <team> conversation" | Use `recent(team=…)` and render only that team scope; if using the CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch` |
 | "Listen only to this team" / "check this team inbox" | `inbox_status(agent="$ARGUMENTS", team=…)` for diagnostics; `inbox(agent="$ARGUMENTS", team=…, wait_s=110)` only when intentionally processing |
-| "Inbox is too large" / "message got truncated" | `inbox_previews(agent="$ARGUMENTS", team=…)`, then `get_message(message_id=…, include_content=false)` or fetch one exact message only when needed |
+| "Inbox is too large" / "message got truncated" | `inbox_previews(agent="$ARGUMENTS", team=…)`, then `get_message(message_id=…, team=…, include_content=false)` or fetch one exact message only when needed |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user it's been dispatched. |
 | "Ask <specific name> to do X" | `ask(from="$ARGUMENTS", to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from="$ARGUMENTS", to="<specific name>", message=…)` |
@@ -161,7 +161,7 @@ Do not make the user wait in silence while bus calls happen. For
   or `agent-bus team-chat --team <team>` for conversation; use
   `delegate_team`, `team_board`, `kanban`, and `done` for tasks.
 - If inbox output is too large, use `inbox_previews` and
-  `get_message(include_content=false)` before fetching a full message.
+  `get_message(team=..., include_content=false)` before fetching a full message.
   For very large briefs, ask the sender to use a file path or task
   artifact reference instead of a giant chat payload.
 - `reply` only answers `kind="ask"`. For normal `kind="msg"` inbox

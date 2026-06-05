@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.22.0
+  version: 0.24.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 62 tools over an MCP stdio server. This OpenAPI
@@ -286,7 +286,8 @@ paths:
       description: |
         Fetches one message. Pass `include_content:false` or
         `preview_chars` to return metadata and a bounded preview instead
-        of a full potentially huge body.
+        of a full potentially huge body. Optional project/area/team
+        fields act as safety filters.
       operationId: get_message
       requestBody:
         required: true
@@ -1776,6 +1777,12 @@ components:
           type: integer
           minimum: 0
           maximum: 4000
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
+        team:
+          $ref: '#/components/schemas/TeamFilter'
 
     AckRequest:
       type: object

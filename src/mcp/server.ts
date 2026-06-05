@@ -147,6 +147,9 @@ const GetMessageInput = z.object({
   message_id: z.number().int().positive(),
   preview_chars: z.number().int().nonnegative().max(4000).optional(),
   include_content: z.boolean().optional(),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  team: TeamFilterField,
 });
 
 const AskInput = z.object({

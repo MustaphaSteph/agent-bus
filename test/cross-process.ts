@@ -8,7 +8,7 @@ import { packageVersion } from "../src/util/package-info.js";
 const tmp = mkdtempSync(join(tmpdir(), "agent-bus-xp-"));
 const env = { ...process.env, AGENT_BUS_DIR: tmp };
 
-function run(args: string[]): Promise<{ stdout: string; code: number }> {
+function run(args: string[], opts: { quietErrors?: boolean } = {}): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
     const child = spawn("./node_modules/.bin/tsx", ["src/cli/index.ts", ...args], {
       env,
@@ -19,8 +19,8 @@ function run(args: string[]): Promise<{ stdout: string; code: number }> {
     child.stdout.on("data", (b) => (out += b.toString()));
     child.stderr.on("data", (b) => (err += b.toString()));
     child.on("close", (code) => {
-      if (code !== 0 && err) process.stderr.write(err);
-      resolve({ stdout: out, code: code ?? 1 });
+      if (code !== 0 && err && opts.quietErrors !== true) process.stderr.write(err);
+      resolve({ stdout: out, stderr: err, code: code ?? 1 });
     });
   });
 }
@@ -101,6 +101,32 @@ assert.match(done.stdout, new RegExp(`#${taskId}`));
 assert.match(done.stdout, /workflow verified/);
 console.log("✓ task workflow shortcuts update Kanban and done history");
 
+await run(["register", "--name", "send-worker", "--team", "send-demo", "--project", "send-demo", "--capabilities", "implementation", "--replace"]);
+const directSend = await run([
+  "send",
+  "--from",
+  "send-pm",
+  "--to",
+  "send-worker",
+  "--project",
+  "send-demo",
+  "--team",
+  "send-demo",
+  "--message",
+  "stable direct send",
+]);
+assert.equal(directSend.code, 0, "send should succeed");
+assert.match(directSend.stdout, /stable direct send/);
+const directMessageId = directSend.stdout.match(/#(\d+)/)?.[1];
+assert.ok(directMessageId, `expected sent message id in output: ${directSend.stdout}`);
+const scopedDirect = await run(["message", directMessageId, "--project", "send-demo", "--team", "send-demo", "--no-content"]);
+assert.equal(scopedDirect.code, 0, "message --team should accept matching scope");
+assert.match(scopedDirect.stdout, /stable direct send/);
+const wrongScopedDirect = await run(["message", directMessageId, "--project", "send-demo", "--team", "other-team", "--no-content"], { quietErrors: true });
+assert.notEqual(wrongScopedDirect.code, 0, "message --team should reject wrong scope");
+assert.match(wrongScopedDirect.stderr, /outside requested scope/);
+console.log("✓ send and scoped message fetch work");
+
 await run(["register", "--name", "chat-pm", "--team", "chat-demo", "--project", "chat-demo", "--capabilities", "coordination", "--replace"]);
 await run(["register", "--name", "chat-worker", "--team", "chat-demo", "--project", "chat-demo", "--capabilities", "implementation", "--replace"]);
 
@@ -117,6 +143,7 @@ const sentChat = await run([
 assert.equal(sentChat.code, 0, "team-chat send should succeed");
 assert.match(sentChat.stdout, /sent 1 team chat message/);
 assert.match(sentChat.stdout, /hello team chat/);
+assert.doesNotMatch(sentChat.stdout, /team chat chat-demo/, "team-chat send should not dump the full log by default");
 
 const chatLog = await run(["team-chat", "--project", "chat-demo", "--team", "chat-demo", "-n", "10"]);
 assert.match(chatLog.stdout, /team chat chat-demo/);

@@ -20,6 +20,7 @@ export interface TeamChatOptions {
   message?: string;
   thread?: string;
   includeSelf?: boolean;
+  showLog?: boolean;
 }
 
 export async function teamChat(messageArg: string | undefined, opts: TeamChatOptions): Promise<void> {
@@ -44,6 +45,7 @@ export async function teamChat(messageArg: string | undefined, opts: TeamChatOpt
     if (sent.length === 0) {
       console.log(kleur.yellow("no active recipients in this team scope"));
     }
+    if (opts.watch !== true && opts.showLog !== true) return;
     console.log(kleur.gray("---"));
   }
 

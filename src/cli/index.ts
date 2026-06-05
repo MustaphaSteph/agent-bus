@@ -50,6 +50,7 @@ import {
   updateTask,
   messageStatus,
   whyNoReply,
+  type MessagePriority,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
 import { packageVersion } from "../util/package-info.js";
@@ -182,6 +183,7 @@ program
   .option("--message <text>", "message body to send before showing chat")
   .option("--thread <id>", "existing thread id for the sent message")
   .option("--include-self", "also send to the sender when sending")
+  .option("--show-log", "after sending, also print the recent team chat snapshot")
   .argument("[message]", "message body to send before showing chat")
   .action(async (message: string | undefined, opts: {
     team: string;
@@ -194,6 +196,7 @@ program
     message?: string;
     thread?: string;
     includeSelf?: boolean;
+    showLog?: boolean;
   }) => {
     await teamChat(message, opts);
   });
@@ -557,6 +560,51 @@ program
     register({ name: opts.from, capabilities: ["human"], replace: true });
     const m = send({ from: opts.from, to: opts.to, content: message });
     console.log(formatMessage(m));
+  });
+
+program
+  .command("send")
+  .description("Send a direct message to one agent")
+  .requiredOption("--to <agent>", "recipient agent")
+  .option("--from <agent>", "sender name", "human")
+  .option("--message <text>", "message body")
+  .option("--thread <id>", "existing thread id")
+  .option("--priority <priority>", "low, normal, high, or urgent")
+  .option("--project <name>", "sender project scope (default current repo; use all for global)")
+  .option("--area <name>", "sender area scope (use all for global)")
+  .option("--team <name>", "sender team scope")
+  .argument("[message]", "message body")
+  .action((messageArg: string | undefined, opts: {
+    to: string;
+    from: string;
+    message?: string;
+    thread?: string;
+    priority?: string;
+    project?: string;
+    area?: string;
+    team?: string;
+  }) => {
+    const message = opts.message ?? messageArg;
+    if (message === undefined) {
+      throw new Error("send requires a message body via --message or positional argument");
+    }
+    const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
+    register({
+      name: opts.from,
+      capabilities: ["cli"],
+      replace: true,
+      project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? null),
+      area: scope.area === AREA_WILDCARD ? null : (scope.area ?? null),
+      team: scope.team === TEAM_WILDCARD ? null : (scope.team ?? null),
+    });
+    const sent = send({
+      from: opts.from,
+      to: opts.to,
+      content: message,
+      thread_id: opts.thread,
+      priority: opts.priority as MessagePriority | undefined,
+    });
+    console.log(formatMessage(sent));
   });
 
 program
@@ -998,12 +1046,19 @@ program
   .description("Fetch one message by id; use --preview-chars or --no-content for large messages")
   .option("--preview-chars <count>", "return only this many content chars")
   .option("--no-content", "return metadata and a small preview, not full content")
+  .option("--project <name>", "require message project scope (use all for any project)")
+  .option("--area <name>", "require message area scope (use all for any area)")
+  .option("--team <name>", "require message team scope (use all for any team)")
   .option("--json", "print raw JSON")
-  .action((messageId: string, opts: { previewChars?: string; content?: boolean; json?: boolean }) => {
+  .action((messageId: string, opts: { previewChars?: string; content?: boolean; project?: string; area?: string; team?: string; json?: boolean }) => {
+    const scoped = opts.project !== undefined || opts.area !== undefined || opts.team !== undefined
+      ? resolveScopeOptions(opts.project, opts.area, opts.team)
+      : {};
     const result = getMessage({
       message_id: Number(messageId),
       preview_chars: opts.previewChars ? Number(opts.previewChars) : undefined,
       include_content: opts.content,
+      ...scoped,
     });
     if (opts.json === true) {
       console.log(JSON.stringify(result, null, 2));

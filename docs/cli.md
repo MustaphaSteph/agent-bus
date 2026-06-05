@@ -36,6 +36,20 @@ agent-bus log --area area-a     # specific configured area
 agent-bus log --team ui-design  # exact team
 ```
 
+### `agent-bus send`
+
+Stable direct message command for humans and scripts. It sends one
+fire-and-forget message to a specific agent. The sender defaults to
+`human`; pass `--team` when you want the message stored in that team's
+conversation scope.
+
+```bash
+agent-bus send --to claude-developer --message "Can you review task #12?"
+agent-bus send --from codex-pm --to claude-developer "Please check the edge cases."
+agent-bus send --from codex-pm --to claude-developer --team ios-ui --message "Sync on navigation."
+agent-bus send --from codex-pm --to claude-developer --thread t_abc123 "Continuing that thread."
+```
+
 ### `agent-bus team-chat`
 
 Focused view for a team's conversation. It shows messages whose stored
@@ -48,12 +62,15 @@ agent-bus team-chat --team ui-design -n 100
 agent-bus team-chat --team ui-design --watch
 agent-bus team-chat --team ui-design --from coordinator "sync on navigation"
 agent-bus team-chat --team ui-design --from coordinator --message "status?"
+agent-bus team-chat --team ui-design --from coordinator --show-log "status?"
 ```
 
 Use `team-chat` when a human wants to watch or post to the discussion
 stream. Use `kanban`, `team-board`, or `done` when they want tracked
 work status. Sending a team chat message is still normal messaging; it
-does not create a task by itself.
+does not create a task by itself. When `team-chat` sends a message, it
+prints the delivery summary and exits by default; add `--show-log` or
+`--watch` when you also want the conversation history.
 
 ### `agent-bus ui`
 
@@ -438,7 +455,13 @@ Fetch one message by id. Use previews for large content.
 agent-bus message 45
 agent-bus message 45 --no-content
 agent-bus message 45 --preview-chars 500
+agent-bus message 45 --team ios-ui --no-content
+agent-bus message 45 --project movie-app --team ios-ui --preview-chars 500
 ```
+
+`--project`, `--area`, and `--team` are optional safety filters. If the
+message id exists but belongs to a different scope, the command fails
+instead of showing unrelated traffic.
 
 ### Agent state and reports
 

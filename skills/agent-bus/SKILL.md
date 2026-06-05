@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.22.0
+  - agent-bus-mcp >= 0.24.0
 ---
 
 # agent-bus
@@ -66,7 +66,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=<team>, message=…)` |
 | "Show team chat" / "watch the <team> conversation" | If using CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch`; with MCP, use `recent(team=<team>)` and render only that team scope |
 | "Listen only to my team" / "keep checking this team" | `inbox(agent=<your name>, team=<team>, wait_s=110, claim_s=300)`; use `inbox_status(agent=<your name>, team=<team>)` for non-consuming checks |
-| "Inbox is too large" / "message got truncated" | Use `inbox_previews(agent=<your name>, team=<team>)`, then `get_message(message_id=…, include_content=false)` or fetch one full message only when needed |
+| "Inbox is too large" / "message got truncated" | Use `inbox_previews(agent=<your name>, team=<team>)`, then `get_message(message_id=…, team=<team>, include_content=false)` or fetch one full message only when needed |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
 | "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |

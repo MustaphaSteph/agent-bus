@@ -766,6 +766,9 @@ export interface GetMessageOptions {
   message_id: number;
   preview_chars?: number;
   include_content?: boolean;
+  project?: string;
+  area?: string;
+  team?: string;
 }
 
 export interface GetMessageResult {
@@ -776,6 +779,11 @@ export interface GetMessageResult {
 
 export function getMessage(opts: GetMessageOptions): GetMessageResult {
   const row = getMessageRow(opts.message_id);
+  assertMessageInScope(row, {
+    project: opts.project,
+    area: opts.area,
+    team: opts.team,
+  });
   const previewOnly = opts.include_content === false || opts.preview_chars !== undefined;
   const message = previewOnly ? toMessagePreview(row, opts.preview_chars) : toMessage(row);
   return {
@@ -788,6 +796,36 @@ export function getMessage(opts: GetMessageOptions): GetMessageResult {
       row.thread_id ? `read related context with thread(thread_id="${row.thread_id}")` : "message has no thread id",
     ],
   };
+}
+
+function assertMessageInScope(
+  row: MessageRow,
+  scope: { project?: string; area?: string; team?: string },
+): void {
+  validateProject(scope.project);
+  validateArea(scope.area);
+  validateTeam(scope.team);
+  const mismatches: string[] = [];
+  if (scope.project !== undefined && scope.project !== PROJECT_WILDCARD && row.project !== scope.project) {
+    mismatches.push(`project=${row.project ?? "none"}`);
+  }
+  if (scope.area !== undefined && scope.area !== AREA_WILDCARD && row.area !== scope.area) {
+    mismatches.push(`area=${row.area ?? "none"}`);
+  }
+  if (scope.team !== undefined && scope.team !== TEAM_WILDCARD && row.team !== scope.team) {
+    mismatches.push(`team=${row.team ?? "none"}`);
+  }
+  if (mismatches.length > 0) {
+    const expected = [
+      scope.project !== undefined && scope.project !== PROJECT_WILDCARD ? `project=${scope.project}` : null,
+      scope.area !== undefined && scope.area !== AREA_WILDCARD ? `area=${scope.area}` : null,
+      scope.team !== undefined && scope.team !== TEAM_WILDCARD ? `team=${scope.team}` : null,
+    ].filter(Boolean).join(", ");
+    throw new BusError(
+      "MESSAGE_NOT_FOUND",
+      `message ${row.id} is outside requested scope (${expected}); actual ${mismatches.join(", ")}`,
+    );
+  }
 }
 
 export interface AckOptions {

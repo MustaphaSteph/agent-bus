@@ -167,12 +167,17 @@ Returns `MessagePreview[]`, which has message metadata plus
 ### get_message
 
 Fetch one exact message by id. Use `include_content:false` or
-`preview_chars` before pulling a huge body.
+`preview_chars` before pulling a huge body. Pass `project`, `area`, or
+`team` as optional safety filters when the message should belong to a
+known scope.
 
 Input:
 - `message_id: number`
 - `include_content?: boolean`
 - `preview_chars?: number`
+- `project?: string`
+- `area?: string`
+- `team?: string`
 
 Returns `{ message, full_content_included, suggested_next_actions }`.
 

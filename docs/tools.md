@@ -150,12 +150,20 @@ get_message({
   message_id: number,
   include_content?: boolean,   // false returns a preview instead of full content
   preview_chars?: number,      // also returns a preview
+  project?: string,            // optional safety filter
+  area?: string,               // optional safety filter
+  team?: string,               // optional safety filter
 }) -> {
   message: Message | MessagePreview,
   full_content_included: boolean,
   suggested_next_actions: string[],
 }
 ```
+
+When `project`, `area`, or `team` is provided, the message must belong
+to that scope or the call returns `MESSAGE_NOT_FOUND`. This lets agents
+fetch exact message ids without accidentally reading unrelated project
+or team traffic.
 
 ## ack
 

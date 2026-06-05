@@ -228,6 +228,18 @@ await test("inbox_previews and get_message avoid pulling full large bodies", asy
   assert.ok(stillPending.some((m) => m.id === sent.id), "preview should not consume message");
 });
 
+await test("get_message can enforce project/area/team scope", () => {
+  register({ name: "scoped-message-a", capabilities: [], project: "msgscopeproj", area: "scopearea", team: "scopeteam", replace: true });
+  register({ name: "scoped-message-b", capabilities: [], project: "msgscopeproj", area: "scopearea", team: "scopeteam", replace: true });
+  const sent = send({ from: "scoped-message-a", to: "scoped-message-b", content: "scoped body" });
+  const fetched = getMessage({ message_id: sent.id, project: "msgscopeproj", area: "scopearea", team: "scopeteam" });
+  assert.equal("content" in fetched.message ? fetched.message.content : "", "scoped body");
+  assert.throws(
+    () => getMessage({ message_id: sent.id, project: "msgscopeproj", team: "wrongteam" }),
+    /outside requested scope/,
+  );
+});
+
 await test("paused agent gets empty inbox; resume restores", async () => {
   setPaused("bob", true);
   send({ from: "alice", to: "bob", content: "queued" });
