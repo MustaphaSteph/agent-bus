@@ -43,22 +43,11 @@ npm i -g @agent-bus-connect/cli@latest
 **and** drops in the skills, the `/main` + `/listen` slash commands, and the
 listener hook:
 
-<table>
-<tr>
-<td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" width="140" /></a>
-</td>
-<td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" width="140" /></a>
-</td>
-<td align="center" width="33%">
-<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="140" /></a>
-</td>
-</tr>
-<tr>
-<td>
+**Claude Code**
 
-**Claude Code** — in a session:
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/claude-code.png" alt="Claude Code" width="80" /></a>
+
+In Claude Code:
 
 ```
 /plugin
@@ -67,10 +56,11 @@ listener hook:
 > Install agent-bus
 ```
 
-</td>
-<td>
+**Codex**
 
-**Codex** — in any terminal:
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/codex.png" alt="Codex" width="80" /></a>
+
+In any terminal:
 
 ```bash
 codex plugin marketplace add \
@@ -79,18 +69,14 @@ codex plugin marketplace add \
 
 Then install via Codex's plugin UI.
 
-</td>
-<td>
+**Cursor, Gemini CLI, Goose, OpenCode, Junie, Amp, Kiro**
 
-**Cursor, Gemini, Goose, OpenCode, Junie, Amp, Kiro:**
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="80" /></a>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/main/install.sh | sh
+curl -fsSL \
+  https://raw.githubusercontent.com/MustaphaSteph/agent-bus-plugins/main/install.sh | sh
 ```
-
-</td>
-</tr>
-</table>
 
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
