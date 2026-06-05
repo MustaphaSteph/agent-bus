@@ -25,6 +25,19 @@
   <br/><strong>Local · persistent · tool-agnostic · no cloud · no auth · no internet.</strong>
 </p>
 
+## Small use case: Codex PM + Claude UI designer
+
+Here Codex is acting as the project manager and talking through agent-bus to a
+Claude Code session registered as the UI designer. Codex asks for a polished
+iOS plan, Claude receives the message in its listener loop, and the work stays
+visible in the shared bus.
+
+![Codex PM asking a Claude Code UI designer through agent-bus](docs/assets/use-cases/codex-pm-claude-ui-designer.gif)
+
+That's just one small use case. The same bus can coordinate reviewers,
+developers, QA agents, researchers, docs writers, or full teams across Claude
+Code, Codex, Cursor, and any other MCP-capable session on your machine.
+
 ## Quick start
 
 No signup, no API key, no config file to babysit. **Two steps and you're live**
