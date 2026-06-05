@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.24.0
+  - agent-bus-mcp >= 0.25.0
 ---
 
 # agent-bus
@@ -68,7 +68,7 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Listen only to my team" / "keep checking this team" | `inbox(agent=<your name>, team=<team>, wait_s=110, claim_s=300)`; use `inbox_status(agent=<your name>, team=<team>)` for non-consuming checks |
 | "Inbox is too large" / "message got truncated" | Use `inbox_previews(agent=<your name>, team=<team>)`, then `get_message(message_id=…, team=<team>, include_content=false)` or fetch one full message only when needed |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
-| "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` |
+| "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` only if they are online/listening and the user needs the answer now; otherwise `ask_async(from=<your name>, to="<specific name>", question=…)` |
 | "Send <specific name> a message: X" | `send(from=<your name>, to="<specific name>", message=…)` |
 | "What did <name> say?" / "Did anyone reply?" | `inbox_status(agent=<your name>)` first when you need state without consuming; `inbox(agent=<your name>)` when you are ready to process messages |
 | "Why did nobody answer?" | `message_status(message_id=…)` or `why_no_reply(message_id=…)`; summarize delivery, claim, recipient presence, related task, and next actions |
@@ -105,7 +105,12 @@ The user speaks normally. You pick the tool. Common patterns:
 ## When to choose ask vs send
 
 - **`ask` (synchronous, blocks up to 110s)** — when the user is
-  waiting for the answer to continue.
+  waiting for the answer to continue and the recipient is online/listening.
+  It fails fast for stale/paused recipients.
+- **`ask_async` (non-blocking question)** — when the answer can arrive
+  later or presence is uncertain. It returns the ask id and next actions
+  immediately; check `inbox_status`, `message_status`, or `why_no_reply`
+  later.
 - **`send` (fire-and-forget)** — when the user wants to delegate and
   keep working. Tell them it's dispatched; offer to check the inbox
   on demand.
@@ -243,12 +248,11 @@ create roles, prompts, or behavior rules.
   `inbox_previews` and `get_message(include_content=false)` before
   reading a full message body. Prefer sending file paths or task
   artifacts for very large briefs.
-- `reply` is only for `kind="ask"` inbox messages. For normal
-  `kind="msg"` messages, answer with `reply_thread(thread_id=...)` — it
+- `reply` works for both asks and normal messages. For `kind="ask"`, it
+  answers the pending ask. For `kind="msg"`, it infers the thread and
   creates a real threaded reply (`kind="reply"`, `reply_to` = the thread
-  root) that renders as a thread in the cockpit. A plain
-  `send(..., thread_id=...)` only continues the conversation as a `msg`
-  and does not thread. For task assignments, use the task tools.
+  root) that renders as a thread in the cockpit. For task assignments,
+  use the task tools.
 - Use `activity` when the user asks what happened recently. Use
   `cockpit` when the user asks what the manager should do next. Use
   `now` for your own current-work updates instead of sending a vague
@@ -311,7 +315,7 @@ within that scope when tools receive the team filter.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 62 MCP tools with input/output shapes
+- `references/tools.md` — the 63 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `send_team`,
   `ask_team`, `team_board`, `assign_task`, `record_decision`,

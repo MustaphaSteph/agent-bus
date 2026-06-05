@@ -87,6 +87,15 @@ The recipient didn't `reply` within the timeout. Causes:
 - Recipient ran into an error. Check `agent-bus log -n 20` to see if
   they responded with anything at all.
 
+## "ASK_RECIPIENT_UNAVAILABLE"
+
+Blocking `ask` checks presence first. If the recipient is paused or has
+not heartbeated recently, the bus refuses to burn the full wait window.
+
+Fix: use `ask_async` if the answer can arrive later, `send` for a
+fire-and-forget note, `delegate` for tracked work, or wake/start the
+recipient session and ask again.
+
 ## "ASK_CYCLE: would deadlock"
 
 You called `ask(to=B)` while B has a pending `ask` back to you. Bus

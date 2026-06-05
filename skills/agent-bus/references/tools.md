@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 62 MCP tools. All return JSON.
+doesn't cover in detail. There are 63 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -125,7 +125,7 @@ truncation; fetch full content only for one exact message when needed.
 
 ## Request / Response
 
-### ask / ask_best / reply / reply_thread
+### ask / ask_async / ask_best / reply / reply_thread
 ```ts
 ask({
   from: string,
@@ -135,6 +135,17 @@ ask({
   thread_id?: string,
   priority?: "low" | "normal" | "high" | "urgent",
 }) -> Message
+
+ask_async({
+  from: string,
+  to: string,
+  question: string,
+  thread_id?: string,
+}) -> {
+  ask: Message,
+  recipient: AgentDirectoryEntry | null,
+  suggested_next_actions: string[],
+}
 
 ask_best({
   from: string,
@@ -168,8 +179,10 @@ agents. Use wildcards only for deliberate cross-project/cross-area/team work.
 Use `reply_thread` when continuing a conversation and the recipient is
 obvious from thread history. Use `message_status`/`why_no_reply` before
 guessing that an agent ignored an ask.
-Only call `reply` for inbox messages where `kind === "ask"`. For
-`kind === "msg"`, use `reply_thread` or `send(..., thread_id=...)`.
+Blocking `ask` fails fast for stale/paused recipients; use `ask_async`
+when the recipient may not be listening. `reply` handles both asks and
+normal messages: for `kind === "ask"` it answers that ask; for
+`kind === "msg"` it infers the thread and creates a threaded reply.
 
 ## Channels
 
@@ -611,9 +624,10 @@ review_gate({ project?: string | "*", area?: string | "*" }) -> {
 | `INVALID_INPUT` | Fix name/channel/project/area format or invalid enum |
 | `UNKNOWN_AGENT` | Use `directory`/`whois`; register a helper or broaden scope |
 | `NAME_TAKEN` | Use `replace: true` intentionally or pick a new name |
-| `ASK_TIMEOUT` | Switch to `send`, increase readiness, or nudge the recipient |
+| `ASK_TIMEOUT` | Switch to `ask_async`/`send`, increase readiness, or nudge the recipient |
 | `ASK_CYCLE` | Resolve the other side's pending ask first |
-| `ASK_NOT_FOUND` | Check the id and message kind; use `reply_thread` for non-ask messages |
+| `ASK_NOT_FOUND` | Check the id with `get_message`/`inbox_previews` |
+| `ASK_RECIPIENT_UNAVAILABLE` | Recipient is stale/paused; use `ask_async`, `send`, `delegate`, or wake them |
 | `TASK_NOT_FOUND` | Verify with `list_tasks` |
 | `TASK_NOT_CLAIMABLE` | Task is already claimed or not open |
 | `TASK_INVALID_TRANSITION` | Check current task state and allowed transitions |

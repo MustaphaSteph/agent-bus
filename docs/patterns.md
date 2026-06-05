@@ -34,8 +34,8 @@ From there you just talk:
 | "Ask the reviewer to check src/foo.ts for race conditions." | `ask_best(capability="review", question="…")`, returns the verdict to you in plain English. |
 | "Get a second opinion on this approach." | `ask_best(capability="review" or "verify", …)`. |
 | "Have someone find all callers of `useAuth`." | `ask_best(capability="research", question="…")`. |
-| "Delegate this to a helper and tell me when it's done." | `send(to=<best-fit helper>, message=…)`. Returns to your work; the helper's reply lands in your inbox. |
-| "Ask helper-a what they think." | `ask(to="helper-a", question=…)`. |
+| "Delegate this to a helper and tell me when it's done." | `delegate(...)` for tracked work, or `send(to=<best-fit helper>, message=…)` for a lightweight note. |
+| "Ask helper-a what they think." | `ask(to="helper-a", question=…)` if helper-a is listening; `ask_async(to="helper-a", question=…)` if the answer can arrive later. |
 | "Did anyone reply?" | `inbox()` then summarizes what came back. |
 | "Who's around?" | `whois()` rendered as a clean list. |
 | "Remember that we picked Polar over Stripe." | `remember(kind="decision", content="…")`. |
@@ -75,8 +75,8 @@ sessions.
 
 The slash command registers the session as `alpha`, optionally marks it
 as a listener for Stop-hook auto-resume, and enters a blocking
-`inbox(wait_s=110)` loop. It silently handles incoming messages:
-`reply` for asks, `send` for direct messages.
+`inbox(wait_s=110)` loop. It handles incoming messages with `reply`:
+asks become answered and ordinary messages become threaded replies.
 
 **How (Codex or any MCP agent)**:
 
@@ -114,8 +114,11 @@ reply({ from: "alpha", ask_id: <id>, answer: "..." })
 
 `ask` blocks up to 110 s (Claude Code's tool timeout). The answerer must
 be in listener mode or actively polling to respond within that window.
+Use `ask_async` when the recipient is stale, paused, or likely to answer
+later.
 
-**Failure modes**: `ASK_TIMEOUT` if no reply arrives, `ASK_CYCLE` if the
+**Failure modes**: `ASK_RECIPIENT_UNAVAILABLE` if the recipient is stale
+or paused, `ASK_TIMEOUT` if no reply arrives, `ASK_CYCLE` if the
 answerer has its own pending ask back to you.
 
 ## 3. Capability routing (don't know who to ask)

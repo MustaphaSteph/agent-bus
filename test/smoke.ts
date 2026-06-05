@@ -25,6 +25,7 @@ const {
   getMessage,
   getTask,
   ask,
+  askAsync,
   askBest,
   askTeam,
   inbox,
@@ -272,6 +273,31 @@ await test("ask timeout fires", async () => {
   );
 });
 
+await test("ask_async creates a pending ask without blocking", async () => {
+  register({ name: "async-a", capabilities: [], replace: true });
+  register({ name: "async-b", capabilities: [], replace: true });
+  const created = askAsync({ from: "async-a", to: "async-b", question: "answer later" });
+  assert.equal(created.ask.kind, "ask");
+  assert.equal(created.ask.status, "pending");
+  assert.ok(created.suggested_next_actions.some((line) => line.includes("message_status")));
+  const pending = await inbox({ agent: "async-b" });
+  assert.ok(pending.some((m) => m.id === created.ask.id));
+});
+
+await test("blocking ask fails fast for stale recipients", async () => {
+  register({ name: "stale-ask-a", capabilities: [], replace: true });
+  register({ name: "stale-ask-b", capabilities: [], replace: true });
+  getDb()
+    .prepare("UPDATE agents SET last_seen = ? WHERE name = ?")
+    .run(Date.now() - 10 * 60 * 1000, "stale-ask-b");
+  await assert.rejects(
+    () => ask({ from: "stale-ask-a", to: "stale-ask-b", question: "are you there?", timeout_s: 1 }),
+    (e: unknown) => e instanceof BusError && e.code === "ASK_RECIPIENT_UNAVAILABLE",
+  );
+  const created = askAsync({ from: "stale-ask-a", to: "stale-ask-b", question: "async still queues" });
+  assert.equal(created.ask.status, "pending");
+});
+
 await test("mutual ask is rejected as cycle", async () => {
   const askA = ask({ from: "alice", to: "bob", question: "longer", timeout_s: 5 });
   await new Promise((r) => setTimeout(r, 100));
@@ -315,6 +341,17 @@ await test("send auto-generates a thread_id", () => {
 await test("send carries provided thread_id", () => {
   const m = send({ from: "alice", to: "bob", content: "x", thread_id: "t_explicit_1" });
   assert.equal(m.thread_id, "t_explicit_1");
+});
+
+await test("messages and asks mentioning task id bind to the task thread", () => {
+  register({ name: "thread-task-pm", capabilities: [], replace: true });
+  register({ name: "thread-task-worker", capabilities: [], replace: true });
+  const task = createTask({ requested_by: "thread-task-pm", title: "thread bind task" });
+  const claimed = claimTask({ agent: "thread-task-worker", task_id: task.id });
+  const note = send({ from: "thread-task-worker", to: "thread-task-pm", content: `update on task #${task.id}` });
+  assert.equal(note.thread_id, claimed.thread_id);
+  const asyncAsk = askAsync({ from: "thread-task-pm", to: "thread-task-worker", question: `question about task #${task.id}` });
+  assert.equal(asyncAsk.ask.thread_id, claimed.thread_id);
 });
 
 await test("reply inherits thread_id from ask", async () => {
@@ -452,16 +489,12 @@ await test("reply_thread continues with the last other participant", async () =>
   assert.ok(rows.some((m) => m.id === sent.id));
 });
 
-await test("reply to non-ask explains reply_thread fallback", async () => {
+await test("reply to non-ask infers thread and creates threaded reply", async () => {
   const msg = send({ from: "alice", to: "bob", content: "normal message", thread_id: "t_non_ask_reply" });
-  assert.throws(
-    () => reply({ from: "bob", ask_id: msg.id, answer: "not valid" }),
-    (e: unknown) =>
-      e instanceof BusError
-      && e.code === "ASK_NOT_FOUND"
-      && e.message.includes("kind='msg'")
-      && e.message.includes("reply_thread"),
-  );
+  const answered = reply({ from: "bob", ask_id: msg.id, answer: "threaded answer" });
+  assert.equal(answered.kind, "reply");
+  assert.equal(answered.thread_id, msg.thread_id);
+  assert.equal(answered.reply_to, msg.id);
   await inbox({ agent: "bob", limit: 1 });
 });
 
@@ -1328,6 +1361,19 @@ await test("tasks: happy path transitions through blocked to completed", () => {
   assert.equal(completed.state, "completed");
   assert.equal(completed.result, "done");
   assert.ok(completed.finished_at !== null);
+});
+
+await test("tasks: claimed tasks can complete directly", () => {
+  const t = createTask({ requested_by: "alice", title: "quick finish" });
+  claimTask({ agent: "bob", task_id: t.id });
+  const completed = updateTask({
+    agent: "bob",
+    task_id: t.id,
+    state: "completed",
+    result: "finished without explicit working phase",
+  });
+  assert.equal(completed.state, "completed");
+  assert.equal(completed.result, "finished without explicit working phase");
 });
 
 await test("tasks: invalid transitions are rejected", () => {

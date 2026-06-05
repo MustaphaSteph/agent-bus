@@ -81,7 +81,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.24.0
+agent-bus --version                # 0.25.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
@@ -229,7 +229,7 @@ Each generated prompt must include:
 - role instructions
 - whether the agent should edit files or only propose/review
 - instructions to keep listening to team todo-ios
-- when to use reply() for asks and reply_thread() for normal messages
+- use reply() for both asks and normal messages so replies stay threaded
 ```
 
 That PM can now generate a custom team such as `ui-designer`,
@@ -253,9 +253,9 @@ the first screen, interaction model, empty/loading states, and visual
 direction. Do not edit files unless the PM assigns you an edit task.
 
 After registering, check your team inbox. Then keep listening to team
-todo-ios with wait_s=110. When you receive an ask, answer with reply().
-When you receive a normal message or task discussion, respond with
-reply_thread() on the same thread. Keep listening until I tell you to
+todo-ios with wait_s=110. When you receive an ask or normal message,
+answer with reply() using the message id; it will answer asks and create
+threaded replies for normal messages. Keep listening until I tell you to
 stop.
 ```
 
@@ -276,9 +276,9 @@ now() or task events while working. Record test/build evidence before
 marking work done.
 
 After registering, check your team inbox. Then keep listening to team
-todo-ios with wait_s=110. When you receive an ask, answer with reply().
-When you receive a normal message or task discussion, respond with
-reply_thread() on the same thread. Keep listening until I tell you to
+todo-ios with wait_s=110. When you receive an ask or normal message,
+answer with reply() using the message id; it will answer asks and create
+threaded replies for normal messages. Keep listening until I tell you to
 stop.
 ```
 
@@ -402,7 +402,7 @@ and [`docs/agent-prompts.md`](docs/agent-prompts.md).
 
 Everything below ships in that one `npm install`. No add-ons, no tiers, no asterisks:
 
-- **62 MCP tools** — the full vocabulary: messaging, synchronous ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. The complete list lives in [`docs/tools.md`](docs/tools.md).
+- **63 MCP tools** — the full vocabulary: messaging, synchronous and async ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. The complete list lives in [`docs/tools.md`](docs/tools.md).
 - **Truly cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent all share the same bus. Mix and match freely.
 - **Never forgets** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories all survive restarts via SQLite WAL. Close everything, reopen tomorrow, pick up right where you left off.
 - **Scoped by default, global when you ask** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; go wide explicitly with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.

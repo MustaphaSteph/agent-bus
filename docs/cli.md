@@ -50,6 +50,21 @@ agent-bus send --from codex-pm --to claude-developer --team ios-ui --message "Sy
 agent-bus send --from codex-pm --to claude-developer --thread t_abc123 "Continuing that thread."
 ```
 
+### `agent-bus ask-async`
+
+Create an ask message and return immediately instead of blocking. Use it
+when the recipient may not be listening right now, or when the answer can
+arrive later through inbox/team chat.
+
+```bash
+agent-bus ask-async --from codex-pm --to claude-developer "Can you review task #12 when you are back?"
+agent-bus ask-async --from codex-pm --to claude-developer --thread t_abc123 "One more question on that plan."
+```
+
+The output includes the ask id, recipient presence, and suggested next
+actions such as checking `message-status`, `inbox-status`, or waiting for
+the thread.
+
 ### `agent-bus team-chat`
 
 Focused view for a team's conversation. It shows messages whose stored
@@ -144,10 +159,10 @@ Slack-style threads:
 
 - `msg` — a normal message (`send` / `send_team`). `send_team` fans a
   message out to a whole team workgroup.
-- `ask` — a blocking question (`ask` / `ask_team`); shows an
+- `ask` — a question (`ask` / `ask_async` / `ask_team`); shows an
   awaiting-reply / answered pill.
 - `reply` — an answer to an `ask` (`reply`), or a threaded follow-up to
-  a conversation (`reply_thread`).
+  a conversation (`reply` or `reply_thread`).
 - `task` — a cockpit-only visual treatment for task notifications such
   as assigned/claimed/working/completed messages. These rows are still
   stored as normal bus messages, but render with a purple `task` pill
@@ -155,15 +170,13 @@ Slack-style threads:
 
 Threading is **`reply_to`-based only**: a message's `reply_to` points at
 the single parent it answers, and the cockpit groups every message that
-shares a parent into that parent's thread (the "N replies → view
+shares a parent into that parent's thread (the "N replies -> view
 thread" affordance). `thread_id` is the *broad* conversation grouping
-(the whole back-and-forth) and is **not** used to infer threaded
-replies. So: use `reply` to answer an `ask` (sets `reply_to` = the ask),
-and `reply_thread` for conversational follow-ups (sets `kind: "reply"`
-and `reply_to` = the thread's root, so replies group under one root and
-show the thread affordance). Use `send`/`send_team` for top-level channel
-messages — a plain `send(..., thread_id=…)` only continues the
-conversation group and does **not** create a threaded reply.
+(the whole back-and-forth). Use `reply` when answering either an ask or
+a normal message; it closes asks and infers conversational replies for
+normal messages. `reply_thread` remains available when you already know
+the thread id and want to continue that thread directly. Use
+`send`/`send_team` for top-level channel messages.
 
 ### `agent-bus activity`
 

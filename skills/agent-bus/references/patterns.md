@@ -39,7 +39,8 @@ ask({ from: <coordinator>, to: <helper>, question: "..." })
 ```
 
 Blocks up to 110s. If `ASK_TIMEOUT`, surface the error and ask if the
-user wants to switch to async (`send` + later `inbox`).
+user wants to switch to async (`ask_async` or `send` + later `inbox`).
+If the recipient is stale or paused, use `ask_async` instead of blocking.
 
 ## 3. Fire-and-forget delegation
 

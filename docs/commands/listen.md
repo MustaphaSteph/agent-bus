@@ -50,8 +50,7 @@ If the user or session prompt gives you a concrete team, pass that same
   - If you must stop mid-task, call `handoff_task` with a clear reason.
   - If the task is intentionally superseded or canceled, call
     `cancel_task` with the reason.
-  - If `kind == "ask"`, call `reply(from="$ARGUMENTS", ask_id=<id>, answer=<answer>)`.
-  - Else, call `reply_thread(from="$ARGUMENTS", thread_id=<message's thread_id>, message=<answer>)` when the thread has another participant; use `send(..., thread_id=<message's thread_id>)` if you must target a specific sender.
+  - Call `reply(from="$ARGUMENTS", ask_id=<id>, answer=<answer>)` for both asks and normal messages; it answers asks and creates threaded replies for normal messages.
   - Output ONE compact line: `← from "<truncated>"  → answered "<truncated>"`.
   - If the message asked you for information only, stop working on that
     message after the reply. Do not keep querying the bus for the same
@@ -64,7 +63,6 @@ If the user or session prompt gives you a concrete team, pass that same
 - Do not call any other tool unless answering a message requires it.
 - Do not break the loop. Only exit when the user types "stop listening", "exit listener", or interrupts you.
 - If a sender's request requires destructive action (rm, git push, drop table, send email, etc.), pause and ask the user in this terminal before acting.
-- When replying via `send`, always pass the original message's `thread_id` so the conversation stays threaded.
-- Never call `reply` for a normal `kind="msg"` message. `reply` is only
-  for `kind="ask"`; use `reply_thread` or `send(..., thread_id=...)`
-  for non-ask messages.
+- For ordinary conversation, `reply` is enough: it answers asks and
+  infers a threaded reply for normal messages. Use task tools for task
+  assignments and state changes.

@@ -13,6 +13,7 @@ import {
   agentNow,
   assignTask,
   ask,
+  askAsync,
   askBest,
   askTeam,
   cancelTask,
@@ -157,6 +158,13 @@ const AskInput = z.object({
   to: z.string().min(1),
   question: z.string(),
   timeout_s: z.number().int().positive().max(110).optional(),
+  thread_id: z.string().optional(),
+});
+
+const AskAsyncInput = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  question: z.string(),
   thread_id: z.string().optional(),
 });
 
@@ -736,6 +744,25 @@ const TOOLS = [
         to: { type: "string" },
         question: { type: "string" },
         timeout_s: { type: "number", description: "Default 60, max 110" },
+        thread_id: {
+          type: "string",
+          description: "Optional: continue an existing thread",
+        },
+      },
+      required: ["from", "to", "question"],
+    },
+  },
+  {
+    name: "ask_async",
+    description:
+      "Create an ask message and return immediately with ask_id, recipient presence, and next actions. " +
+      "Use when the recipient may not be actively listening or the answer can arrive later.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        to: { type: "string" },
+        question: { type: "string" },
         thread_id: {
           type: "string",
           description: "Optional: continue an existing thread",
@@ -1724,6 +1751,8 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
       return ack(AckInput.parse(raw));
     case "ask":
       return ask(AskInput.parse(raw));
+    case "ask_async":
+      return askAsync(AskAsyncInput.parse(raw));
     case "ask_best": {
       const input = AskBestInput.parse(raw);
       return askBest({

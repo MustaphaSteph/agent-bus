@@ -602,7 +602,22 @@ export function send(opts: SendOptions): Message {
   const sender = requireAgent(opts.from);
   requireAgent(opts.to);
   heartbeat(opts.from);
-  return insertMessage(opts, opts.thread_id ?? newThreadId(), sender.project, sender.area, sender.team);
+  const threadId = opts.thread_id ?? inferTaskThreadId(opts.content, opts.from, opts.to) ?? newThreadId();
+  return insertMessage({ ...opts, thread_id: threadId }, threadId, sender.project, sender.area, sender.team);
+}
+
+function inferTaskThreadId(content: string, from: string, to: string): string | null {
+  const match = content.match(/\btask\s*#(\d+)\b/i) ?? content.match(/#(\d+)\b/);
+  if (!match?.[1]) return null;
+  const id = Number(match[1]);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  const row = getDb()
+    .prepare("SELECT * FROM tasks WHERE id = ?")
+    .get(id) as TaskRow | undefined;
+  if (!row) return null;
+  const participants = [row.requested_by, row.claimed_by, row.pending_assignee].filter(Boolean);
+  if (!participants.includes(from) && !participants.includes(to)) return null;
+  return row.thread_id;
 }
 
 export interface InboxOptions {
@@ -974,30 +989,7 @@ async function askWithScope(
   scope?: { project: string | null; area: string | null; team: string | null },
 ): Promise<Message> {
   const timeout_s = Math.min(opts.timeout_s ?? 60, MAX_ASK_TIMEOUT_S);
-  const sender = requireAgent(opts.from);
-  requireAgent(opts.to);
-
-  if (hasPendingAsk(opts.to, opts.from)) {
-    throw new BusError(
-      "ASK_CYCLE",
-      `'${opts.to}' already has a pending ask to '${opts.from}'; would deadlock`,
-    );
-  }
-
-  heartbeat(opts.from);
-  const asked = insertMessage(
-    {
-      from: opts.from,
-      to: opts.to,
-      content: opts.question,
-      kind: "ask",
-      thread_id: opts.thread_id,
-    },
-    opts.thread_id ?? newThreadId(),
-    scope?.project ?? sender.project,
-    scope?.area ?? sender.area,
-    scope?.team ?? sender.team,
-  );
+  const { asked } = createAskMessage(opts, scope, { failIfUnavailable: true });
 
   const deadline = now() + timeout_s * 1000;
   const db = getDb();
@@ -1013,8 +1005,76 @@ async function askWithScope(
 
   throw new BusError(
     "ASK_TIMEOUT",
-    `no reply from '${opts.to}' within ${timeout_s}s (ask_id=${asked.id})`,
+    `no reply from '${opts.to}' within ${timeout_s}s (ask_id=${asked.id}); ask remains pending, use message_status(${asked.id}) or inbox_status(${opts.from}) later`,
   );
+}
+
+export interface AskAsyncResult {
+  ask: Message;
+  recipient: AgentDirectoryEntry | null;
+  suggested_next_actions: string[];
+}
+
+export function askAsync(opts: AskOptions): AskAsyncResult {
+  return askAsyncWithScope(opts);
+}
+
+function askAsyncWithScope(
+  opts: AskOptions,
+  scope?: { project: string | null; area: string | null; team: string | null },
+): AskAsyncResult {
+  const { asked, recipient } = createAskMessage(opts, scope, { failIfUnavailable: false });
+  const suggested = [
+    `ask #${asked.id} is pending; keep working and check inbox_status(${opts.from}) later`,
+    `recipient ${opts.to} is ${recipient ? `${recipient.status}/${recipient.presence}, seen ${recipient.age_s}s ago` : "not in directory"}`,
+    `use message_status(${asked.id}) or why_no_reply(${asked.id}) for diagnostics`,
+  ];
+  if (recipient?.presence === "stale" || recipient?.presence === "paused") {
+    suggested.unshift(`recipient is ${recipient.presence}; wake/start ${opts.to} or delegate tracked work instead`);
+  }
+  return { ask: asked, recipient, suggested_next_actions: suggested };
+}
+
+function createAskMessage(
+  opts: AskOptions,
+  scope: { project: string | null; area: string | null; team: string | null } | undefined,
+  options: { failIfUnavailable: boolean },
+): { asked: Message; recipient: AgentDirectoryEntry | null } {
+  const sender = requireAgent(opts.from);
+  requireAgent(opts.to);
+
+  if (hasPendingAsk(opts.to, opts.from)) {
+    throw new BusError(
+      "ASK_CYCLE",
+      `'${opts.to}' already has a pending ask to '${opts.from}'; would deadlock`,
+    );
+  }
+
+  const recipient = directory({ project: PROJECT_WILDCARD, area: AREA_WILDCARD, team: TEAM_WILDCARD })
+    .find((agent) => agent.name === opts.to) ?? null;
+  if (options.failIfUnavailable && (recipient?.presence === "paused" || recipient?.presence === "stale")) {
+    throw new BusError(
+      "ASK_RECIPIENT_UNAVAILABLE",
+      `'${opts.to}' is ${recipient.presence}, seen ${recipient.age_s}s ago; use ask_async, send, delegate, or wake/start the agent instead of blocking ask`,
+    );
+  }
+
+  heartbeat(opts.from);
+  const threadId = opts.thread_id ?? inferTaskThreadId(opts.question, opts.from, opts.to) ?? newThreadId();
+  const asked = insertMessage(
+    {
+      from: opts.from,
+      to: opts.to,
+      content: opts.question,
+      kind: "ask",
+      thread_id: threadId,
+    },
+    threadId,
+    scope?.project ?? sender.project,
+    scope?.area ?? sender.area,
+    scope?.team ?? sender.team,
+  );
+  return { asked, recipient };
 }
 
 export async function ask(opts: AskOptions): Promise<Message> {
@@ -1034,10 +1094,20 @@ export function reply(opts: ReplyOptions): Message {
     .get(opts.ask_id) as MessageRow | undefined;
   if (!askRow) {
     const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(opts.ask_id) as MessageRow | undefined;
-    const hint = row
-      ? `message #${opts.ask_id} is kind='${row.kind}', not kind='ask'; use reply_thread(thread_id='${row.thread_id ?? ""}', ...) or send(..., thread_id='${row.thread_id ?? ""}') for non-ask messages`
-      : `no message with id ${opts.ask_id}; check inbox_previews or get_message for the correct id`;
-    throw new BusError("ASK_NOT_FOUND", `no pending ask with id ${opts.ask_id}. ${hint}`);
+    if (!row) {
+      throw new BusError("ASK_NOT_FOUND", `no message with id ${opts.ask_id}; check inbox_previews or get_message for the correct id`);
+    }
+    if (row.to_agent !== opts.from && row.from_agent !== opts.from) {
+      throw new BusError(
+        "INVALID_INPUT",
+        `message ${opts.ask_id} is between '${row.from_agent}' and '${row.to_agent}', so '${opts.from}' cannot reply to it`,
+      );
+    }
+    if (row.thread_id === null) {
+      const target = row.from_agent === opts.from ? row.to_agent : row.from_agent;
+      return send({ from: opts.from, to: target, content: opts.answer, kind: "reply", reply_to: row.id });
+    }
+    return replyThread({ from: opts.from, thread_id: row.thread_id, message: opts.answer });
   }
   if (askRow.to_agent !== opts.from) {
     throw new BusError(
@@ -1826,7 +1896,7 @@ const ACTIVE_TASK_STATES: TaskState[] = ["claimed", "working", "blocked"];
 // successors. `claimed -> open` exists for releaseTask-style flows.
 export const ALLOWED_TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
   open: ["claimed", "canceled"],
-  claimed: ["working", "open", "canceled", "failed"],
+  claimed: ["working", "completed", "open", "canceled", "failed"],
   working: ["blocked", "completed", "failed", "canceled"],
   blocked: ["working", "completed", "failed", "canceled"],
   completed: [],

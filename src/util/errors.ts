@@ -4,6 +4,7 @@ export type BusErrorCode =
   | "ASK_TIMEOUT"
   | "ASK_CYCLE"
   | "ASK_NOT_FOUND"
+  | "ASK_RECIPIENT_UNAVAILABLE"
   | "MESSAGE_NOT_FOUND"
   | "THREAD_NOT_FOUND"
   | "INVALID_INPUT"

@@ -187,6 +187,10 @@ ack({ agent: "alpha", message_id: 42 })
 ## ask
 
 Send a question and BLOCK until a `reply` lands or the timeout fires.
+Use this only when the recipient is online/listening and the user needs
+the answer to continue. If the recipient is stale or paused, `ask`
+fails fast with `ASK_RECIPIENT_UNAVAILABLE` instead of burning the
+timeout window.
 
 ```ts
 ask({
@@ -199,13 +203,33 @@ ask({
 ```
 
 **Errors**: `INVALID_INPUT`, `UNKNOWN_AGENT`, `ASK_CYCLE` (mutual ask
-deadlock), `ASK_TIMEOUT`.
+deadlock), `ASK_RECIPIENT_UNAVAILABLE`, `ASK_TIMEOUT`.
 
 ```js
 const reply = await ask({
   from: "alpha", to: "beta", question: "what's 2+2?", timeout_s: 30
 })
 // → { kind: "reply", content: "4", reply_to: <ask_id>, ... }
+```
+
+## ask_async
+
+Create an `ask` row and return immediately with the ask id, recipient
+presence, and suggested next actions. Use this when the recipient may
+not be listening, the answer can arrive later, or the work should not
+block the current agent session.
+
+```ts
+ask_async({
+  from: string,
+  to: string,
+  question: string,
+  thread_id?: string,
+}) → {
+  ask: Message,                 // kind: "ask", status: "pending"
+  recipient: AgentDirectoryEntry | null,
+  suggested_next_actions: string[],
+}
 ```
 
 ## ask_best
@@ -243,22 +267,21 @@ ask_best({ from: "human", capability: "react",
 
 ## reply
 
-Answer a pending ask. Inherits the ask's thread_id.
+Answer a pending ask or reply to a normal message. For asks, it inherits
+the ask's thread_id and marks the ask answered. If `ask_id` points to a
+normal `msg` or existing `reply`, `reply` infers the thread and creates
+a threaded conversational reply instead of returning `ASK_NOT_FOUND`.
 
 ```ts
 reply({
-  from: string,                // must equal ask's to_agent
+  from: string,                // ask recipient or message participant
   ask_id: number,
   answer: string,
 }) → Message                   // the reply message
 ```
 
-**Errors**: `ASK_NOT_FOUND`, `INVALID_INPUT` (wrong agent).
-
-`reply` only answers `kind: "ask"` messages. If you received a normal
-`kind: "msg"` inbox item, use `reply_thread(thread_id=...)` or
-`send(..., thread_id=...)` instead. `ASK_NOT_FOUND` includes that
-fallback hint when the id belongs to a non-ask message.
+**Errors**: `ASK_NOT_FOUND`, `INVALID_INPUT` (wrong agent/not a
+participant).
 
 ```js
 reply({ from: "beta", ask_id: 42, answer: "4" })
@@ -703,7 +726,7 @@ Allowed transitions:
 | From | To |
 |---|---|
 | `open` | `claimed`, `canceled` |
-| `claimed` | `working`, `open`, `canceled`, `failed` |
+| `claimed` | `working`, `completed`, `open`, `canceled`, `failed` |
 | `working` | `blocked`, `completed`, `failed`, `canceled` |
 | `blocked` | `working`, `completed`, `failed`, `canceled` |
 | `completed`, `failed`, `canceled` | none |
@@ -1106,6 +1129,13 @@ const replies = await inbox({ agent: "me", wait_s: 30 })
 
 ```js
 const reply = await ask({ from: "me", to: "you", question: "..." })
+```
+
+### Async Q&A
+
+```js
+const pending = ask_async({ from: "me", to: "you", question: "..." })
+// keep working; later check message_status(pending.ask.id) or inbox_status("me")
 ```
 
 ### Listener loop

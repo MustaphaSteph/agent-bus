@@ -30,8 +30,8 @@ constraints. Read that before changing anything in `src/`.
 
 ## TL;DR — what this is
 
-- **MCP server** exposing 62 tools an agent can call (`register`, `send`,
-  `inbox`, `ask`, `reply`, `ack`, `ask_best`, `subscribe`,
+- **MCP server** exposing 63 tools an agent can call (`register`, `send`,
+  `inbox`, `ask`, `ask_async`, `reply`, `ack`, `ask_best`, `subscribe`,
   `unsubscribe`, `send_channel`, `subscribers`, `thread`, `whois`,
   `directory`, `recent`, plus task, status, decision, memory, brief, and final-report tools).
 - **SQLite file** at `~/.agent-bus/bus.db` is the meeting room.

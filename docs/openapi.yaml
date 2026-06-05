@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.24.0
+  version: 0.25.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 62 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 63 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
@@ -37,7 +37,7 @@ tags:
   - name: Direct messaging
     description: One-to-one async messaging, inbox reads, and acknowledgements.
   - name: Request / response
-    description: Synchronous blocking question/answer flows.
+    description: Blocking and async question/answer flows.
   - name: Channels
     description: One-to-many pub/sub broadcasting.
   - name: Teams
@@ -314,6 +314,8 @@ paths:
         at it. Blocks up to `timeout_s` seconds (max 110, default 60).
         Refuses cycles: if the recipient has a pending ask back to the
         caller, fails with `ASK_CYCLE`.
+        If the recipient is stale or paused, fails fast with
+        `ASK_RECIPIENT_UNAVAILABLE`; use `ask_async` for non-blocking asks.
       operationId: ask
       requestBody:
         required: true
@@ -340,6 +342,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/ask_async:
+    post:
+      tags: [Request / response]
+      summary: Create an ask and return immediately
+      description: |
+        Inserts an `ask` message but does not poll for the reply. Returns
+        the ask row, recipient presence, and suggested next actions. Use
+        when the recipient may not be in a listener loop.
+      operationId: ask_async
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AskAsyncRequest'
+            examples:
+              async:
+                value:
+                  from: alpha
+                  to: beta
+                  question: check this when you are back
+      responses:
+        '200':
+          description: Pending ask plus recipient diagnostics.
+          content:
+            application/json:
+              schema:
+                type: object
         '400':
           $ref: '#/components/responses/BusError'
 
@@ -401,11 +434,15 @@ paths:
   /tools/reply:
     post:
       tags: [Request / response]
-      summary: Answer a pending ask
+      summary: Answer an ask or reply to a message
       description: |
-        Close an `ask` with an answer. Creates a `reply` row pointing at
-        the ask via `reply_to`, inheriting the ask's `thread_id`, and
-        flips the original ask's status to `answered`.
+        If `ask_id` points at an `ask`, close it with an answer. Creates
+        a `reply` row pointing at the ask via `reply_to`, inheriting the
+        ask's `thread_id`, and flips the original ask's status to
+        `answered`.
+
+        If `ask_id` points at a normal `msg` or `reply`, infer the thread
+        and continue that conversation. The caller must be a participant.
       operationId: reply
       requestBody:
         required: true
@@ -833,7 +870,7 @@ paths:
       summary: Update task state or metadata
       description: |
         Updates a task while enforcing the state machine:
-        `open -> claimed|canceled`, `claimed -> working|open|canceled|failed`,
+        `open -> claimed|canceled`, `claimed -> working|completed|open|canceled|failed`,
         `working -> blocked|completed|failed|canceled`, and
         `blocked -> working|completed|failed|canceled`. Terminal states
         cannot transition. Only the requester or current holder can update.
@@ -1608,6 +1645,7 @@ components:
                 - NAME_TAKEN
                 - ASK_TIMEOUT
                 - ASK_CYCLE
+                - ASK_RECIPIENT_UNAVAILABLE
                 - ASK_NOT_FOUND
                 - MESSAGE_NOT_FOUND
                 - THREAD_NOT_FOUND
@@ -1811,6 +1849,20 @@ components:
           minimum: 1
           maximum: 110
           default: 60
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+
+    AskAsyncRequest:
+      type: object
+      required: [from, to, question]
+      additionalProperties: false
+      properties:
+        from:
+          $ref: '#/components/schemas/AgentName'
+        to:
+          $ref: '#/components/schemas/AgentName'
+        question:
+          type: string
         thread_id:
           $ref: '#/components/schemas/ThreadId'
 

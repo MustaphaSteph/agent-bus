@@ -7,11 +7,11 @@ everything needed to participate.
 
 ## What you can do
 
-You have 62 MCP tools, all prefixed with the server name `agent-bus` in
+You have 63 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
-2. Send fire-and-forget messages or synchronous questions to named agents.
+2. Send fire-and-forget messages, async asks, or synchronous questions to named agents.
 3. Read your inbox (optionally blocking until a message arrives).
 4. Acknowledge messages for at-least-once delivery.
 5. Subscribe to channels, broadcast to subscribers, or message a scoped team.
@@ -194,10 +194,26 @@ Input:
 
 Returns the reply `Message`.
 
-Errors: `INVALID_INPUT`, `UNKNOWN_AGENT`, `ASK_CYCLE`, `ASK_TIMEOUT`.
+Errors: `INVALID_INPUT`, `UNKNOWN_AGENT`, `ASK_CYCLE`,
+`ASK_RECIPIENT_UNAVAILABLE`, `ASK_TIMEOUT`.
 
 Use this when the recipient is in listener mode (`/listen` or
-`inbox(wait_s)` loop) so they pick up and reply within the timeout.
+`inbox(wait_s)` loop) so they pick up and reply within the timeout. If
+the recipient is stale or paused, use `ask_async`, `send`, or
+`delegate` instead of blocking.
+
+### ask_async
+
+Create an ask and return immediately.
+
+Input:
+- `from: string`
+- `to: string`
+- `question: string`
+- `thread_id?: string`
+
+Returns `{ ask, recipient, suggested_next_actions }`. Use this when the
+recipient may not be listening or the answer can arrive later.
 
 ### ask_best
 
@@ -223,14 +239,16 @@ Errors: `UNKNOWN_AGENT` (no match or stale), plus everything `ask` can throw.
 
 ### reply
 
-Answer a pending ask.
+Answer a pending ask, or reply to a normal message by inferring its
+thread.
 
 Input:
 - `from: string` — must equal the ask's `to_agent`
 - `ask_id: number`
 - `answer: string`
 
-Returns the reply `Message`. The reply inherits the ask's `thread_id`.
+Returns the reply `Message`. Ask replies inherit the ask's `thread_id`;
+normal-message replies become real threaded replies.
 
 Errors: `ASK_NOT_FOUND`, `INVALID_INPUT`.
 
@@ -465,7 +483,7 @@ Input:
 - `allow_conflicts?: boolean`
 
 Allowed transitions: `open -> claimed|canceled`,
-`claimed -> working|open|canceled|failed`,
+`claimed -> working|completed|open|canceled|failed`,
 `working -> blocked|completed|failed|canceled`,
 `blocked -> working|completed|failed|canceled`. Terminal states do not
 transition.
@@ -812,6 +830,7 @@ Returns `Task`.
 | `NAME_TAKEN` | Name actively held | Add `replace: true` to register |
 | `ASK_TIMEOUT` | No reply within timeout | Recipient idle or slow |
 | `ASK_CYCLE` | Would create mutual deadlock | Resolve B's ask to A first |
+| `ASK_RECIPIENT_UNAVAILABLE` | Blocking ask recipient is stale or paused | Use `ask_async`, `send`, `delegate`, or wake/start them |
 | `ASK_NOT_FOUND` | Referenced ask id doesn't exist | Wrong id, or ask was deleted |
 | `TASK_NOT_FOUND` | Referenced task id doesn't exist | Wrong id or missing dependency |
 | `TASK_INVALID_TRANSITION` | Bad task state transition | Terminal or skipped state |
@@ -830,7 +849,7 @@ You sit waiting for messages.
 2. inbox({ agent: "me", team: "frontend", wait_s: 110 })   ← blocks on this team only
 3. For each returned message:
      - if kind=="ask": reply({ from: "me", ask_id: m.id, answer: ... })
-     - else: send({ from: "me", to: m.from_agent, message: ..., thread_id: m.thread_id })
+     - else: reply({ from: "me", ask_id: m.id, answer: ... })
 4. Go to step 2 immediately. Do NOT narrate empty timeouts.
 ```
 
@@ -844,6 +863,12 @@ Returns the reply. If you don't know who the specialist is:
 
 ```
 ask_best({ from: "me", capability: "react", question: "..." })
+```
+
+If the recipient may not be listening:
+
+```
+ask_async({ from: "me", to: "specialist", question: "..." })
 ```
 
 ### Reliable processing (at-least-once)

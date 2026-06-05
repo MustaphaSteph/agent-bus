@@ -22,6 +22,7 @@ import {
   listTaskEvents,
   listTestResults,
   AREA_WILDCARD,
+  askAsync,
   pinMemory,
   projectBoard,
   PROJECT_WILDCARD,
@@ -628,6 +629,25 @@ program
     });
     console.log(`${kleur.green("sent")} ${sent.length} team message(s)`);
     for (const row of sent) console.log(formatMessage(row));
+  });
+
+program
+  .command("ask-async")
+  .description("Create an ask and return immediately instead of blocking for the reply")
+  .requiredOption("--from <agent>", "sender agent")
+  .requiredOption("--to <agent>", "recipient agent")
+  .option("--thread <id>", "existing thread id")
+  .argument("<question>", "question body")
+  .action((question: string, opts: { from: string; to: string; thread?: string }) => {
+    const result = askAsync({
+      from: opts.from,
+      to: opts.to,
+      question,
+      thread_id: opts.thread,
+    });
+    console.log(formatMessage(result.ask));
+    console.log(kleur.bold("Next:"));
+    console.log(formatList(result.suggested_next_actions));
   });
 
 program
