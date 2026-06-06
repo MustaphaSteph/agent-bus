@@ -119,7 +119,7 @@ later.
 
 **Failure modes**: `ASK_RECIPIENT_UNAVAILABLE` if the recipient is stale
 or paused, `ASK_TIMEOUT` if no reply arrives, `ASK_CYCLE` if the
-answerer has its own pending ask back to you.
+answerer has its own active opposite ask back to you.
 
 ## 3. Capability routing (don't know who to ask)
 

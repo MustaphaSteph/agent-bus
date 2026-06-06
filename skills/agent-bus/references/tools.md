@@ -625,7 +625,7 @@ review_gate({ project?: string | "*", area?: string | "*" }) -> {
 | `UNKNOWN_AGENT` | Use `directory`/`whois`; register a helper or broaden scope |
 | `NAME_TAKEN` | Use `replace: true` intentionally or pick a new name |
 | `ASK_TIMEOUT` | Switch to `ask_async`/`send`, increase readiness, or nudge the recipient |
-| `ASK_CYCLE` | Resolve the other side's pending ask first |
+| `ASK_CYCLE` | Resolve the active opposite ask named in the error first, inspect it with `message_status`, or switch to `ask_async`/`send`; stale opposite asks no longer block |
 | `ASK_NOT_FOUND` | Check the id with `get_message`/`inbox_previews` |
 | `ASK_RECIPIENT_UNAVAILABLE` | Recipient is stale/paused; use `ask_async`, `send`, `delegate`, or wake them |
 | `TASK_NOT_FOUND` | Verify with `list_tasks` |

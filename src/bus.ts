@@ -5,6 +5,7 @@ import { now, sleep } from "./util/time.js";
 
 export const MAX_ASK_TIMEOUT_S = 110;
 export const MAX_INBOX_WAIT_S = 110;
+const ACTIVE_ASK_CYCLE_WINDOW_MS = MAX_ASK_TIMEOUT_S * 1000;
 
 function readPollInterval(): number {
   const raw = process.env.AGENT_BUS_POLL_MS;
@@ -947,6 +948,8 @@ export function inboxStatus(opts: InboxStatusOptions): InboxStatus {
       ? `${unread.length} unread message(s)`
       : inFlight.length > 0
         ? `no unread messages; ${inFlight.length} message(s) currently claimed/in-flight`
+        : delivered.length > 0
+          ? `no unread messages; ${delivered.length} recent delivered/answered message(s), last message #${last?.id ?? delivered[0]?.id} was ${last?.status ?? delivered[0]?.status}`
         : last
           ? `no unread messages; last message #${last.id} was ${last.status}`
           : "no messages for this agent";
@@ -969,19 +972,42 @@ export interface AskOptions {
   thread_id?: string;
 }
 
-function hasPendingAsk(from: string, to: string): boolean {
+interface BlockingAskInfo {
+  id: number;
+  status: MessageStatus;
+  age_s: number;
+  thread_id: string | null;
+  claim_deadline: number | null;
+  claimed_by: string | null;
+}
+
+function activeOppositeAsk(from: string, to: string): BlockingAskInfo | null {
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT id FROM messages
+      `SELECT * FROM messages
          WHERE kind = 'ask'
            AND from_agent = ?
            AND to_agent = ?
            AND status != 'answered'
+         ORDER BY id DESC
          LIMIT 1`,
     )
-    .get(from, to) as { id: number } | undefined;
-  return Boolean(row);
+    .get(from, to) as MessageRow | undefined;
+  if (!row) return null;
+  const ts = now();
+  const ageMs = Math.max(0, ts - row.created_at);
+  const claimActive = row.claim_deadline !== null && row.claim_deadline >= ts;
+  const withinActiveAskWindow = ageMs <= ACTIVE_ASK_CYCLE_WINDOW_MS;
+  if (!claimActive && !withinActiveAskWindow) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    age_s: Math.floor(ageMs / 1000),
+    thread_id: row.thread_id,
+    claim_deadline: row.claim_deadline,
+    claimed_by: row.claimed_by,
+  };
 }
 
 async function askWithScope(
@@ -1043,10 +1069,15 @@ function createAskMessage(
   const sender = requireAgent(opts.from);
   requireAgent(opts.to);
 
-  if (hasPendingAsk(opts.to, opts.from)) {
+  const oppositeAsk = activeOppositeAsk(opts.to, opts.from);
+  if (oppositeAsk !== null) {
+    const threadPart = oppositeAsk.thread_id ? ` thread=${oppositeAsk.thread_id}` : "";
+    const claimPart = oppositeAsk.claim_deadline !== null
+      ? ` claimed_by=${oppositeAsk.claimed_by ?? "unknown"} until=${oppositeAsk.claim_deadline}`
+      : "";
     throw new BusError(
       "ASK_CYCLE",
-      `'${opts.to}' already has a pending ask to '${opts.from}'; would deadlock`,
+      `'${opts.to}' already has active ask #${oppositeAsk.id} to '${opts.from}' (status=${oppositeAsk.status}, age=${oppositeAsk.age_s}s${threadPart}${claimPart}); answer it first, inspect message_status(${oppositeAsk.id}), or use ask_async/send for non-blocking work`,
     );
   }
 

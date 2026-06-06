@@ -94,7 +94,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.25.0
+agent-bus --version                # 0.26.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 

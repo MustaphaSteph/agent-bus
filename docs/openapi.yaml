@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.25.0
+  version: 0.26.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 63 tools over an MCP stdio server. This OpenAPI
@@ -312,8 +312,9 @@ paths:
       description: |
         Inserts an `ask` message and polls for a `reply` row pointing back
         at it. Blocks up to `timeout_s` seconds (max 110, default 60).
-        Refuses cycles: if the recipient has a pending ask back to the
-        caller, fails with `ASK_CYCLE`.
+        Refuses cycles: if the recipient has an active opposite ask back
+        to the caller, fails with `ASK_CYCLE`. Stale opposite asks older
+        than the active ask window are ignored.
         If the recipient is stale or paused, fails fast with
         `ASK_RECIPIENT_UNAVAILABLE`; use `ask_async` for non-blocking asks.
       operationId: ask
@@ -2468,7 +2469,7 @@ components:
               value:
                 error:
                   code: ASK_CYCLE
-                  message: "'beta' already has a pending ask to 'alpha'; would deadlock"
+                  message: "'beta' already has active ask #41 to 'alpha' (status=pending, age=10s thread=t_abc); answer it first, inspect message_status(41), or use ask_async/send for non-blocking work"
             name-taken:
               value:
                 error:

@@ -202,8 +202,9 @@ ask({
 }) → Message                   // the reply message
 ```
 
-**Errors**: `INVALID_INPUT`, `UNKNOWN_AGENT`, `ASK_CYCLE` (mutual ask
-deadlock), `ASK_RECIPIENT_UNAVAILABLE`, `ASK_TIMEOUT`.
+**Errors**: `INVALID_INPUT`, `UNKNOWN_AGENT`, `ASK_CYCLE` (active
+opposite ask would deadlock; stale opposite asks older than the active
+ask window are ignored), `ASK_RECIPIENT_UNAVAILABLE`, `ASK_TIMEOUT`.
 
 ```js
 const reply = await ask({

@@ -98,11 +98,15 @@ recipient session and ask again.
 
 ## "ASK_CYCLE: would deadlock"
 
-You called `ask(to=B)` while B has a pending `ask` back to you. Bus
-refuses to create the cycle.
+You called `ask(to=B)` while B has an active opposite `ask` back to
+you. Bus refuses to create the cycle. The error message includes the
+blocking ask id, status, age, and thread when available.
 
-Fix: respond to B's ask first (use `inbox` + `reply`), THEN ask your
-question.
+Fix: inspect the blocking ask with `message_status(<id>)`, respond to
+B's ask first (use `inbox` + `reply`), then ask your question. For
+review or long-running work, use `ask_async`, `send`, or `delegate`
+instead. Stale opposite asks older than the active ask window are ignored
+instead of blocking forever.
 
 ## Listener seems "stuck" / slow
 

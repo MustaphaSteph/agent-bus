@@ -298,6 +298,18 @@ await test("blocking ask fails fast for stale recipients", async () => {
   assert.equal(created.ask.status, "pending");
 });
 
+await test("stale opposite asks do not trigger ASK_CYCLE", () => {
+  register({ name: "cycle-stale-a", capabilities: [], replace: true });
+  register({ name: "cycle-stale-b", capabilities: [], replace: true });
+  const oldAsk = askAsync({ from: "cycle-stale-a", to: "cycle-stale-b", question: "old opposite ask" });
+  getDb()
+    .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
+    .run(Date.now() - 5 * 60 * 1000, oldAsk.ask.id);
+  const reverse = askAsync({ from: "cycle-stale-b", to: "cycle-stale-a", question: "reverse should queue" });
+  assert.equal(reverse.ask.kind, "ask");
+  assert.equal(reverse.ask.status, "pending");
+});
+
 await test("mutual ask is rejected as cycle", async () => {
   const askA = ask({ from: "alice", to: "bob", question: "longer", timeout_s: 5 });
   await new Promise((r) => setTimeout(r, 100));
@@ -433,6 +445,17 @@ await test("inbox_status reports unread, claimed, and delivered without consumin
   const acked = ack({ agent: "bob", message_id: claimed.id });
   status = inboxStatus({ agent: "bob" });
   assert.ok(status.delivered_recent.some((m) => m.id === acked.id));
+});
+
+await test("inbox_status distinguishes empty pending inbox from recent delivered messages", async () => {
+  register({ name: "status-clean-a", capabilities: [], replace: true });
+  register({ name: "status-clean-b", capabilities: [], replace: true });
+  const sent = send({ from: "status-clean-a", to: "status-clean-b", content: "already seen" });
+  await inbox({ agent: "status-clean-b" });
+  const status = inboxStatus({ agent: "status-clean-b" });
+  assert.equal(status.unread.length, 0);
+  assert.ok(status.delivered_recent.some((m) => m.id === sent.id));
+  assert.ok(status.summary.includes("recent delivered/answered"));
 });
 
 await test("inbox and inbox_status can filter by team", async () => {

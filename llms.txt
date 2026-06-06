@@ -829,7 +829,7 @@ Returns `Task`.
 | `UNKNOWN_AGENT` | Agent not registered | Typo, or recipient never registered |
 | `NAME_TAKEN` | Name actively held | Add `replace: true` to register |
 | `ASK_TIMEOUT` | No reply within timeout | Recipient idle or slow |
-| `ASK_CYCLE` | Would create mutual deadlock | Resolve B's ask to A first |
+| `ASK_CYCLE` | Would create mutual deadlock with an active opposite ask | Inspect the ask id from the error with `message_status`, answer it, or use `ask_async`/`send`; stale opposite asks no longer block |
 | `ASK_RECIPIENT_UNAVAILABLE` | Blocking ask recipient is stale or paused | Use `ask_async`, `send`, `delegate`, or wake/start them |
 | `ASK_NOT_FOUND` | Referenced ask id doesn't exist | Wrong id, or ask was deleted |
 | `TASK_NOT_FOUND` | Referenced task id doesn't exist | Wrong id or missing dependency |

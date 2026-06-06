@@ -248,7 +248,9 @@ When the answerer calls `reply()`, it inserts a `reply` row pointing at
 the original ask AND flips the ask's status to `answered`.
 
 Cycle guard: before sending an `ask`, check if the recipient already has
-a pending `ask` back to the asker. If so, reject with `ASK_CYCLE`.
+an active opposite `ask` back to the asker. If so, reject with
+`ASK_CYCLE`. Opposite asks older than the max ask timeout and not
+actively claimed are treated as stale and ignored for cycle detection.
 
 ## How channels work
 

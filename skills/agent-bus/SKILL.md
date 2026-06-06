@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.25.0
+  - agent-bus-mcp >= 0.26.0
 ---
 
 # agent-bus
@@ -336,6 +336,6 @@ intent calls for them.
 | `UNKNOWN_AGENT` on send/ask | recipient name typo or never registered | tell the user, suggest `whois` to see who's available |
 | `NAME_TAKEN` on register | name held by another active session | pass `replace: true` (with user's consent) or pick a different name |
 | `ASK_TIMEOUT` | recipient didn't reply in time | tell the user, suggest re-sending as `send` or asking the user to nudge the recipient session |
-| `ASK_CYCLE` | mutual deadlock — recipient has a pending ask to you | resolve their ask first, then retry |
+| `ASK_CYCLE` | mutual deadlock — recipient has an active opposite ask to you | inspect the ask id in the error with `message_status`, answer it first, or switch to `ask_async`/`send`; stale asks older than the active ask window no longer block |
 | The user names a helper that isn't on the bus | not registered | offer to spin up a listener (`/listen <name>` in Claude Code, or paste `agent-bus listen-prompt <name>` output into Codex/Cursor) |
 | Setup check fails | MCP not installed / wrong version | print install hint; if the user approves, run `scripts/check-setup.sh --install-cli`, then retry |

@@ -240,7 +240,7 @@ Error codes:
 | `UNKNOWN_AGENT` | Referenced an agent that isn't registered |
 | `NAME_TAKEN` | Tried to register a name that's actively held (use `replace: true`) |
 | `ASK_TIMEOUT` | `ask` exceeded `timeout_s` without a reply |
-| `ASK_CYCLE` | `ask` would create a mutual deadlock |
+| `ASK_CYCLE` | `ask` would create a mutual deadlock with an active opposite ask |
 | `ASK_NOT_FOUND` | Referenced an ask id that doesn't exist |
 | `TASK_NOT_FOUND` | Referenced a task id that doesn't exist |
 | `TASK_INVALID_TRANSITION` | Tried to move a task through an impossible state transition |
