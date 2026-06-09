@@ -266,10 +266,19 @@ create roles, prompts, or behavior rules.
   waiting for unrelated bus messages.
 - Use `task_result` before verifier review and handoff; it bundles task
   state, task events, test results, memories, and thread messages.
-- Use memory intentionally: `remember(kind="decision")` for settled
-  team choices, `remember(kind="risk", pinned=true)` for active risks,
+- Use memory intentionally as the loop notebook. Record settled
+  decisions, current risks, done work, next actions, and handoff notes.
+  Prefer `record_decision` for decisions; use
+  `remember(kind="risk", pinned=true)` for active risks,
+  `remember(kind="summary")` for durable done-work context,
+  `remember(kind="todo")` for next actions that are not formal tasks,
   and `remember(kind="handoff", pinned=true)` before a session exits.
   New sessions should call `session_brief` before taking work.
+- Treat "done" as a verifier gate for implementation tasks: code/work
+  finished, `record_test_result` evidence captured, required
+  `submit_review(approved=true)` recorded, and `review_gate` /
+  `final_report` says safe. Do not claim final completion from chat
+  confidence alone.
 - Use `cancel_task` when work is superseded or intentionally stopped.
 - Use `review_gate` and `final_report` before commit/push/deploy
   decisions.

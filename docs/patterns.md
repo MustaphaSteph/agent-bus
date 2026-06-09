@@ -542,3 +542,89 @@ Record a pinned handoff memory for what remains.
   clarify that implementation edits are not part of that task.
 - Coordinator cannot find a worker -> call `directory`, start the missing
   listener, or use `area: "*"` / `project: "*"` intentionally.
+
+## 13. Loop memory and verifier gates
+
+**When**: an agent loop may run across multiple turns, sessions, or
+days. The user wants the system to keep prompting agents, but still
+needs durable context and a trustworthy definition of done.
+
+**How**: use the bus as the loop's shared notebook and evidence trail.
+Do not leave important state only in chat context.
+
+At the start of a session:
+
+```js
+session_brief({ agent: "pm", team: "todo-ios" })
+list_decisions({ team: "todo-ios" })
+list_memories({ team: "todo-ios", pinned: true })
+```
+
+During planning and execution, write memory deliberately:
+
+```js
+record_decision({
+  by_agent: "pm",
+  team: "todo-ios",
+  decision: "Use a single Today list as the first iOS screen",
+  rationale: "Fastest useful MVP; designer and developer agreed"
+})
+
+remember({
+  by_agent: "pm",
+  team: "todo-ios",
+  kind: "risk",
+  content: "Swipe actions need manual simulator smoke test on small screens",
+  pinned: true
+})
+
+remember({
+  by_agent: "ios-developer",
+  team: "todo-ios",
+  task_id: 12,
+  kind: "handoff",
+  content: "Implemented Today list. Remaining: empty state polish and swipe-delete smoke.",
+  pinned: true
+})
+```
+
+Use these memory kinds consistently:
+
+| Kind | Use it for |
+|---|---|
+| `decision` | Settled product, architecture, or workflow choices. |
+| `risk` | Known problems the team must keep visible until resolved. |
+| `summary` | Done work and useful context that should survive the session. |
+| `todo` | Next actions that are not yet formal tasks. |
+| `handoff` | What the next agent needs before taking over. Pin these. |
+
+For implementation work, make "done" a verifier gate:
+
+1. Create or delegate a task with `review_required=true` when another
+   agent should check it.
+2. The implementer records progress with `record_task_event`.
+3. The implementer records evidence with `record_test_result` for build,
+   lint, unit tests, browser/simulator smoke, or manual checks.
+4. The reviewer inspects `task_result({ task_id })` and calls
+   `submit_review(approved=true)` or requests changes.
+5. The coordinator calls `review_gate` and `final_report` before
+   commit, push, deploy, or telling the user the loop is complete.
+
+The completion rule:
+
+```text
+Done = implementation finished
+     + test evidence recorded
+     + required reviewer approved
+     + final_report / review_gate says safe
+```
+
+**Failure modes**:
+
+- Memory spam -> only record facts that future agents need: decisions,
+  risks, handoffs, completed milestones, and next actions.
+- Reviewer approves without evidence -> ask the implementer to record
+  `record_test_result` or explicitly mark missing tests as skipped with
+  a reason.
+- Task marked complete but review is pending -> use `review_gate`; it
+  should block manager sign-off until the review is resolved.

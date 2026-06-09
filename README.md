@@ -405,6 +405,8 @@ For real project work, keep it simple:
 - Put every active session in a concrete team.
 - Use `send_team` for discussion and `delegate` / `delegate_team` for work that should appear on the board.
 - Keep the board honest: create or claim a task before tracked edits, update `now()` / status while working, and move finished work to review or done.
+- Treat memory as the loop's notebook: record decisions, current risks, done work, next actions, and handoff notes so tomorrow's agent does not rediscover today's context.
+- Treat "done" as a gate, not a feeling: implementation finished, test evidence recorded, reviewer approved when required, and `final_report` / `review_gate` says the work is safe.
 - Use the web cockpit (`agent-bus ui`) when you want the big picture.
 
 Detailed CLI commands, task workflows, memory examples, separated-folder

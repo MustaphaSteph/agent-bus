@@ -693,8 +693,15 @@ memories, recent messages, and suggested next actions.
 For team work, use memory deliberately:
 - `kind="decision"` for settled architecture/product choices.
 - `kind="risk", pinned=true` for active risks the board should keep visible.
+- `kind="summary"` for durable done-work context that future sessions need.
+- `kind="todo"` for next actions that are not yet formal tasks.
 - `kind="handoff", pinned=true` before a session exits or transfers work.
 - Call `session_brief` before taking over an existing project/team.
+
+Loop memory pattern: do not leave important loop state only in chat
+context. Write durable decisions, current risks, done work, next
+actions, and handoff notes to decisions/memories so a later session can
+resume without re-discovery.
 
 ### record_test_result / list_test_results
 
@@ -757,6 +764,13 @@ Generate a deterministic ready/block decision from `project_board` and
 `final_report`. `ok=false` includes blockers such as active tasks,
 blocked tasks, pending reviews, edit-scope conflicts, or unsafe final
 report flags.
+
+Verifier gate pattern: for implementation work, "done" means the
+implementation is finished, test evidence is recorded with
+`record_test_result`, any required reviewer has approved with
+`submit_review(approved=true)`, and `review_gate` / `final_report`
+reports safe. Do not treat a chat reply or task status alone as final
+completion.
 
 ### get_task
 
