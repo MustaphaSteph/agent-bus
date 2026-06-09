@@ -3,6 +3,7 @@ import kleur from "kleur";
 import {
   activityTimeline,
   cockpit,
+  deleteTeam,
   directory,
   getMessage,
   listDecisions,
@@ -11,11 +12,13 @@ import {
   messagePage,
   messageThread,
   recentMessages,
+  removeAgent,
   scopes,
   taskResult,
   timeseries,
   type MessagePreview,
 } from "../bus.js";
+import { BusError } from "../util/errors.js";
 import { dbPath } from "../util/paths.js";
 import { packageVersion } from "../util/package-info.js";
 import { resolveScopeOptions, type ScopeOptions } from "./project-scope.js";
@@ -58,7 +61,9 @@ export async function startUi(opts: UiOptions = {}): Promise<void> {
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 8787;
   const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
-  const server = createServer((req, res) => handleRequest(req, res, scope));
+  const server = createServer((req, res) => {
+    void handleRequest(req, res, scope);
+  });
   await new Promise<void>((resolveStart, rejectStart) => {
     server.once("error", rejectStart);
     server.listen(port, host, () => {
@@ -81,7 +86,7 @@ export async function startUi(opts: UiOptions = {}): Promise<void> {
   }
 }
 
-function handleRequest(req: IncomingMessage, res: ServerResponse, defaultScope: ScopeOptions): void {
+async function handleRequest(req: IncomingMessage, res: ServerResponse, defaultScope: ScopeOptions): Promise<void> {
   const url = new URL(req.url ?? "/", "http://agent-bus.local");
   try {
     if (url.pathname === "/" || url.pathname === "/index.html") {
@@ -98,6 +103,28 @@ function handleRequest(req: IncomingMessage, res: ServerResponse, defaultScope: 
     }
     if (url.pathname === "/api/scopes") {
       sendJson(res, scopes());
+      return;
+    }
+    if (url.pathname === "/api/remove-agent" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      sendJson(res, removeAgent({
+        name: requiredString(body, "name"),
+        release_tasks: optionalBoolean(body, "release_tasks"),
+        force: optionalBoolean(body, "force"),
+      }));
+      return;
+    }
+    if (url.pathname === "/api/delete-team" && req.method === "POST") {
+      const body = await readJsonBody(req);
+      const project = optionalString(body, "project");
+      const area = optionalString(body, "area");
+      sendJson(res, deleteTeam({
+        team: requiredString(body, "team"),
+        project: project === "all" ? "*" : project,
+        area: area === "all" ? "*" : area,
+        release_tasks: optionalBoolean(body, "release_tasks"),
+        force: optionalBoolean(body, "force"),
+      }));
       return;
     }
     if (url.pathname === "/api/state") {
@@ -152,8 +179,48 @@ function handleRequest(req: IncomingMessage, res: ServerResponse, defaultScope: 
     sendJson(res, { error: { code: "NOT_FOUND", message: "not found" } }, 404);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    sendJson(res, { error: { code: "UI_ERROR", message } }, 500);
+    const code = error instanceof BusError ? error.code : "UI_ERROR";
+    sendJson(res, { error: { code, message } }, error instanceof BusError ? 400 : 500);
   }
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > 64 * 1024) throw new Error("request body too large");
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return {};
+  const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("expected JSON object body");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function requiredString(body: Record<string, unknown>, key: string): string {
+  const value = body[key];
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`${key} is required`);
+  }
+  return value;
+}
+
+function optionalString(body: Record<string, unknown>, key: string): string | undefined {
+  const value = body[key];
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new Error(`${key} must be a string`);
+  return value;
+}
+
+function optionalBoolean(body: Record<string, unknown>, key: string): boolean | undefined {
+  const value = body[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
+  return value;
 }
 
 // When the browser drives scope (any of project/area/team in the query), honor
@@ -388,6 +455,8 @@ svg.spark{width:100%;height:26px;display:block;margin-top:6px}
 .chat-foot .actions{display:flex;gap:6px;align-items:center}
 .chat-foot button{font-family:var(--mono);background:var(--panel-2);border:1px solid var(--line-soft);color:var(--muted);border-radius:7px;padding:5px 11px;font-size:12px;cursor:pointer}
 .chat-foot button:hover{color:var(--text);border-color:var(--line)}
+.dangerbtn{font-family:var(--mono);background:rgba(255,111,111,.08);border:1px solid rgba(255,111,111,.26);color:var(--red);border-radius:7px;padding:5px 9px;font-size:11px;cursor:pointer}
+.dangerbtn:hover{background:rgba(255,111,111,.14);border-color:rgba(255,111,111,.55);color:#ff9a9a}
 .readonly{font-size:11px;color:var(--soft)}
 .board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,1fr);gap:12px;padding:14px 16px;height:100%;align-items:start;overflow-x:auto}
 .bcol{background:var(--panel-2);border:1px solid var(--line-soft);border-radius:13px;padding:11px;height:100%;display:flex;flex-direction:column;min-width:0}
@@ -425,6 +494,7 @@ svg.spark{width:100%;height:26px;display:block;margin-top:6px}
 .person .pava2.online:after{content:"";position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:var(--green);border:2px solid var(--panel)}
 .person .pava2.stale:after{content:"";position:absolute;right:-2px;bottom:-2px;width:10px;height:10px;border-radius:50%;background:var(--amber);border:2px solid var(--panel)}
 .person .pn{font-size:13.5px;font-weight:650}.person .pm{font-size:11px;color:var(--muted);margin-top:2px}
+.person .pacts{display:flex;align-items:center;gap:7px;justify-content:flex-end}
 .person .ps{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--muted)}
 .ps.working{color:var(--accent);border-color:rgba(58,214,182,.4)}.ps.blocked{color:var(--red);border-color:rgba(255,111,111,.4)}.ps.waiting_review{color:var(--purple);border-color:rgba(199,155,255,.4)}.ps.sleeping{color:var(--soft)}
 .ps.muted{color:var(--soft);border-color:var(--line-soft);opacity:.8}
@@ -514,6 +584,7 @@ const CLIENT_JS = [
   // task-notification regexes injected from the server's single source of truth (classifyTaskMessage)
   `var TASK_VERB_RE=new RegExp(${JSON.stringify(TASK_VERB_RE.source)},"i"),TASK_STATE_RE=new RegExp(${JSON.stringify(TASK_STATE_RE.source)},"i");`,
   "function api(p){return fetch(p,{cache:'no-store'}).then(function(r){return r.json();});}",
+  "function postApi(p,b){return fetch(p,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{}),cache:'no-store'}).then(function(r){return r.json();});}",
   "function esc(v){return String(v==null?'':v).replace(/[&<>\"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c];});}",
   "function mdInline(s){s=s.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>');s=s.replace(/`([^`]+)`/g,'<code>$1</code>');return s;}",
   "function md(raw){var e=esc(raw);var lines=e.split('\\n');var out=[];var inList=false;for(var i=0;i<lines.length;i++){var ln=lines[i];var b=ln.match(/^\\s*[-*]\\s+(.+)$/);var h2=ln.match(/^\\s*={2,}\\s*(.+?)\\s*=*\\s*$/);var h1=ln.match(/^(#{1,6})\\s+(.+)$/);if(b){if(!inList){out.push('<ul>');inList=true;}out.push('<li>'+mdInline(b[1])+'</li>');continue;}if(inList){out.push('</ul>');inList=false;}if(h1){out.push('<div class=\"md-h\">'+mdInline(h1[2])+'</div>');continue;}if(h2){out.push('<div class=\"md-h\">'+mdInline(h2[1])+'</div>');continue;}if(ln.trim()===''){out.push('<div class=\"md-sp\"></div>');continue;}out.push('<div>'+mdInline(ln)+'</div>');}if(inList)out.push('</ul>');return out.join('');}",
@@ -538,6 +609,10 @@ const CLIENT_JS = [
   "function pickTeam(pk,tk){ui.sel.project=pk;ui.sel.team=tk;ui.sel.view='chat';afterSel();}",
   "function afterSel(){writeHash();render();tick();}",
   "window.setView=setView;window.pickTeam=pickTeam;",
+  "function activeTasksForAgent(name){return (ui.state.tasks||[]).filter(function(t){return t.claimed_by===name&&['claimed','working','blocked'].indexOf(t.state)>=0;});}",
+  "function deleteMember(name){var active=activeTasksForAgent(name);var msg='Remove '+name+' from the live roster?\\n\\nHistory is preserved.'+(active.length?'\\n\\nActive tasks: '+active.map(function(t){return '#'+t.id;}).join(', '):'');if(!confirm(msg))return;postApi('/api/remove-agent',{name:name}).then(function(r){if(r.error&&r.error.code==='AGENT_HAS_ACTIVE_TASKS'){if(confirm(r.error.message+'\\n\\nRelease these tasks back to open and remove the member?'))return postApi('/api/remove-agent',{name:name,release_tasks:true});return r;}return r;}).then(function(r){if(!r)return;if(r.error){alert(r.error.code+': '+r.error.message);return;}tick();});}",
+  "function deleteCurrentTeam(){if(!ui.sel.team||ui.sel.team==='__null__')return;var team=ui.sel.team;var active=(ui.state.tasks||[]).filter(function(t){return t.team===team&&['claimed','working','blocked'].indexOf(t.state)>=0;});var msg='Delete team #'+team+' from live boards?\\n\\nMembers are removed and history is preserved without the team label.'+(active.length?'\\n\\nActive tasks: '+active.map(function(t){return '#'+t.id;}).join(', '):'');if(!confirm(msg))return;postApi('/api/delete-team',{team:team,project:ui.sel.project==='__null__'?undefined:ui.sel.project}).then(function(r){if(r.error&&r.error.code==='TEAM_HAS_ACTIVE_TASKS'){if(confirm(r.error.message+'\\n\\nRelease these tasks back to open and delete the team?'))return postApi('/api/delete-team',{team:team,project:ui.sel.project==='__null__'?undefined:ui.sel.project,release_tasks:true});return r;}return r;}).then(function(r){if(!r)return;if(r.error){alert(r.error.code+': '+r.error.message);return;}ui.sel.team=null;writeHash();ui.chat.scope='';tick();});}",
+  "window.deleteMember=deleteMember;window.deleteCurrentTeam=deleteCurrentTeam;",
   // main fetch loop
   "function tick(){var qs=qScope().toString();return Promise.all([api('/api/scopes'),api('/api/state?'+qs),api('/api/metrics?'+qs)]).then(function(res){var sc=res[0],st=res[1],me=res[2];if(!sc.error)ui.scopes=sc;if(!st.error)ui.state=applyNullFilters(st);if(!me.error)ui.metrics=me;var next;if(ui.chat.scope!==chatKey()){next=loadChat(true);}else if(ui.sel.view==='chat'){next=refreshLatest();}else{next=Promise.resolve();}return next;}).then(function(){render();}).catch(function(e){var b=document.getElementById('mainBody');if(b)b.innerHTML='<div class=\"empty\">Unable to read bus: '+esc(e.message||e)+'</div>';});}",
   // chat paging
@@ -569,7 +644,8 @@ const CLIENT_JS = [
   // chat (bubbles)
   "function dayLabel(ms){var d=new Date(ms),t=new Date();return d.toDateString()===t.toDateString()?'Today':d.toLocaleDateString([], {month:'short',day:'numeric'});}",
   "function renderChat(mode){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var members={};var msgs=ui.chat.msgs;for(var i=0;i<msgs.length;i++){members[msgs[i].from_agent]=1;}var mh='';for(var k in members){mh+='<span class=\"mini-ava\" style=\"background:'+ava(k).grad+'\">'+esc(initials(k))+'</span>';}",
-  "  HEAD.innerHTML='<div class=\"ttl\">'+(ui.sel.team?'# '+esc(ui.sel.team==='__null__'?'unteamed':ui.sel.team):esc(projDisplay(ui.sel.project)))+' <span class=\"members\">'+mh+'</span></div><div class=\"meta\">'+msgs.length+' loaded'+(ui.chat.hasMore?' · more available':'')+'</div>';",
+  "  var teamAction=(ui.sel.team&&ui.sel.team!=='__null__')?'<button class=\"dangerbtn\" onclick=\"deleteCurrentTeam()\">delete team</button>':'';",
+  "  HEAD.innerHTML='<div class=\"ttl\">'+(ui.sel.team?'# '+esc(ui.sel.team==='__null__'?'unteamed':ui.sel.team):esc(projDisplay(ui.sel.project)))+' <span class=\"members\">'+mh+'</span></div><div class=\"meta\">'+teamAction+' <span>'+msgs.length+' loaded'+(ui.chat.hasMore?' · more available':'')+'</span></div>';",
   "  var prevH=BODY.scrollHeight,prevTop=BODY.scrollTop;",
   "  var answered={};for(var a=0;a<msgs.length;a++){if(msgs[a].reply_to!=null)answered[msgs[a].reply_to]=1;}",
   "  var byId={};for(var b=0;b<msgs.length;b++){byId[msgs[b].id]=msgs[b];}",
@@ -604,7 +680,7 @@ const CLIENT_JS = [
   // people
   "var PORDER=['Blocked','Waiting review','Working','Idle','Stale / away','Sleeping'];",
   "function pbucket(a){if(a.presence==='paused')return 'Sleeping';if(a.presence==='stale')return a.status==='sleeping'?'Sleeping':'Stale / away';if(a.status==='blocked')return 'Blocked';if(a.status==='waiting_review')return 'Waiting review';if(a.status==='sleeping')return 'Sleeping';if(a.status==='working')return 'Working';return 'Idle';}",
-  "function renderPeople(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var agents=ui.state.agents||[];HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">◉ People <span class=\"vsub\">· '+agents.length+' agents · '+ui.state.stats.online+' online</span></div></div>';if(!agents.length){BODY.innerHTML='<div class=\"empty\">No agents in this scope.</div>';FOOT.innerHTML='';return;}var groups={};agents.forEach(function(a){var b=pbucket(a);(groups[b]=groups[b]||[]).push(a);});BODY.innerHTML='<div class=\"people\">'+PORDER.filter(function(g){return groups[g];}).map(function(g){return '<div class=\"pgroup\"><h4>'+g+' <span style=\"color:var(--soft);font-family:var(--mono)\">'+groups[g].length+'</span></h4>'+groups[g].map(function(a){var av=ava(a.name);var caps=(a.capabilities||[]).slice(0,3).join(', ');var ring=a.presence==='online'?'online':a.presence==='stale'?'stale':'';var seen=a.age_s<60?a.age_s+'s':a.age_s<3600?Math.round(a.age_s/60)+'m':Math.round(a.age_s/3600)+'h';var stale=(a.presence==='stale'||a.presence==='paused');return '<div class=\"person\"><div class=\"pava2 '+ring+'\" style=\"background:'+av.grad+'\">'+esc(initials(a.name))+'</div><div><div class=\"pn\">'+esc(a.name)+'</div><div class=\"pm\">'+esc(a.role||'agent')+' · '+esc(caps)+' · #'+esc(a.team||'none')+' · seen '+seen+(a.active_task_id?' · task #'+a.active_task_id:'')+'</div></div><span class=\"ps '+(stale?'muted':esc(a.status))+'\" title=\"last reported: '+esc(a.status)+'\">'+esc(a.status)+(stale?' · stale':'')+'</span></div>';}).join('')+'</div>';}).join('')+'</div>';FOOT.innerHTML='<span class=\"count\">'+agents.length+' agents</span><span class=\"readonly\">presence + status</span>';}",
+  "function renderPeople(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var agents=ui.state.agents||[];var teamAction=(ui.sel.team&&ui.sel.team!=='__null__')?'<button class=\"dangerbtn\" onclick=\"deleteCurrentTeam()\">delete team</button>':'';HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">◉ People <span class=\"vsub\">· '+agents.length+' agents · '+ui.state.stats.online+' online</span></div><div>'+teamAction+'</div></div>';if(!agents.length){BODY.innerHTML='<div class=\"empty\">No agents in this scope.</div>';FOOT.innerHTML='';return;}var groups={};agents.forEach(function(a){var b=pbucket(a);(groups[b]=groups[b]||[]).push(a);});BODY.innerHTML='<div class=\"people\">'+PORDER.filter(function(g){return groups[g];}).map(function(g){return '<div class=\"pgroup\"><h4>'+g+' <span style=\"color:var(--soft);font-family:var(--mono)\">'+groups[g].length+'</span></h4>'+groups[g].map(function(a){var av=ava(a.name);var caps=(a.capabilities||[]).slice(0,3).join(', ');var ring=a.presence==='online'?'online':a.presence==='stale'?'stale':'';var seen=a.age_s<60?a.age_s+'s':a.age_s<3600?Math.round(a.age_s/60)+'m':Math.round(a.age_s/3600)+'h';var stale=(a.presence==='stale'||a.presence==='paused');return '<div class=\"person\"><div class=\"pava2 '+ring+'\" style=\"background:'+av.grad+'\">'+esc(initials(a.name))+'</div><div><div class=\"pn\">'+esc(a.name)+'</div><div class=\"pm\">'+esc(a.role||'agent')+' · '+esc(caps)+' · #'+esc(a.team||'none')+' · seen '+seen+(a.active_task_id?' · task #'+a.active_task_id:'')+'</div></div><div class=\"pacts\"><span class=\"ps '+(stale?'muted':esc(a.status))+'\" title=\"last reported: '+esc(a.status)+'\">'+esc(a.status)+(stale?' · stale':'')+'</span><button class=\"dangerbtn\" onclick=\"deleteMember(\\''+esc(a.name)+'\\')\">remove</button></div></div>';}).join('')+'</div>';}).join('')+'</div>';FOOT.innerHTML='<span class=\"count\">'+agents.length+' agents</span><span class=\"readonly\">presence + cleanup</span>';}",
   // attention
   "function attnRows(b){var rows=[];b.blocked_tasks.forEach(function(t){rows.push({sev:'blocked',label:'BLOCKED',id:t.id,title:t.title,note:t.blocked_reason||'no reason recorded',at:t.updated_at});});b.stale_tasks.forEach(function(t){rows.push({sev:'stale',label:'STALE',id:t.id,title:t.title,note:'holder '+(t.claimed_by||'?')+' went quiet',at:t.updated_at});});b.waiting_review.forEach(function(t){rows.push({sev:'review',label:'REVIEW',id:t.id,title:t.title,note:'needs a verifier to approve',at:t.updated_at});});b.waiting_acknowledgement.forEach(function(t){rows.push({sev:'ack',label:'ACK',id:t.id,title:t.title,note:'assigned to '+(t.pending_assignee||t.claimed_by||'?')+', not acknowledged',at:t.updated_at});});b.scope_conflicts.forEach(function(c){rows.push({sev:'conflict',label:'CONFLICT',id:c.task_id,title:c.title,note:'edit scope overlaps '+c.conflicts.map(function(x){return '#'+x.task_id;}).join(', '),at:0});});return rows;}",
   "function renderAttention(){var HEAD=document.getElementById('mainHead'),BODY=document.getElementById('mainBody'),FOOT=document.getElementById('mainFoot');var rows=attnRows(ui.state.cockpit.board);HEAD.innerHTML='<div class=\"view-head\"><div class=\"vt\">⚡ Attention <span class=\"vsub\">· what needs a human next</span></div><div class=\"vsub\" style=\"color:'+(rows.length?'var(--red)':'var(--soft)')+'\">'+rows.length+' items</div></div>';BODY.innerHTML='<div class=\"attnfull\">'+(rows.length?rows.map(function(r){return '<div class=\"afrow '+r.sev+'\" onclick=\"openTask('+r.id+')\"><div class=\"afsev\">'+r.label+'</div><div><strong>#'+r.id+' '+esc(r.title)+'</strong><p>'+esc(r.note)+'</p></div><div class=\"afat\">'+(r.at?ago(r.at):'')+'</div></div>';}).join(''):'<div class=\"empty\">Nothing needs attention in this scope. ✨</div>')+'</div>';FOOT.innerHTML='<span class=\"count\">'+rows.length+' attention items</span><span class=\"readonly\">read-only</span>';}",

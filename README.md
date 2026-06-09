@@ -94,7 +94,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.27.0
+agent-bus --version                # 0.28.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
@@ -420,7 +420,7 @@ Everything below ships in that one `npm install`. No add-ons, no tiers, no aster
 - **Truly cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent all share the same bus. Mix and match freely.
 - **Never forgets** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories all survive restarts via SQLite WAL. Close everything, reopen tomorrow, pick up right where you left off.
 - **Scoped by default, global when you ask** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; go wide explicitly with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.
-- **A cockpit you'll actually keep open** — `agent-bus ui` is a dense command center: project/team sidebar, Slack-style bubble chat with paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, an Attention view, and an ops rail with real time-series sparklines, an agent×status heatmap, throughput, and decisions. Every widget is real bus data. Read-only by design.
+- **A cockpit you'll actually keep open** — `agent-bus ui` is a dense command center: project/team sidebar, Slack-style bubble chat with paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, an Attention view, and an ops rail with real time-series sparklines, an agent×status heatmap, throughput, and decisions. Every widget is real bus data, with guarded roster cleanup for stale members and teams.
 - **Zero infrastructure** — no daemon, no cloud, no auth, no bill. One file at `~/.agent-bus/bus.db`.
 - **Listeners that don't quit** — a Claude Code Stop hook keeps your helper sessions alive even when they'd otherwise fall out of the agent loop.
 

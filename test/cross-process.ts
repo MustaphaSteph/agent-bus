@@ -165,6 +165,9 @@ assert.match(messagePreview.stdout, /len=22000/);
 assert.match(messagePreview.stdout, /Next:/);
 console.log("✓ inbox-previews and message avoid dumping large inbox bodies");
 
+await run(["register", "--name", "ui-clean-pm", "--team", "ui-clean", "--project", "ui-clean", "--capabilities", "coordination", "--replace"]);
+await run(["register", "--name", "ui-clean-worker", "--team", "ui-clean", "--project", "ui-clean", "--capabilities", "implementation", "--replace"]);
+
 const ui = start(["ui", "--no-open", "--port", "8791", "--project", "all", "--area", "all", "--team", "all"]);
 try {
   const stateRes = await waitForUrl("http://127.0.0.1:8791/api/state");
@@ -174,7 +177,25 @@ try {
   assert.ok(state.stats.online >= 0);
   const html = await (await waitForUrl("http://127.0.0.1:8791/")).text();
   assert.match(html, /Agent Bus Cockpit/);
+  const removeRes = await fetch("http://127.0.0.1:8791/api/remove-agent", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "ui-clean-worker" }),
+  });
+  assert.equal(removeRes.status, 200);
+  const removed = await removeRes.json() as { removed_agent: { name: string } };
+  assert.equal(removed.removed_agent.name, "ui-clean-worker");
+  const deleteRes = await fetch("http://127.0.0.1:8791/api/delete-team", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ team: "ui-clean", project: "ui-clean" }),
+  });
+  assert.equal(deleteRes.status, 200);
+  const deleted = await deleteRes.json() as { removed_agents: string[]; team: string };
+  assert.equal(deleted.team, "ui-clean");
+  assert.deepEqual(deleted.removed_agents, ["ui-clean-pm"]);
   console.log("✓ local web UI serves cockpit state");
+  console.log("✓ local web UI can remove members and delete teams");
 } finally {
   ui.kill();
 }

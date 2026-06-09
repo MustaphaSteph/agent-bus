@@ -148,10 +148,16 @@ JSON endpoints (read-only, same origin):
 - `GET /api/tasks/:id` — task detail bundle (events, test results,
   thread) for drill-down.
 - `GET /api/messages/:id?full=1` — one message, optionally full body.
+- `POST /api/remove-agent` — remove one live roster member. Preserves
+  history and refuses active tasks unless `release_tasks` is true.
+- `POST /api/delete-team` — remove one live team scope. Preserves
+  history and refuses active tasks unless `release_tasks` is true.
 
-The UI is local-only and read-only by design: it binds to `127.0.0.1`,
-uses the current `AGENT_BUS_DIR`, refreshes automatically, and never
-mutates bus state (no action buttons).
+The UI is local-only and mostly read-only: it binds to `127.0.0.1`, uses
+the current `AGENT_BUS_DIR`, and refreshes automatically. The only
+mutating controls are explicit roster cleanup actions in People/team
+views: remove member and delete team. Both preserve audit history and
+confirm before reopening active tasks.
 
 **Message kinds and threads.** The cockpit chat distinguishes stored
 message kinds, plus a task-notification visual treatment, and renders
@@ -269,6 +275,10 @@ agent-bus delete-team ios-ui --project all --area all --release-tasks
 This removes live members from the team and clears the team label from
 preserved history rows. It does not erase messages, tasks, decisions,
 memories, or test evidence.
+
+The same cleanup actions are available in `agent-bus ui`: open the
+People view to remove a member, or use the delete-team button when a team
+is selected.
 
 ### `agent-bus wait-for-agents`
 
