@@ -9,6 +9,7 @@ import {
   checkScopeConflicts,
   delegate,
   delegateTeam,
+  deleteTeam,
   directory,
   finalReport,
   handoffTask,
@@ -29,6 +30,7 @@ import {
   recentMessages,
   replyThread,
   register,
+  removeAgent,
   recordDecision,
   recordTaskEvent,
   recordTestResult,
@@ -295,6 +297,28 @@ program
       const paused = a.paused ? kleur.red(" (paused)") : "";
       console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + teamChip + role + active)}${paused}  ${kleur.gray(`${a.status}/${a.presence}, seen ${a.age_s}s ago`)}`);
     }
+  });
+
+program
+  .command("remove-member <agent>")
+  .alias("remove-agent")
+  .description("Remove an agent from the live roster while preserving message/task history")
+  .option("--release-tasks", "reopen active tasks held by this agent")
+  .option("--force", "force cleanup; currently equivalent to --release-tasks for active work")
+  .action((agent: string, opts: { releaseTasks?: boolean; force?: boolean }) => {
+    const result = removeAgent({
+      name: agent,
+      release_tasks: opts.releaseTasks,
+      force: opts.force,
+    });
+    console.log(`${kleur.green("removed")} ${result.removed_agent.name}`);
+    if (result.released_tasks.length > 0) {
+      console.log(`released tasks: ${result.released_tasks.map((id) => `#${id}`).join(", ")}`);
+    }
+    if (result.subscriptions_deleted > 0) {
+      console.log(`deleted subscriptions: ${result.subscriptions_deleted}`);
+    }
+    console.log(kleur.gray("message/task history was preserved"));
   });
 
 program
@@ -1526,6 +1550,30 @@ program
       team: opts.team,
     });
     console.log(`${kleur.green("registered")} ${a.name}`);
+  });
+
+program
+  .command("delete-team <team>")
+  .description("Remove a team from live boards by unregistering members and detaching preserved history from the team")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope (use 'all' for every area)")
+  .option("--release-tasks", "reopen active tasks in this team")
+  .option("--force", "force cleanup; currently equivalent to --release-tasks for active work")
+  .action((team: string, opts: { project?: string; area?: string; releaseTasks?: boolean; force?: boolean }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area);
+    const result = deleteTeam({
+      team,
+      project: scope.project ?? undefined,
+      area: scope.area ?? undefined,
+      release_tasks: opts.releaseTasks,
+      force: opts.force,
+    });
+    console.log(`${kleur.green("deleted team")} ${team}`);
+    console.log(`removed members: ${result.removed_agents.length > 0 ? result.removed_agents.join(", ") : "none"}`);
+    if (result.released_tasks.length > 0) {
+      console.log(`released tasks: ${result.released_tasks.map((id) => `#${id}`).join(", ")}`);
+    }
+    console.log(`detached history: ${Object.entries(result.unscoped).map(([table, count]) => `${table}=${count}`).join(", ")}`);
   });
 
 program

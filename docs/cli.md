@@ -236,6 +236,39 @@ agent-bus whois --team ios-ui
 Scoped output includes agents in the current project plus null-project
 legacy/global agents. Area-scoped output includes matching-area plus
 null-area legacy agents. Null-project agents render with `{no-project}`.
+Removed members are hidden from normal `whois`, boards, routing, and
+inbox delivery.
+
+### `agent-bus remove-member <agent>`
+
+Remove one member from the live roster while preserving task/message
+history. Active tasks are protected; release them explicitly if you want
+the task board to reopen them.
+
+```bash
+agent-bus remove-member ui-designer
+agent-bus remove-member ui-designer --release-tasks
+agent-bus remove-agent ui-designer --release-tasks   # alias
+```
+
+This tombstones the agent row, deletes channel subscriptions, and keeps
+historical task/message references valid.
+
+### `agent-bus delete-team <team>`
+
+Delete a team scope from live boards. By default it uses the current repo
+project; pass `--project all` only when you intentionally want global
+cleanup.
+
+```bash
+agent-bus delete-team ios-ui
+agent-bus delete-team ios-ui --project movie-app --release-tasks
+agent-bus delete-team ios-ui --project all --area all --release-tasks
+```
+
+This removes live members from the team and clears the team label from
+preserved history rows. It does not erase messages, tasks, decisions,
+memories, or test evidence.
 
 ### `agent-bus wait-for-agents`
 

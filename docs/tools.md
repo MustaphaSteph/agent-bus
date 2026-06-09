@@ -456,6 +456,61 @@ List agents with derived status and active task metadata.
 directory({ project?: string, area?: string, team?: string }) → AgentDirectoryEntry[]
 ```
 
+Removed agents are hidden from `whois`, `directory`, routing, and inbox
+delivery. Historical messages/tasks still keep their agent names for
+audit.
+
+## remove_agent
+
+Remove one agent/member from the live roster while preserving message and
+task history. If the agent holds active work, the tool refuses unless you
+explicitly release that work.
+
+```ts
+remove_agent({
+  name: string,
+  release_tasks?: boolean,     // reopen active tasks held by this agent
+  force?: boolean,             // currently equivalent to release_tasks
+}) → {
+  removed_agent: Agent,
+  active_tasks: number[],
+  released_tasks: number[],
+  subscriptions_deleted: number,
+  preserved_history: true,
+}
+```
+
+**Errors**: `UNKNOWN_AGENT`, `AGENT_HAS_ACTIVE_TASKS`.
+
+## delete_team
+
+Delete a team scope from live boards. This tombstones live members in that
+team, deletes their channel subscriptions, and clears the team label from
+preserved history rows so the team disappears from scoped views. It does
+not physically delete messages, tasks, decisions, memories, or test
+evidence.
+
+```ts
+delete_team({
+  team: string,
+  project?: string,            // default current MCP project; "*" = all projects
+  area?: string,               // default current MCP area; "*" = all areas
+  release_tasks?: boolean,     // reopen active team tasks
+  force?: boolean,             // currently equivalent to release_tasks
+}) → {
+  team: string,
+  project: string | null,
+  area: string | null,
+  removed_agents: string[],
+  active_tasks: number[],
+  released_tasks: number[],
+  unscoped: Record<string, number>,
+  preserved_history: true,
+}
+```
+
+**Errors**: `TEAM_NOT_FOUND`, `TEAM_HAS_ACTIVE_TASKS`.
+
 ## wait_for_agents
 
 Wait for an expected team roster before the manager starts assigning

@@ -2,10 +2,10 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.26.0
+  version: 0.27.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
-    `agent-bus` exposes 63 tools over an MCP stdio server. This OpenAPI
+    `agent-bus` exposes 65 tools over an MCP stdio server. This OpenAPI
     document maps the core tool surface to synthetic `POST /tools/<name>`
     endpoints for documentation, validation, and code-generation purposes.
     The real transport is JSON-RPC 2.0 over stdio — there is no HTTP server.
@@ -85,6 +85,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/remove_agent:
+    post:
+      tags: [Identity]
+      summary: Remove an agent/member from live routing
+      description: |
+        Tombstones one agent so it no longer appears in normal rosters,
+        routing, or inbox delivery. Message/task history is preserved.
+        If the agent holds active tasks, pass `release_tasks: true` to
+        reopen them; otherwise the call fails with
+        `AGENT_HAS_ACTIVE_TASKS`.
+      operationId: remove_agent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveAgentRequest'
+            examples:
+              remove:
+                value:
+                  name: ui-designer
+              release-active:
+                value:
+                  name: ui-designer
+                  release_tasks: true
+      responses:
+        '200':
+          description: Removal summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoveAgentResult'
+        '400':
+          $ref: '#/components/responses/BusError'
+
+  /tools/delete_team:
+    post:
+      tags: [Teams]
+      summary: Delete a team scope from live boards
+      description: |
+        Tombstones live members in the team and clears the team label
+        from preserved history rows. This makes the team disappear from
+        scoped boards without deleting messages, tasks, decisions,
+        memories, or test evidence. If active team tasks exist, pass
+        `release_tasks: true` to reopen them.
+      operationId: delete_team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteTeamRequest'
+            examples:
+              scoped:
+                value:
+                  team: ios-ui
+                  project: movie-app
+              release-active:
+                value:
+                  team: ios-ui
+                  project: movie-app
+                  release_tasks: true
+      responses:
+        '200':
+          description: Team cleanup summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteTeamResult'
         '400':
           $ref: '#/components/responses/BusError'
 
@@ -1405,6 +1477,10 @@ components:
         session_id:
           type: [string, 'null']
           description: Optional host/model session id.
+        removed_at:
+          type: [integer, 'null']
+          format: int64
+          description: Tombstone timestamp. Normal roster reads hide removed agents.
 
     Message:
       type: object
@@ -1650,6 +1726,9 @@ components:
                 - ASK_NOT_FOUND
                 - MESSAGE_NOT_FOUND
                 - THREAD_NOT_FOUND
+                - TEAM_NOT_FOUND
+                - AGENT_HAS_ACTIVE_TASKS
+                - TEAM_HAS_ACTIVE_TASKS
                 - TASK_NOT_FOUND
                 - TASK_INVALID_TRANSITION
                 - TASK_NOT_CLAIMABLE
@@ -1695,6 +1774,79 @@ components:
           type: [string, 'null']
         routing_weight:
           type: integer
+
+    RemoveAgentRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          $ref: '#/components/schemas/AgentName'
+        release_tasks:
+          type: boolean
+        force:
+          type: boolean
+
+    RemoveAgentResult:
+      type: object
+      required: [removed_agent, active_tasks, released_tasks, subscriptions_deleted, preserved_history]
+      properties:
+        removed_agent:
+          $ref: '#/components/schemas/Agent'
+        active_tasks:
+          type: array
+          items: { type: integer }
+        released_tasks:
+          type: array
+          items: { type: integer }
+        subscriptions_deleted:
+          type: integer
+        preserved_history:
+          type: boolean
+          enum: [true]
+
+    DeleteTeamRequest:
+      type: object
+      required: [team]
+      additionalProperties: false
+      properties:
+        team:
+          $ref: '#/components/schemas/TeamFilter'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
+        release_tasks:
+          type: boolean
+        force:
+          type: boolean
+
+    DeleteTeamResult:
+      type: object
+      required: [team, removed_agents, active_tasks, released_tasks, unscoped, preserved_history]
+      properties:
+        team:
+          type: string
+        project:
+          type: [string, 'null']
+        area:
+          type: [string, 'null']
+        removed_agents:
+          type: array
+          items: { type: string }
+        active_tasks:
+          type: array
+          items: { type: integer }
+        released_tasks:
+          type: array
+          items: { type: integer }
+        unscoped:
+          type: object
+          additionalProperties:
+            type: integer
+        preserved_history:
+          type: boolean
+          enum: [true]
 
     SendRequest:
       type: object

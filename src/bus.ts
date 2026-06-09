@@ -46,6 +46,7 @@ export interface Agent {
   routing_weight: number;
   status: AgentStatus;
   session_id: string | null;
+  removed_at: number | null;
 }
 
 export interface Message {
@@ -94,6 +95,7 @@ interface AgentRow {
   routing_weight: number;
   status: AgentStatus;
   session_id: string | null;
+  removed_at: number | null;
 }
 
 interface MessageRow {
@@ -131,6 +133,7 @@ function toAgent(row: AgentRow): Agent {
     routing_weight: row.routing_weight,
     status: row.status,
     session_id: row.session_id,
+    removed_at: row.removed_at,
   };
 }
 
@@ -278,7 +281,7 @@ function requireAgent(name: string): Agent {
   const row = db.prepare("SELECT * FROM agents WHERE name = ?").get(name) as
     | AgentRow
     | undefined;
-  if (!row) throw new BusError("UNKNOWN_AGENT", `agent '${name}' is not registered`);
+  if (!row || row.removed_at !== null) throw new BusError("UNKNOWN_AGENT", `agent '${name}' is not registered`);
   return toAgent(row);
 }
 
@@ -340,7 +343,7 @@ export function register(opts: RegisterOptions): Agent {
     .get(opts.name) as AgentRow | undefined;
 
   const ts = now();
-  if (existing && !opts.replace) {
+  if (existing && existing.removed_at === null && !opts.replace) {
     const ageMs = ts - existing.last_seen;
     if (ageMs < 60_000) {
       throw new BusError(
@@ -358,8 +361,8 @@ export function register(opts: RegisterOptions): Agent {
   const status = opts.status ?? "idle";
   const sessionId = opts.session_id ?? null;
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, team, role, routing_weight, status, session_id)
-       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @team, @role, @routingWeight, @status, @sessionId)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, team, role, routing_weight, status, session_id, removed_at)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @team, @role, @routingWeight, @status, @sessionId, NULL)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
@@ -371,7 +374,8 @@ export function register(opts: RegisterOptions): Agent {
        role = excluded.role,
        routing_weight = excluded.routing_weight,
        status = excluded.status,
-       session_id = excluded.session_id`,
+       session_id = excluded.session_id,
+       removed_at = NULL`,
   ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, team, role, routingWeight, status, sessionId });
 
   const agent = requireAgent(opts.name);
@@ -395,7 +399,7 @@ function notifyPendingAssignments(name: string): void {
 
 export function heartbeat(name: string): void {
   const db = getDb();
-  db.prepare("UPDATE agents SET last_seen = ? WHERE name = ?").run(now(), name);
+  db.prepare("UPDATE agents SET last_seen = ? WHERE name = ? AND removed_at IS NULL").run(now(), name);
 }
 
 export interface WhoisOptions {
@@ -406,7 +410,7 @@ export interface WhoisOptions {
 
 export function whois(opts: WhoisOptions = {}): Agent[] {
   const db = getDb();
-  const where: string[] = [];
+  const where: string[] = ["removed_at IS NULL"];
   const params: unknown[] = [];
   if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
     validateProject(opts.project);
@@ -2008,12 +2012,17 @@ function getTaskRow(id: number): TaskRow {
 
 function notifyTaskRequester(task: Task, from: string, content: string): Message | null {
   if (task.requested_by === from) return null;
-  return send({
-    from,
-    to: task.requested_by,
-    content,
-    thread_id: task.thread_id,
-  });
+  try {
+    return send({
+      from,
+      to: task.requested_by,
+      content,
+      thread_id: task.thread_id,
+    });
+  } catch (err) {
+    if (err instanceof BusError && err.code === "UNKNOWN_AGENT") return null;
+    throw err;
+  }
 }
 
 export interface ScopeConflict {
@@ -2597,6 +2606,208 @@ export function releaseTask(opts: ReleaseTaskOptions): Task {
   ).run(ts, opts.task_id);
 
   return toTask(getTaskRow(opts.task_id));
+}
+
+export interface RemoveAgentOptions {
+  name: string;
+  release_tasks?: boolean;
+  force?: boolean;
+}
+
+export interface RemoveAgentResult {
+  removed_agent: Agent;
+  active_tasks: number[];
+  released_tasks: number[];
+  subscriptions_deleted: number;
+  preserved_history: true;
+}
+
+export interface DeleteTeamOptions {
+  team: string;
+  project?: string;
+  area?: string;
+  release_tasks?: boolean;
+  force?: boolean;
+}
+
+export interface DeleteTeamResult {
+  team: string;
+  project: string | null;
+  area: string | null;
+  removed_agents: string[];
+  active_tasks: number[];
+  released_tasks: number[];
+  unscoped: Record<"messages" | "tasks" | "task_events" | "test_results" | "decisions" | "memories", number>;
+  preserved_history: true;
+}
+
+function activeTaskRowsForAgent(agent: string): TaskRow[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM tasks
+       WHERE claimed_by = ?
+         AND state IN (${ACTIVE_TASK_STATES.map(() => "?").join(",")})
+       ORDER BY id ASC`,
+    )
+    .all(agent, ...ACTIVE_TASK_STATES) as TaskRow[];
+}
+
+function releaseTaskRows(rows: TaskRow[], byAgent?: string): number[] {
+  if (rows.length === 0) return [];
+  const db = getDb();
+  const ts = now();
+  const update = db.prepare(
+    `UPDATE tasks
+       SET state = 'open',
+           claimed_by = NULL,
+           pending_assignee = NULL,
+           claimed_at = NULL,
+           phase = NULL,
+           updated_at = ?
+     WHERE id = ?`,
+  );
+  const insertEvent = db.prepare(
+    `INSERT INTO task_events (task_id, by_agent, event_type, message, phase, metadata, project, area, team, created_at)
+     VALUES (?, ?, 'note', ?, NULL, ?, ?, ?, ?, ?)`,
+  );
+  for (const row of rows) {
+    const eventAgent = byAgent ?? row.claimed_by ?? row.requested_by;
+    update.run(ts, row.id);
+    insertEvent.run(
+      row.id,
+      eventAgent,
+      `released by cleanup; previous holder was ${row.claimed_by ?? "none"}`,
+      JSON.stringify({ cleanup: true, previous_holder: row.claimed_by }),
+      row.project,
+      row.area,
+      row.team,
+      ts,
+    );
+  }
+  return rows.map((row) => row.id);
+}
+
+export function removeAgent(opts: RemoveAgentOptions): RemoveAgentResult {
+  validateName(opts.name);
+  const removedAgent = requireAgent(opts.name);
+  const activeTasks = activeTaskRowsForAgent(opts.name);
+  if (activeTasks.length > 0 && opts.release_tasks !== true && opts.force !== true) {
+    throw new BusError(
+      "AGENT_HAS_ACTIVE_TASKS",
+      `agent '${opts.name}' holds active tasks: ${activeTasks.map((task) => `#${task.id}`).join(", ")}; pass release_tasks:true to reopen them`,
+    );
+  }
+
+  const releasedTasks = releaseTaskRows(activeTasks, opts.name);
+  const db = getDb();
+  const subscriptionsDeleted = (db
+    .prepare("SELECT COUNT(*) AS c FROM subscriptions WHERE agent = ?")
+    .get(opts.name) as { c: number }).c;
+  db.prepare("DELETE FROM subscriptions WHERE agent = ?").run(opts.name);
+  db.prepare(
+    `UPDATE agents
+       SET paused = 1,
+           status = 'sleeping',
+           project = NULL,
+           area = NULL,
+           team = NULL,
+           session_id = NULL,
+           removed_at = ?
+     WHERE name = ?`,
+  ).run(now(), opts.name);
+
+  return {
+    removed_agent: removedAgent,
+    active_tasks: activeTasks.map((task) => task.id),
+    released_tasks: releasedTasks,
+    subscriptions_deleted: subscriptionsDeleted,
+    preserved_history: true,
+  };
+}
+
+function teamScopeWhere(opts: DeleteTeamOptions): { where: string; params: unknown[] } {
+  validateTeam(opts.team);
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) validateProject(opts.project);
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) validateArea(opts.area);
+  const where = ["team = ?"];
+  const params: unknown[] = [opts.team];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    where.push("project = ?");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    where.push("area = ?");
+    params.push(opts.area);
+  }
+  return { where: where.join(" AND "), params };
+}
+
+export function deleteTeam(opts: DeleteTeamOptions): DeleteTeamResult {
+  const db = getDb();
+  const scope = teamScopeWhere(opts);
+  const tables = ["agents", "messages", "tasks", "task_events", "test_results", "decisions", "memories"] as const;
+  const existing = tables.reduce((count, table) => {
+    const agentLiveFilter = table === "agents" ? " AND removed_at IS NULL" : "";
+    const row = db.prepare(`SELECT COUNT(*) AS c FROM ${table} WHERE ${scope.where}${agentLiveFilter}`).get(...scope.params) as { c: number };
+    return count + row.c;
+  }, 0);
+  if (existing === 0) {
+    throw new BusError("TEAM_NOT_FOUND", `team '${opts.team}' was not found in the requested scope`);
+  }
+
+  const activeTasks = db
+    .prepare(
+      `SELECT * FROM tasks
+       WHERE ${scope.where}
+         AND state IN (${ACTIVE_TASK_STATES.map(() => "?").join(",")})
+       ORDER BY id ASC`,
+    )
+    .all(...scope.params, ...ACTIVE_TASK_STATES) as TaskRow[];
+  if (activeTasks.length > 0 && opts.release_tasks !== true && opts.force !== true) {
+    throw new BusError(
+      "TEAM_HAS_ACTIVE_TASKS",
+      `team '${opts.team}' has active tasks: ${activeTasks.map((task) => `#${task.id}`).join(", ")}; pass release_tasks:true to reopen them`,
+    );
+  }
+
+  const releasedTasks = releaseTaskRows(activeTasks);
+  const removedAgents = (db
+    .prepare(`SELECT name FROM agents WHERE ${scope.where} AND removed_at IS NULL ORDER BY name ASC`)
+    .all(...scope.params) as { name: string }[]).map((row) => row.name);
+  for (const agent of removedAgents) {
+    db.prepare("DELETE FROM subscriptions WHERE agent = ?").run(agent);
+  }
+  db.prepare(
+    `UPDATE agents
+       SET paused = 1,
+           status = 'sleeping',
+           project = NULL,
+           area = NULL,
+           team = NULL,
+           session_id = NULL,
+           removed_at = ?
+     WHERE ${scope.where} AND removed_at IS NULL`,
+  ).run(now(), ...scope.params);
+
+  const unscoped = {
+    messages: db.prepare(`UPDATE messages SET team = NULL WHERE ${scope.where}`).run(...scope.params).changes,
+    tasks: db.prepare(`UPDATE tasks SET team = NULL WHERE ${scope.where}`).run(...scope.params).changes,
+    task_events: db.prepare(`UPDATE task_events SET team = NULL WHERE ${scope.where}`).run(...scope.params).changes,
+    test_results: db.prepare(`UPDATE test_results SET team = NULL WHERE ${scope.where}`).run(...scope.params).changes,
+    decisions: db.prepare(`UPDATE decisions SET team = NULL WHERE ${scope.where}`).run(...scope.params).changes,
+    memories: db.prepare(`UPDATE memories SET team = NULL WHERE ${scope.where}`).run(...scope.params).changes,
+  };
+
+  return {
+    team: opts.team,
+    project: opts.project === PROJECT_WILDCARD ? null : (opts.project ?? null),
+    area: opts.area === AREA_WILDCARD ? null : (opts.area ?? null),
+    removed_agents: removedAgents,
+    active_tasks: activeTasks.map((task) => task.id),
+    released_tasks: releasedTasks,
+    unscoped,
+    preserved_history: true,
+  };
 }
 
 export interface ListTasksOptions {

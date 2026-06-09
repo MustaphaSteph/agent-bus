@@ -45,7 +45,7 @@ npm link
 ### Verify
 
 ```bash
-agent-bus --version                # 0.26.0
+agent-bus --version                # 0.27.0
 which agent-bus-mcp          # full path to the MCP server bin
 ```
 
@@ -125,7 +125,7 @@ session and ask:
 List the agent-bus MCP tools and call whois.
 ```
 
-You should see all 63 tools and the test agents you just created.
+You should see all 65 tools and the test agents you just created.
 
 ## Where things live
 

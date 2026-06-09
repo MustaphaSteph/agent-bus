@@ -24,6 +24,7 @@ import {
   createTask,
   delegate,
   delegateTeam,
+  deleteTeam,
   directory,
   finalReport,
   getMessage,
@@ -39,6 +40,7 @@ import {
   pinMemory,
   projectBoard,
   register,
+  removeAgent,
   recordTaskEvent,
   recordTestResult,
   releaseTask,
@@ -111,6 +113,20 @@ const RegisterInput = z.object({
   routing_weight: z.number().int().optional(),
   status: AgentStatusEnum.optional(),
   session_id: z.string().min(1).max(128).nullable().optional(),
+});
+
+const RemoveAgentInput = z.object({
+  name: z.string().min(1).max(64),
+  release_tasks: z.boolean().optional(),
+  force: z.boolean().optional(),
+});
+
+const DeleteTeamInput = z.object({
+  team: z.string().min(1).max(64),
+  project: ProjectFilterField,
+  area: AreaFilterField,
+  release_tasks: z.boolean().optional(),
+  force: z.boolean().optional(),
 });
 
 const SendInput = z.object({
@@ -601,6 +617,38 @@ const TOOLS = [
         },
       },
       required: ["name"],
+    },
+  },
+  {
+    name: "remove_agent",
+    description:
+      "Remove an agent/member from the live roster while preserving message and task history. " +
+      "Refuses if the agent holds active tasks unless release_tasks:true is passed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Agent/member name to remove" },
+        release_tasks: { type: "boolean", description: "Reopen active tasks held by this agent before removal" },
+        force: { type: "boolean", description: "Force cleanup; currently equivalent to release_tasks for active work" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "delete_team",
+    description:
+      "Delete a team scope by unregistering its live members and clearing that team label from preserved history. " +
+      "This makes the team disappear from boards/scopes without deleting audit records. Refuses active tasks unless release_tasks:true is passed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        team: { type: "string", description: "Team name to delete" },
+        project: { type: "string", description: "Optional project scope; defaults to this MCP session's cwd-derived project" },
+        area: { type: "string", description: "Optional area scope; use '*' for all areas" },
+        release_tasks: { type: "boolean", description: "Reopen active team tasks before deleting the team scope" },
+        force: { type: "boolean", description: "Force cleanup; currently equivalent to release_tasks for active work" },
+      },
+      required: ["team"],
     },
   },
   {
@@ -1719,6 +1767,16 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+      });
+    }
+    case "remove_agent":
+      return removeAgent(RemoveAgentInput.parse(raw));
+    case "delete_team": {
+      const input = DeleteTeamInput.parse(raw);
+      return deleteTeam({
+        ...input,
+        project: input.project ?? (SESSION_SCOPE.project ?? undefined),
+        area: input.area ?? (SESSION_SCOPE.area ?? undefined),
       });
     }
     case "send": {

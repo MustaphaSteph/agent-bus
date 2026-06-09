@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.26.0
+  - agent-bus-mcp >= 0.27.0
 ---
 
 # agent-bus
@@ -73,6 +73,8 @@ The user speaks normally. You pick the tool. Common patterns:
 | "What did <name> say?" / "Did anyone reply?" | `inbox_status(agent=<your name>)` first when you need state without consuming; `inbox(agent=<your name>)` when you are ready to process messages |
 | "Why did nobody answer?" | `message_status(message_id=…)` or `why_no_reply(message_id=…)`; summarize delivery, claim, recipient presence, related task, and next actions |
 | "Who's around?" / "Who's listening?" | `whois()` rendered cleanly |
+| "Remove this member" / "delete this agent" | `remove_agent(name=…)`; if it returns `AGENT_HAS_ACTIVE_TASKS`, show the active task ids and ask before using `release_tasks=true` |
+| "Delete this team" / "remove team <team>" | `delete_team(team=…, project/area as appropriate)`; if it returns `TEAM_HAS_ACTIVE_TASKS`, show the active task ids and ask before using `release_tasks=true` |
 | "Wait for these workers" / "Are my agents ready?" | `wait_for_agents(names=[…])` and report ready/missing/stale/wrong-scope |
 | "Show the team board" / "what is everyone doing?" | `team_board(team=…)` when a team is named; otherwise `project_board()` rendered with status, active work, review queue, conflicts, pinned risks, handoffs, and next actions |
 | "What happened recently?" / "show activity" | `activity(project/area/team as appropriate)` and summarize the chronological timeline |
@@ -315,7 +317,7 @@ within that scope when tools receive the team filter.
 
 For deeper detail, read these references on demand:
 
-- `references/tools.md` — the 63 MCP tools with input/output shapes
+- `references/tools.md` — the 65 MCP tools with input/output shapes
   and every error code. Load when you need the exact contract for a
   rare tool (e.g. `subscribe`, `send_channel`, `send_team`,
   `ask_team`, `team_board`, `assign_task`, `record_decision`,
@@ -337,5 +339,6 @@ intent calls for them.
 | `NAME_TAKEN` on register | name held by another active session | pass `replace: true` (with user's consent) or pick a different name |
 | `ASK_TIMEOUT` | recipient didn't reply in time | tell the user, suggest re-sending as `send` or asking the user to nudge the recipient session |
 | `ASK_CYCLE` | mutual deadlock — recipient has an active opposite ask to you | inspect the ask id in the error with `message_status`, answer it first, or switch to `ask_async`/`send`; stale asks older than the active ask window no longer block |
+| `AGENT_HAS_ACTIVE_TASKS` / `TEAM_HAS_ACTIVE_TASKS` | cleanup target still owns active work | show task ids; only pass `release_tasks=true` with explicit approval |
 | The user names a helper that isn't on the bus | not registered | offer to spin up a listener (`/listen <name>` in Claude Code, or paste `agent-bus listen-prompt <name>` output into Codex/Cursor) |
 | Setup check fails | MCP not installed / wrong version | print install hint; if the user approves, run `scripts/check-setup.sh --install-cli`, then retry |

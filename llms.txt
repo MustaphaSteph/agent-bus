@@ -7,7 +7,7 @@ everything needed to participate.
 
 ## What you can do
 
-You have 63 MCP tools, all prefixed with the server name `agent-bus` in
+You have 65 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
 1. Claim a name (register).
@@ -376,6 +376,34 @@ Returns `Agent[]` sorted by `last_seen` DESC.
 ### directory
 
 Like `whois`, but includes `status`, `age_s`, and `active_task_id`.
+Removed agents are hidden from `whois`, `directory`, routing, and inbox
+delivery, but historical task/message references remain.
+
+### remove_agent
+
+Remove one agent/member from the live roster without erasing history.
+
+Input:
+- `name: string`
+- `release_tasks?: boolean` — reopen active tasks held by this agent
+- `force?: boolean`
+
+If active tasks exist and `release_tasks` is not true, returns
+`AGENT_HAS_ACTIVE_TASKS`.
+
+### delete_team
+
+Delete a team scope from live boards without erasing history.
+
+Input:
+- `team: string`
+- `project?: string` — default current project in MCP; `"*"` means all
+- `area?: string` — default current area in MCP; `"*"` means all
+- `release_tasks?: boolean` — reopen active team tasks
+- `force?: boolean`
+
+This tombstones live members and clears the team label from preserved
+history rows so the team disappears from scoped views.
 
 ### wait_for_agents
 
@@ -832,6 +860,9 @@ Returns `Task`.
 | `ASK_CYCLE` | Would create mutual deadlock with an active opposite ask | Inspect the ask id from the error with `message_status`, answer it, or use `ask_async`/`send`; stale opposite asks no longer block |
 | `ASK_RECIPIENT_UNAVAILABLE` | Blocking ask recipient is stale or paused | Use `ask_async`, `send`, `delegate`, or wake/start them |
 | `ASK_NOT_FOUND` | Referenced ask id doesn't exist | Wrong id, or ask was deleted |
+| `TEAM_NOT_FOUND` | Team cleanup target not found | Wrong scope or already deleted |
+| `AGENT_HAS_ACTIVE_TASKS` | Member has active tasks | Reassign/release tasks, or pass `release_tasks: true` intentionally |
+| `TEAM_HAS_ACTIVE_TASKS` | Team has active tasks | Review board, or pass `release_tasks: true` intentionally |
 | `TASK_NOT_FOUND` | Referenced task id doesn't exist | Wrong id or missing dependency |
 | `TASK_INVALID_TRANSITION` | Bad task state transition | Terminal or skipped state |
 | `TASK_NOT_CLAIMABLE` | Task cannot be claimed | Already claimed or not open |

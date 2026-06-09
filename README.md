@@ -94,7 +94,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.26.0
+agent-bus --version                # 0.27.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
@@ -184,6 +184,7 @@ The fun part — here's what people actually do with it:
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive a project-specific `area` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
+- **Roster cleanup.** Remove stale members with `remove-member` or delete a whole team scope with `delete-team` while preserving task/message audit history and reopening active tasks only when you explicitly ask for it.
 - **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), wait for expected rosters, assign pending work before workers register, split read scope from edit scope, require acknowledgements, gate completion on review, record test evidence, hand off work with pinned memory, and generate final merge-readiness reports.
 - **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus team-chat --team <name>` focuses one workgroup conversation; `agent-bus send --to <agent> --message "..."` lets you nudge any agent from the terminal.
 
@@ -415,7 +416,7 @@ and [`docs/agent-prompts.md`](docs/agent-prompts.md).
 
 Everything below ships in that one `npm install`. No add-ons, no tiers, no asterisks:
 
-- **63 MCP tools** — the full vocabulary: messaging, synchronous and async ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. The complete list lives in [`docs/tools.md`](docs/tools.md).
+- **65 MCP tools** — the full vocabulary: messaging, synchronous and async ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. The complete list lives in [`docs/tools.md`](docs/tools.md).
 - **Truly cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent all share the same bus. Mix and match freely.
 - **Never forgets** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories all survive restarts via SQLite WAL. Close everything, reopen tomorrow, pick up right where you left off.
 - **Scoped by default, global when you ask** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; go wide explicitly with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.

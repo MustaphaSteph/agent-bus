@@ -1,7 +1,7 @@
 # agent-bus MCP tools — quick reference
 
 Load this when you need the exact contract for a tool the SKILL.md
-doesn't cover in detail. There are 63 MCP tools. All return JSON.
+doesn't cover in detail. There are 65 MCP tools. All return JSON.
 Errors return `{ error: { code: string, message: string } }` with
 `isError: true`.
 
@@ -43,6 +43,26 @@ wait_for_agents({
 ```
 `directory` includes presence, status, age, role, area, and active task.
 Prefer it for manager/team-board views.
+
+### remove_agent / delete_team
+```ts
+remove_agent({
+  name: string,
+  release_tasks?: boolean,
+  force?: boolean,
+}) -> { removed_agent: Agent, active_tasks: number[], released_tasks: number[], subscriptions_deleted: number, preserved_history: true }
+
+delete_team({
+  team: string,
+  project?: string | "*",
+  area?: string | "*",
+  release_tasks?: boolean,
+  force?: boolean,
+}) -> { team: string, removed_agents: string[], active_tasks: number[], released_tasks: number[], unscoped: Record<string, number>, preserved_history: true }
+```
+Use these only for explicit cleanup requests. They preserve audit history.
+If active tasks exist, pass `release_tasks: true` only when the user wants
+those tasks reopened.
 
 ### set_agent_status / sleep_agent / wake_agent
 ```ts
@@ -628,6 +648,9 @@ review_gate({ project?: string | "*", area?: string | "*" }) -> {
 | `ASK_CYCLE` | Resolve the active opposite ask named in the error first, inspect it with `message_status`, or switch to `ask_async`/`send`; stale opposite asks no longer block |
 | `ASK_NOT_FOUND` | Check the id with `get_message`/`inbox_previews` |
 | `ASK_RECIPIENT_UNAVAILABLE` | Recipient is stale/paused; use `ask_async`, `send`, `delegate`, or wake them |
+| `TEAM_NOT_FOUND` | Check `team_board`/`directory`; the team may already be deleted or scoped differently |
+| `AGENT_HAS_ACTIVE_TASKS` | Review active tasks; pass `release_tasks: true` only if cleanup should reopen them |
+| `TEAM_HAS_ACTIVE_TASKS` | Review active team tasks; pass `release_tasks: true` only if cleanup should reopen them |
 | `TASK_NOT_FOUND` | Verify with `list_tasks` |
 | `TASK_NOT_CLAIMABLE` | Task is already claimed or not open |
 | `TASK_INVALID_TRANSITION` | Check current task state and allowed transitions |

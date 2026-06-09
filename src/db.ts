@@ -159,6 +159,9 @@ function migrate(db: Database.Database): void {
   if (!agentCols.has("session_id")) {
     db.exec(`ALTER TABLE agents ADD COLUMN session_id TEXT`);
   }
+  if (!agentCols.has("removed_at")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN removed_at INTEGER`);
+  }
 
   const taskCols = tableColumns(db, "tasks");
   if (!taskCols.has("project")) {
@@ -341,6 +344,8 @@ function migrate(db: Database.Database): void {
       ON agents(status);
     CREATE INDEX IF NOT EXISTS idx_agents_session
       ON agents(session_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_removed
+      ON agents(removed_at);
     CREATE INDEX IF NOT EXISTS idx_tasks_project
       ON tasks(project);
     CREATE INDEX IF NOT EXISTS idx_tasks_area

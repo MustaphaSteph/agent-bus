@@ -20,6 +20,7 @@ const {
   createTask,
   delegate,
   delegateTeam,
+  deleteTeam,
   directory,
   finalReport,
   getMessage,
@@ -43,6 +44,7 @@ const {
   PROJECT_WILDCARD,
   recentMessages,
   register,
+  removeAgent,
   scopes,
   timeseries,
   recordDecision,
@@ -814,6 +816,82 @@ await test("team: directory, send_team, ask_team, and tasks stay in team", async
   assert.ok(alphaTasks.includes(alphaTask.id));
   assert.ok(!alphaTasks.includes(betaTask.id));
   assert.ok(teamBoard({ project: "teamproj", area: "area-a", team: "alpha" }).open_tasks.some((task) => task.id === alphaTask.id));
+});
+
+await test("removeAgent preserves history and protects active tasks", () => {
+  register({ name: "cleanup-pm", project: "cleanproj", team: "clean", replace: true });
+  register({ name: "cleanup-worker", project: "cleanproj", team: "clean", replace: true });
+  const task = createTask({
+    requested_by: "cleanup-pm",
+    title: "cleanup held task",
+    project: "cleanproj",
+    team: "clean",
+  });
+  claimTask({ agent: "cleanup-worker", task_id: task.id });
+  const message = send({ from: "cleanup-pm", to: "cleanup-worker", content: "keep this history" });
+
+  assert.throws(
+    () => removeAgent({ name: "cleanup-worker" }),
+    (e: unknown) => e instanceof BusError && e.code === "AGENT_HAS_ACTIVE_TASKS",
+  );
+
+  const removed = removeAgent({ name: "cleanup-worker", release_tasks: true });
+  assert.equal(removed.removed_agent.name, "cleanup-worker");
+  assert.deepEqual(removed.released_tasks, [task.id]);
+  assert.ok(!whois({ project: "cleanproj", team: "clean" }).some((agent) => agent.name === "cleanup-worker"));
+  assert.equal(getTask(task.id).state, "open");
+  assert.equal(getTask(task.id).claimed_by, null);
+  assert.equal(getMessage({ message_id: message.id }).message.content, "keep this history");
+});
+
+await test("task updates tolerate removed requesters", () => {
+  register({ name: "removed-requester", project: "removed-request", team: "cleanup", replace: true });
+  register({ name: "removed-request-worker", project: "removed-request", team: "cleanup", replace: true });
+  const task = createTask({
+    requested_by: "removed-requester",
+    title: "finish after requester cleanup",
+    project: "removed-request",
+    team: "cleanup",
+  });
+  claimTask({ agent: "removed-request-worker", task_id: task.id });
+  removeAgent({ name: "removed-requester" });
+  updateTask({ agent: "removed-request-worker", task_id: task.id, state: "working" });
+  const completed = updateTask({
+    agent: "removed-request-worker",
+    task_id: task.id,
+    state: "completed",
+    result: "done",
+  });
+  assert.equal(completed.state, "completed");
+});
+
+await test("deleteTeam removes team members and detaches preserved history", () => {
+  register({ name: "teamdelete-pm", project: "teamdelete", team: "obsolete", replace: true });
+  register({ name: "teamdelete-worker", project: "teamdelete", team: "obsolete", replace: true });
+  register({ name: "teamdelete-other", project: "teamdelete", team: "active", replace: true });
+  const task = createTask({
+    requested_by: "teamdelete-pm",
+    title: "team delete held task",
+    project: "teamdelete",
+    team: "obsolete",
+  });
+  claimTask({ agent: "teamdelete-worker", task_id: task.id });
+  send({ from: "teamdelete-pm", to: "teamdelete-worker", content: "obsolete team history" });
+
+  assert.throws(
+    () => deleteTeam({ team: "obsolete", project: "teamdelete" }),
+    (e: unknown) => e instanceof BusError && e.code === "TEAM_HAS_ACTIVE_TASKS",
+  );
+
+  const deleted = deleteTeam({ team: "obsolete", project: "teamdelete", release_tasks: true });
+  assert.deepEqual(deleted.removed_agents.sort(), ["teamdelete-pm", "teamdelete-worker"]);
+  assert.deepEqual(deleted.released_tasks, [task.id]);
+  assert.equal(whois({ project: "teamdelete", team: "obsolete" }).length, 0);
+  assert.ok(whois({ project: "teamdelete", team: "active" }).some((agent) => agent.name === "teamdelete-other"));
+  assert.equal(getTask(task.id).team, null);
+  assert.equal(getTask(task.id).state, "open");
+  assert.equal(recentMessages({ project: "teamdelete", team: "obsolete", limit: 20 }).length, 0);
+  assert.ok(recentMessages({ project: "teamdelete", limit: 20 }).some((message) => message.content === "obsolete team history"));
 });
 
 await test("project: ask_best is scoped and fails loud for wrong project", async () => {
