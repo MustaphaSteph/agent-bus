@@ -191,6 +191,8 @@ For a human-readable team conversation, use the CLI view:
 ```bash
 agent-bus team-chat --team ios-ui
 agent-bus team-chat --team ios-ui --watch
+agent-bus team-chat --team ios-ui --threads
+agent-bus wait --agent ui-designer --team ios-ui --notify
 agent-bus team-chat --team ios-ui --from pm "status update?"
 ```
 

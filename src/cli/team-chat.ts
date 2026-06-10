@@ -14,11 +14,13 @@ export interface TeamChatOptions {
   project?: string;
   area?: string;
   last: string;
+  sinceId?: string;
   watch?: boolean;
   interval: string;
   from?: string;
   message?: string;
   thread?: string;
+  threads?: boolean;
   includeSelf?: boolean;
   showLog?: boolean;
 }
@@ -41,7 +43,7 @@ export async function teamChat(messageArg: string | undefined, opts: TeamChatOpt
       area: scope.area,
     });
     console.log(`${kleur.green("sent")} ${sent.length} team chat message(s)`);
-    for (const row of sent) console.log(formatMessage(row));
+    for (const row of sent) console.log(formatTeamChatMessage(row));
     if (sent.length === 0) {
       console.log(kleur.yellow("no active recipients in this team scope"));
     }
@@ -49,7 +51,11 @@ export async function teamChat(messageArg: string | undefined, opts: TeamChatOpt
     console.log(kleur.gray("---"));
   }
 
-  printTeamChatLog(scope, Number(opts.last));
+  if (opts.threads === true) {
+    printThreadSummary(scope, Number(opts.last), opts.sinceId ? Number(opts.sinceId) : undefined);
+  } else {
+    printTeamChatLog(scope, Number(opts.last), opts.thread, opts.sinceId ? Number(opts.sinceId) : undefined);
+  }
   if (opts.watch === true) {
     console.log(kleur.gray("--- watching team chat; Ctrl+C to stop ---"));
     await watch({
@@ -68,17 +74,54 @@ function resolveTeamChatScope(project: string | undefined, area: string | undefi
   return { ...scope, team: scope.team };
 }
 
-function printTeamChatLog(scope: ScopeOptions & { team: string }, last: number): void {
-  console.log(kleur.bold(`team chat ${scope.team}`));
+function printTeamChatLog(scope: ScopeOptions & { team: string }, last: number, threadId?: string, sinceId?: number): void {
+  console.log(kleur.bold(`team chat ${scope.team}${threadId ? ` thread=${threadId}` : ""}`));
   const banner = scopeBanner(scope);
   if (banner) console.log(banner);
-  const messages = recentMessages({ limit: last, ...scope });
+  const messages = recentMessages({ limit: last, ...scope, thread_id: threadId, since_id: sinceId });
   if (messages.length === 0) {
     console.log(kleur.gray("(no team chat messages yet)"));
     return;
   }
   for (const message of messages) {
     console.log(formatTeamChatMessage(message));
+  }
+}
+
+function printThreadSummary(scope: ScopeOptions & { team: string }, last: number, sinceId?: number): void {
+  console.log(kleur.bold(`team chat threads ${scope.team}`));
+  const banner = scopeBanner(scope);
+  if (banner) console.log(banner);
+  const messages = recentMessages({ limit: Math.max(last, 100), ...scope, since_id: sinceId });
+  if (messages.length === 0) {
+    console.log(kleur.gray("(no team chat threads yet)"));
+    return;
+  }
+  const byThread = new Map<string, { count: number; first: Message; last: Message; participants: Set<string> }>();
+  for (const message of messages) {
+    const key = message.thread_id || `message-${message.id}`;
+    const existing = byThread.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.last = message;
+      existing.participants.add(message.from_agent);
+      existing.participants.add(message.to_agent);
+    } else {
+      byThread.set(key, {
+        count: 1,
+        first: message,
+        last: message,
+        participants: new Set([message.from_agent, message.to_agent]),
+      });
+    }
+  }
+  const rows = [...byThread.entries()]
+    .sort((a, b) => b[1].last.id - a[1].last.id)
+    .slice(0, last);
+  for (const [thread, row] of rows.reverse()) {
+    const participants = [...row.participants].join(", ");
+    console.log(`#${row.last.id} ${kleur.bold(thread)} ${kleur.gray(`${row.count} msg, ${participants}`)}`);
+    console.log(`  ${row.last.from_agent}: ${row.last.content.length > 160 ? `${row.last.content.slice(0, 160)}…` : row.last.content}`);
   }
 }
 

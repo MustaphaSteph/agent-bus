@@ -148,13 +148,23 @@ assert.doesNotMatch(sentChat.stdout, /team chat chat-demo/, "team-chat send shou
 const chatLog = await run(["team-chat", "--project", "chat-demo", "--team", "chat-demo", "-n", "10"]);
 assert.match(chatLog.stdout, /team chat chat-demo/);
 assert.match(chatLog.stdout, /hello team chat/);
+const chatThreadId = sentChat.stdout.match(/thread=(t_[a-z0-9_]+)/)?.[1];
+assert.ok(chatThreadId, `expected thread id in team-chat send output: ${sentChat.stdout}`);
+const chatThread = await run(["team-chat", "--project", "chat-demo", "--team", "chat-demo", "--thread", chatThreadId, "-n", "10"]);
+assert.match(chatThread.stdout, new RegExp(`thread=${chatThreadId}`));
+assert.match(chatThread.stdout, /hello team chat/);
+const chatSince = await run(["team-chat", "--project", "chat-demo", "--team", "chat-demo", "--since-id", "999999", "-n", "10"]);
+assert.doesNotMatch(chatSince.stdout, /hello team chat/);
+const chatThreads = await run(["team-chat", "--project", "chat-demo", "--team", "chat-demo", "--threads", "-n", "10"]);
+assert.match(chatThreads.stdout, /team chat threads chat-demo/);
+assert.match(chatThreads.stdout, new RegExp(chatThreadId));
 console.log("✓ team-chat sends and reads team-scoped messages");
 
 await run(["register", "--name", "preview-pm", "--team", "preview-demo", "--project", "preview-demo", "--capabilities", "coordination", "--replace"]);
 await run(["register", "--name", "preview-worker", "--team", "preview-demo", "--project", "preview-demo", "--capabilities", "implementation", "--replace"]);
 const hugeBody = "large-body-".repeat(2000);
-await run(["inject", "--from", "preview-pm", "--to", "preview-worker", hugeBody]);
-const previews = await run(["inbox-previews", "--agent", "preview-worker", "--preview-chars", "24"]);
+await run(["send", "--from", "preview-pm", "--to", "preview-worker", "--project", "preview-demo", "--team", "preview-demo", "--message", hugeBody]);
+const previews = await run(["inbox-previews", "--agent", "preview-worker", "--project", "preview-demo", "--team", "preview-demo", "--preview-chars", "24"]);
 assert.match(previews.stdout, /len=22000/);
 assert.match(previews.stdout, /truncated/);
 assert.match(previews.stdout, /large-body-large-body-/);
@@ -163,7 +173,23 @@ assert.ok(previewMessageId, `expected preview message id in output: ${previews.s
 const messagePreview = await run(["message", previewMessageId, "--no-content"]);
 assert.match(messagePreview.stdout, /len=22000/);
 assert.match(messagePreview.stdout, /Next:/);
+const messageFullAlias = await run(["message", previewMessageId, "--include-content", "--preview-chars", "24"]);
+assert.equal(messageFullAlias.code, 0, "message --include-content should be accepted");
 console.log("✓ inbox-previews and message avoid dumping large inbox bodies");
+
+await run(["register", "--name", "wait-pm", "--team", "wait-demo", "--project", "wait-demo", "--capabilities", "coordination", "--replace"]);
+await run(["register", "--name", "wait-worker", "--team", "wait-demo", "--project", "wait-demo", "--capabilities", "implementation", "--replace"]);
+await run(["team-chat", "--project", "wait-demo", "--team", "wait-demo", "--from", "wait-pm", "wake signal"]);
+const waitOut = await run(["wait", "--agent", "wait-worker", "--project", "wait-demo", "--team", "wait-demo", "--timeout-s", "2"]);
+assert.equal(waitOut.code, 0, "wait should exit 0 when a message is pending");
+assert.match(waitOut.stdout, /message available/);
+assert.match(waitOut.stdout, /wake signal/);
+const waitStillPending = await run(["inbox-previews", "--agent", "wait-worker", "--project", "wait-demo", "--team", "wait-demo"]);
+assert.match(waitStillPending.stdout, /wake signal/, "wait should not consume the message");
+const waitTimeout = await run(["wait", "--agent", "wait-worker", "--project", "wait-demo", "--team", "wait-demo", "--thread", "t_nope", "--timeout-s", "1"], { quietErrors: true });
+assert.equal(waitTimeout.code, 2, "wait should exit 2 on timeout");
+assert.match(waitTimeout.stdout, /timeout/);
+console.log("✓ wait blocks for pending messages without consuming them");
 
 await run(["register", "--name", "ui-clean-pm", "--team", "ui-clean", "--project", "ui-clean", "--capabilities", "coordination", "--replace"]);
 await run(["register", "--name", "ui-clean-worker", "--team", "ui-clean", "--project", "ui-clean", "--capabilities", "implementation", "--replace"]);
@@ -225,5 +251,15 @@ const cockpit = await run(["cockpit", "--project", "dash-demo", "--team", "dash-
 assert.match(cockpit.stdout, /Waiting on:/);
 assert.match(cockpit.stdout, /acknowledgement/);
 console.log("✓ activity, cockpit, and now work through the CLI");
+
+const whois = await run(["whois", "--project", "dash-demo", "--team", "dash-demo"]);
+assert.match(whois.stdout, /bus=/);
+const doctor = await run(["doctor", "--json"]);
+assert.equal(doctor.code, 0);
+const doctorJson = JSON.parse(doctor.stdout) as { cli_version: string; agents: { version_warnings: unknown[] }; skills: unknown[] };
+assert.equal(doctorJson.cli_version, packageVersion());
+assert.ok(Array.isArray(doctorJson.agents.version_warnings));
+assert.ok(Array.isArray(doctorJson.skills));
+console.log("✓ whois and doctor expose version visibility");
 
 rmSync(tmp, { recursive: true, force: true });

@@ -5,6 +5,11 @@ does not replace Codex automations, Claude Code loops, cron, hooks, or
 connectors. It gives those loops a shared team room: chat, tasks,
 memory, review gates, test evidence, and a cockpit humans can inspect.
 
+Agent Bus is a queue, not a pager. Delivery is guaranteed once a message
+is written to SQLite; attention is not. A session sees the message when
+it is actively listening, a hook or automation checks the bus, a
+background waiter notices it, or a human prompts the session.
+
 ## The loop shape
 
 1. Start or schedule a PM/coordinator session.
@@ -82,6 +87,25 @@ continue locally or re-arm wait_for_task only when more input is needed
 A timeout is not failure if the task has recent events, test results, or
 an online holder. Avoid blind inbox polling after you already have enough
 information to continue.
+
+Use the right attention mechanism for the host:
+
+| Host/session | Stay alive | Wake from idle | Notes |
+|---|---|---|---|
+| Claude Code | `/listen` plus Stop hook | Stop hook can re-enter the loop | Best fit for always-on worker/listener sessions. |
+| Codex / generic MCP | `inbox(wait_s)` while the turn is active | Host automation or a new user turn | Use tasks, `wait_for_task`, and clear user updates instead of hidden hot loops. |
+| Terminal / human | `agent-bus wait --agent <name> --team <team>` | `--notify` on supported desktops | Does not consume messages; it is a pager for the person/process. |
+
+After repeated empty waits, do not keep polling silently. Check
+`directory`/`whois` for `listening`, `inbox_status` for pending or
+delivered messages, and task events for active work. Then report the
+state: listening, online-but-idle, stale, paused, or still working on a
+task.
+
+During multi-agent review, announce shared-state operations on the
+active thread or task before doing them: commit, push, publish, rebase,
+merge, or amend. The bus coordinates conversation, but git still needs
+explicit human-readable intent.
 
 ## Board attention
 

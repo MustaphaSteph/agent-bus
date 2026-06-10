@@ -138,7 +138,10 @@ const SendInput = z.object({
 
 const InboxInput = z.object({
   agent: z.string().min(1),
+  project: ProjectFilterField,
+  area: AreaFilterField,
   team: TeamFilterField,
+  thread_id: z.string().min(1).optional(),
   since_id: z.number().int().nonnegative().optional(),
   mark_delivered: z.boolean().optional(),
   limit: z.number().int().positive().max(500).optional(),
@@ -148,7 +151,10 @@ const InboxInput = z.object({
 
 const InboxPreviewsInput = z.object({
   agent: z.string().min(1),
+  project: ProjectFilterField,
+  area: AreaFilterField,
   team: TeamFilterField,
+  thread_id: z.string().min(1).optional(),
   since_id: z.number().int().nonnegative().optional(),
   limit: z.number().int().positive().max(100).optional(),
   wait_s: z.number().int().positive().max(110).optional(),
@@ -385,7 +391,11 @@ const WaitForTaskInput = z.object({
 
 const InboxStatusInput = z.object({
   agent: z.string().min(1),
+  project: ProjectFilterField,
+  area: AreaFilterField,
   team: TeamFilterField,
+  thread_id: z.string().min(1).optional(),
+  since_id: z.number().int().nonnegative().optional(),
   limit: z.number().int().positive().max(100).optional(),
 });
 
@@ -685,11 +695,14 @@ const TOOLS = [
       type: "object",
       properties: {
         agent: { type: "string", description: "Your registered agent name" },
+        project: { type: "string", description: "Optional project filter; pass '*' for all projects" },
+        area: { type: "string", description: "Optional area filter; pass '*' for all areas" },
         team: {
           type: "string",
           description:
             "Optional team filter. Pass a concrete team to read only that team's messages; pass '*' for all teams.",
         },
+        thread_id: { type: "string", description: "Optional thread filter. Only matching pending messages are consumed/claimed." },
         since_id: { type: "number", description: "Only return messages with id > this" },
         mark_delivered: {
           type: "boolean",
@@ -718,11 +731,15 @@ const TOOLS = [
       type: "object",
       properties: {
         agent: { type: "string", description: "Registered agent name" },
+        project: { type: "string", description: "Optional project filter; pass '*' for all projects" },
+        area: { type: "string", description: "Optional area filter; pass '*' for all areas" },
         team: {
           type: "string",
           description:
             "Optional team filter. Pass a concrete team to inspect only that team's inbox rows; pass '*' for all teams.",
         },
+        thread_id: { type: "string", description: "Optional thread filter" },
+        since_id: { type: "number", description: "Only inspect messages with id > this" },
         limit: { type: "number", description: "Maximum rows per section (default 20, cap 100)" },
       },
       required: ["agent"],
@@ -742,6 +759,7 @@ const TOOLS = [
           description:
             "Optional team filter. Pass a concrete team to preview only that team's pending inbox rows; pass '*' for all teams.",
         },
+        thread_id: { type: "string", description: "Optional thread filter. Does not consume unrelated pending messages." },
         since_id: { type: "number", description: "Only preview messages with id > this" },
         limit: { type: "number", description: "Max previews to return (default 20, cap 100)" },
         wait_s: { type: "number", description: "Block up to N seconds for a pending message (max 110)" },
@@ -1777,6 +1795,7 @@ async function dispatch(tool: string, raw: unknown): Promise<unknown> {
         ...input,
         project: input.project === undefined ? SESSION_SCOPE.project : input.project,
         area: input.area === undefined ? SESSION_SCOPE.area : input.area,
+        bus_version: packageVersion(),
       });
     }
     case "remove_agent":

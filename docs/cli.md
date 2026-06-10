@@ -75,6 +75,9 @@ messages produced by team-scoped agents.
 agent-bus team-chat --team ui-design
 agent-bus team-chat --team ui-design -n 100
 agent-bus team-chat --team ui-design --watch
+agent-bus team-chat --team ui-design --thread t_abc123
+agent-bus team-chat --team ui-design --since-id 973
+agent-bus team-chat --team ui-design --threads
 agent-bus team-chat --team ui-design --from coordinator "sync on navigation"
 agent-bus team-chat --team ui-design --from coordinator --message "status?"
 agent-bus team-chat --team ui-design --from coordinator --show-log "status?"
@@ -86,6 +89,10 @@ work status. Sending a team chat message is still normal messaging; it
 does not create a task by itself. When `team-chat` sends a message, it
 prints the delivery summary and exits by default; add `--show-log` or
 `--watch` when you also want the conversation history.
+
+Use `--thread` when you only want one conversation, `--since-id` when a
+long chat is too noisy, and `--threads` when you need the latest active
+threads instead of every message.
 
 ### `agent-bus ui`
 
@@ -435,7 +442,11 @@ agent-bus doctor
 current derived project/area; `areas` lists configured path patterns;
 `team init` writes neutral area scopes; `team init-folder` writes a
 separated-folder project config without prescribing agent behavior;
-`doctor` checks db path, scope, config, area list, and agent counts.
+`doctor` is read-only. It checks the CLI version, npm latest version,
+database path, derived scope, local git ahead/behind state, known agent
+bus versions, and installed Codex/Claude skill files. It prints warnings
+for pre-0.30 agents or older local skills because long-lived MCP
+sessions keep their old schema until restarted.
 
 For an app factory under one parent folder, run `team init-folder`
 inside each new app subfolder with a unique project name:
@@ -477,13 +488,35 @@ agent-bus listen --agent worker-a --claim-s 300 --wait-s 110
 agent-bus listen --agent worker-a --team frontend
 ```
 
+### `agent-bus wait`
+
+Wait for the first pending message without consuming it. This is useful
+for humans, terminal panes, and clients that can run a background shell
+task but cannot be woken directly by MCP.
+
+```bash
+agent-bus wait --agent worker-a --team frontend
+agent-bus wait --agent worker-a --team frontend --thread t_abc123
+agent-bus wait --agent worker-a --team frontend --since-id 973 --notify
+agent-bus wait --agent worker-a --team frontend --timeout-s 0
+```
+
+Exit code `0` means at least one pending message is visible. Exit code
+`2` means the timeout expired. The command uses inbox previews, so it
+does not mark messages delivered and is safe before an agent calls
+`inbox`. `--notify` is best-effort desktop notification support on
+macOS.
+
 ### `agent-bus inbox-status`
 
 Inspect inbox state without consuming messages.
 
 ```bash
 agent-bus inbox-status --agent worker-a
+agent-bus inbox-status --agent worker-a --project movie-app --team frontend
 agent-bus inbox-status --agent worker-a --team frontend
+agent-bus inbox-status --agent worker-a --team frontend --thread t_abc123
+agent-bus inbox-status --agent worker-a --team frontend --since-id 973
 agent-bus inbox-status --agent worker-a --json
 ```
 

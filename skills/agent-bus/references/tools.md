@@ -89,7 +89,10 @@ send({
 ```ts
 inbox({
   agent: string,
+  project?: string,
+  area?: string,
   team?: string,         // concrete team only; "*" means all teams
+  thread_id?: string,
   wait_s?: number,       // max 110
   claim_s?: number,      // at-least-once mode; ack after processing
   since_id?: number,
@@ -99,7 +102,11 @@ inbox({
 
 inbox_status({
   agent: string,
+  project?: string,
+  area?: string,
   team?: string,
+  thread_id?: string,
+  since_id?: number,
   limit?: number,
 }) -> {
   unread: Message[],
@@ -112,11 +119,14 @@ inbox_status({
 
 ack({ agent: string, message_id: number }) -> Message
 ```
-Use `wait_s: 110` for listener loops. Use `claim_s` for work that must
-not be lost; skipped ack means redelivery after the claim expires.
+Use `wait_s: 110` for listener loops. A blocking wait stamps the agent
+as `listening` until the wait window expires. Use `claim_s` for work
+that must not be lost; skipped ack means redelivery after the claim
+expires.
 In team workflows, pass your concrete `team` to `inbox` and
 `inbox_status` so unrelated direct or cross-team messages stay queued
 until you intentionally read all teams.
+Use `thread_id` to read or consume only one conversation.
 Use `inbox_status` when you need to inspect unread/claimed/recent
 delivery state without consuming anything.
 
@@ -125,7 +135,10 @@ Use `inbox_previews` when the inbox may contain huge content:
 ```ts
 inbox_previews({
   agent: string,
+  project?: string,
+  area?: string,
   team?: string | "*",
+  thread_id?: string,
   since_id?: number,
   wait_s?: number,
   limit?: number,

@@ -64,6 +64,8 @@ checks before `ALTER TABLE`).
 | `role` | TEXT nullable | pm / worker / verifier / reviewer / listener / custom |
 | `routing_weight` | INTEGER | higher preferred by `ask_best` |
 | `status` | TEXT | idle / working / blocked / waiting_review / sleeping |
+| `bus_version` | TEXT nullable | adapter/CLI version stamped at registration when known |
+| `listening_until` | INTEGER nullable | ms epoch through which a blocking inbox wait or CLI waiter is active |
 
 Indexes on `project`, `area`, and `role`.
 
@@ -288,10 +290,11 @@ hook receives as an environment variable.
 
 ## What the bus can't do
 
-- **Push into a non-listening session.** If a session isn't in
-  `inbox(wait_s)` and doesn't have the Stop hook installed, the only
-  way messages reach it is when the user prompts the agent (which calls
-  inbox).
+- **Push into a non-listening session by itself.** Agent Bus is a queue,
+  not a pager. If a session isn't in `inbox(wait_s)`, doesn't have the
+  Stop hook installed, and isn't covered by a host automation or
+  background `agent-bus wait`, the message waits in SQLite until the
+  session checks the bus.
 - **Mid-tool-call interrupt.** Once Claude is inside a tool call (e.g.
   `Bash("npm test")`), the bus has no way to wake it up. PreToolUse
   hooks could approximate this between tool calls, but that's not

@@ -54,6 +54,29 @@ Fix:
 Verify with `claude mcp list | grep agent-bus` — must show
 `✓ Connected`.
 
+If the CLI or skill was just upgraded, restart long-lived Claude/Codex
+sessions before expecting new MCP schemas or guidance. Existing MCP
+server processes keep the tool list they started with. `agent-bus
+doctor` can show local CLI version, npm latest, installed skill files,
+and old/pre-0.30 agent registrations.
+
+## "The message was delivered but the other agent did not wake up"
+
+Agent Bus persists messages; it cannot force an idle model session to
+take a new turn by MCP alone.
+
+Fix:
+
+- For Claude Code workers, use `/listen <name>` so the listener hook
+  keeps re-entering `inbox(wait_s)`.
+- For terminal/human waiting, run:
+  `agent-bus wait --agent <name> --team <team> --notify`.
+- For Codex or generic MCP clients, use host automations or prompt the
+  session to check inbox.
+- Check `whois` or `agent-bus directory` for `listening`; online but not
+  listening means the agent is registered but not currently blocked in
+  an inbox wait.
+
 ## "UNKNOWN_AGENT: 'X' is not registered"
 
 You sent to a name that's not in `agents`. Either you typoed it, or

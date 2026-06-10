@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.29.0
+  version: 0.30.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 65 tools over an MCP stdio server. This OpenAPI
@@ -1477,6 +1477,13 @@ components:
         session_id:
           type: [string, 'null']
           description: Optional host/model session id.
+        bus_version:
+          type: [string, 'null']
+          description: CLI/MCP version stamped by the registering adapter when known.
+        listening_until:
+          type: [integer, 'null']
+          format: int64
+          description: Timestamp through which the agent is known to be inside a blocking wait.
         removed_at:
           type: [integer, 'null']
           format: int64
@@ -1890,9 +1897,15 @@ components:
       properties:
         agent:
           $ref: '#/components/schemas/AgentName'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
         team:
           $ref: '#/components/schemas/TeamFilter'
           description: Optional team filter. Concrete team reads only that team's messages; `*` means all teams.
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
         wait_s:
           type: integer
           minimum: 1
@@ -1922,9 +1935,18 @@ components:
       properties:
         agent:
           $ref: '#/components/schemas/AgentName'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
         team:
           $ref: '#/components/schemas/TeamFilter'
           description: Optional team filter. Concrete team inspects only that team's rows; `*` means all teams.
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
+        since_id:
+          type: integer
+          minimum: 0
         limit:
           type: integer
           minimum: 1
@@ -1937,8 +1959,14 @@ components:
       properties:
         agent:
           $ref: '#/components/schemas/AgentName'
+        project:
+          $ref: '#/components/schemas/ProjectFilter'
+        area:
+          $ref: '#/components/schemas/AreaFilter'
         team:
           $ref: '#/components/schemas/TeamFilter'
+        thread_id:
+          $ref: '#/components/schemas/ThreadId'
         since_id:
           type: integer
           minimum: 0

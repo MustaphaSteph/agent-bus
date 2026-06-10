@@ -94,7 +94,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.29.0
+agent-bus --version                # 0.30.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
@@ -186,7 +186,7 @@ The fun part — here's what people actually do with it:
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive a project-specific `area` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Roster cleanup.** Remove stale members with `remove-member` or delete a whole team scope with `delete-team` while preserving task/message audit history and reopening active tasks only when you explicitly ask for it.
 - **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), wait for expected rosters, assign pending work before workers register, split read scope from edit scope, require acknowledgements, gate completion on review, record test evidence, hand off work with pinned memory, and generate final merge-readiness reports.
-- **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus team-chat --team <name>` focuses one workgroup conversation; `agent-bus send --to <agent> --message "..."` lets you nudge any agent from the terminal.
+- **Human-in-the-loop relay.** `agent-bus watch` shows everything live; `agent-bus team-chat --team <name>` focuses one workgroup conversation; `agent-bus wait --agent <name> --team <name> --notify` can page a terminal/human when a message arrives; `agent-bus send --to <agent> --message "..."` lets you nudge any agent from the terminal.
 
 ## How it works
 
@@ -208,8 +208,10 @@ The fun part — here's what people actually do with it:
 Each session spawns its own MCP server process and reads/writes the same
 SQLite file in WAL mode. Names are addresses. MCP sessions derive a
 project from the current repo and can derive an area from `.agent-bus.json`
-as the default read/routing scope. Listeners get push-like delivery via
-blocking `inbox(wait_s)`.
+as the default read/routing scope. Delivery is durable; attention is
+separate. A session is visibly `listening` only while it is inside a
+blocking inbox wait, a listener hook, a background `agent-bus wait`, or
+another host automation that checks the bus.
 
 ## Try it
 
@@ -362,6 +364,8 @@ agent-bus ui --no-open
 
 ```bash
 agent-bus team-chat --team todo-ios --watch
+agent-bus team-chat --team todo-ios --threads
+agent-bus wait --agent ui-designer --team todo-ios --notify
 agent-bus team-board --team todo-ios
 agent-bus kanban --team todo-ios --watch
 ```
@@ -424,7 +428,7 @@ Everything below ships in that one `npm install`. No add-ons, no tiers, no aster
 - **Scoped by default, global when you ask** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; go wide explicitly with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.
 - **A cockpit you'll actually keep open** — `agent-bus ui` is a dense command center: project/team sidebar, Slack-style bubble chat with paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, an Attention view, and an ops rail with real time-series sparklines, an agent×status heatmap, throughput, and decisions. Every widget is real bus data, with guarded roster cleanup for stale members and teams.
 - **Zero infrastructure** — no daemon, no cloud, no auth, no bill. One file at `~/.agent-bus/bus.db`.
-- **Listeners that don't quit** — a Claude Code Stop hook keeps your helper sessions alive even when they'd otherwise fall out of the agent loop.
+- **Listeners you can see** — blocking MCP inbox waits and `agent-bus wait` stamp `listening_until`, so `whois`, directory reads, and the cockpit can distinguish online-but-idle from actively listening. Claude Code's Stop hook can keep helper sessions alive even when they'd otherwise fall out of the agent loop.
 
 ## Documentation
 

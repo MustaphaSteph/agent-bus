@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { Command } from "commander";
 import kleur from "kleur";
 import {
@@ -24,6 +28,7 @@ import {
   listTestResults,
   AREA_WILDCARD,
   askAsync,
+  MAX_INBOX_WAIT_S,
   pinMemory,
   projectBoard,
   PROJECT_WILDCARD,
@@ -136,6 +141,33 @@ function completeTask(taskId: number, by: string, result: string): void {
   console.log(`${kleur.green("completed")} task #${done.id} event #${event.id}`);
 }
 
+function notifyDesktop(title: string, body: string): void {
+  if (process.platform !== "darwin") return;
+  const safeTitle = title.replace(/"/g, '\\"');
+  const safeBody = body.replace(/"/g, '\\"');
+  try {
+    execFileSync("osascript", ["-e", `display notification "${safeBody}" with title "${safeTitle}"`], { stdio: "ignore" });
+  } catch {
+    // Notification is best-effort; the wait result still prints to stdout.
+  }
+}
+
+function runText(command: string, args: string[], cwd = process.cwd()): string | null {
+  try {
+    return execFileSync(command, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10_000 }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function readMaybe(path: string): string | null {
+  try {
+    return existsSync(path) ? readFileSync(path, "utf8") : null;
+  } catch {
+    return null;
+  }
+}
+
 program
   .command("watch")
   .description("Live tail messages for the current project")
@@ -180,6 +212,8 @@ program
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
   .option("-n, --last <count>", "how many recent messages to show", "50")
+  .option("--since-id <id>", "only show messages with id > this")
+  .option("--threads", "show one summary row per thread instead of every message")
   .option("--watch", "keep running after the snapshot and print new messages")
   .option("--interval <ms>", "watch poll interval in ms", "250")
   .option("--from <agent>", "sender agent when sending a message")
@@ -193,6 +227,8 @@ program
     project?: string;
     area?: string;
     last: string;
+    sinceId?: string;
+    threads?: boolean;
     watch?: boolean;
     interval: string;
     from?: string;
@@ -294,8 +330,10 @@ program
       const teamChip = a.team ? ` team=${a.team}` : "";
       const role = a.role ? ` role=${a.role}` : "";
       const active = a.active_task_id ? ` task=#${a.active_task_id}` : "";
+      const listening = a.listening ? " listening" : "";
+      const bus = a.bus_version ? ` bus=${a.bus_version}` : " bus=pre-0.30";
       const paused = a.paused ? kleur.red(" (paused)") : "";
-      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + teamChip + role + active)}${paused}  ${kleur.gray(`${a.status}/${a.presence}, seen ${a.age_s}s ago`)}`);
+      console.log(`${kleur.bold(a.name)}${kleur.gray(caps)}${kleur.gray(projectChip + areaChip + teamChip + role + active + bus + listening)}${paused}  ${kleur.gray(`${a.status}/${a.presence}, seen ${a.age_s}s ago`)}`);
     }
   });
 
@@ -423,16 +461,79 @@ teamCommand
 
 program
   .command("doctor")
-  .description("Check local bus health and current scope")
-  .action(() => {
+  .description("Read-only health check for CLI, scope, agents, skills, and release readiness")
+  .option("--json", "print raw JSON")
+  .action((opts: { json?: boolean }) => {
     const scope = deriveScope();
     const agents = directory({ project: scope.project ?? undefined, area: scope.area ?? undefined });
     const stale = agents.filter((a) => a.presence === "stale").length;
-    console.log(`db: ${dbPath()}`);
+    const currentVersion = packageVersion();
+    const npmLatest = runText("npm", ["view", "@agent-bus-connect/cli", "version"]);
+    const gitRoot = runText("git", ["rev-parse", "--show-toplevel"]);
+    const gitAheadBehind = gitRoot ? runText("git", ["rev-list", "--left-right", "--count", "origin/main...HEAD"], gitRoot) : null;
+    const [behind = null, ahead = null] = gitAheadBehind?.split(/\s+/) ?? [];
+    const skillPaths = [
+      join(homedir(), ".codex", "skills", "agent-bus", "SKILL.md"),
+      join(homedir(), ".claude", "skills", "agent-bus", "SKILL.md"),
+    ];
+    const skills = skillPaths.map((path) => {
+      const content = readMaybe(path);
+      return {
+        path,
+        exists: content !== null,
+        requires_current: content?.includes(`agent-bus-mcp >= ${currentVersion}`) ?? false,
+      };
+    });
+    const pluginSyncPath = gitRoot ? join(dirname(gitRoot), "agent-bus-plugins", ".sync-version") : null;
+    const pluginSync = pluginSyncPath ? readMaybe(pluginSyncPath) : null;
+    const sessionVersionWarnings = agents
+      .filter((agent) => agent.bus_version === null || agent.bus_version !== currentVersion)
+      .map((agent) => ({
+        name: agent.name,
+        bus_version: agent.bus_version,
+        hint: agent.bus_version === null ? "pre-0.30 or not stamped; restart to update" : `running ${agent.bus_version}; restart to use ${currentVersion}`,
+      }));
+    const result = {
+      cli_version: currentVersion,
+      npm_latest: npmLatest,
+      db: dbPath(),
+      scope: { project: scope.project ?? null, area: scope.area ?? null, config: scopeConfigPath() ?? null },
+      areas: Object.keys(configuredAreas()),
+      agents: { total: agents.length, stale, version_warnings: sessionVersionWarnings },
+      git: {
+        root: gitRoot,
+        ahead: ahead === null ? null : Number(ahead),
+        behind: behind === null ? null : Number(behind),
+        warning: ahead !== null && Number(ahead) > 0 ? "local branch is ahead of origin/main; push before plugin sync/release" : null,
+      },
+      skills,
+      plugin_sync: pluginSyncPath ? { path: pluginSyncPath, exists: pluginSync !== null, content: pluginSync } : null,
+    };
+    if (opts.json === true) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(`db: ${result.db}`);
+    console.log(`cli: ${result.cli_version}${result.npm_latest ? ` (npm latest ${result.npm_latest})` : ""}`);
     console.log(`scope: project=${scope.project ?? "-"} area=${scope.area ?? "-"}`);
     console.log(`config: ${scopeConfigPath() ?? "-"}`);
-    console.log(`agents: ${agents.length} (${stale} stale)`);
+    console.log(`agents: ${agents.length} (${stale} stale, ${sessionVersionWarnings.length} version warning${sessionVersionWarnings.length === 1 ? "" : "s"})`);
+    for (const warning of sessionVersionWarnings.slice(0, 10)) {
+      console.log(kleur.yellow(`  ${warning.name}: ${warning.hint}`));
+    }
     console.log(`areas: ${Object.keys(configuredAreas()).join(", ") || "-"}`);
+    if (result.git.root) {
+      console.log(`git: ${result.git.root} ahead=${result.git.ahead ?? "-"} behind=${result.git.behind ?? "-"}`);
+      if (result.git.warning) console.log(kleur.yellow(`  ${result.git.warning}`));
+    }
+    console.log(kleur.bold("skills:"));
+    for (const skill of skills) {
+      const state = !skill.exists ? kleur.red("missing") : skill.requires_current ? kleur.green("current") : kleur.yellow("drift");
+      console.log(`  ${state} ${skill.path}`);
+    }
+    if (result.plugin_sync) {
+      console.log(`plugin sync: ${result.plugin_sync.exists ? result.plugin_sync.path : "not found"}`);
+    }
   });
 
 program
@@ -460,14 +561,82 @@ program
   });
 
 program
+  .command("wait")
+  .description("Block until an agent has a pending message, without consuming it")
+  .requiredOption("--agent <name>", "agent inbox to watch")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
+  .option("--team <name>", "only wait for messages for this team (use 'all' for every team)")
+  .option("--thread <id>", "only wait for messages in this thread")
+  .option("--since-id <id>", "only wait for messages with id > this")
+  .option("--timeout-s <seconds>", "total timeout before exit 2; 0 means wait forever", "0")
+  .option("--preview-chars <count>", "max content preview chars", "240")
+  .option("--notify", "show a macOS desktop notification when a message arrives")
+  .option("--json", "print raw JSON")
+  .action(async (opts: { agent: string; project?: string; area?: string; team?: string; thread?: string; sinceId?: string; timeoutS: string; previewChars: string; notify?: boolean; json?: boolean }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
+    const timeoutS = Math.max(0, Number(opts.timeoutS));
+    const started = Date.now();
+    let remaining = timeoutS;
+    for (;;) {
+      const waitS = timeoutS === 0 ? MAX_INBOX_WAIT_S : Math.min(MAX_INBOX_WAIT_S, Math.max(1, remaining));
+      const messages = await inboxPreviews({
+        agent: opts.agent,
+        ...scope,
+        thread_id: opts.thread,
+        since_id: opts.sinceId ? Number(opts.sinceId) : undefined,
+        wait_s: waitS,
+        limit: 10,
+        preview_chars: Number(opts.previewChars),
+      });
+      if (messages.length > 0) {
+        if (opts.notify === true) {
+          const first = messages[0];
+          notifyDesktop("agent-bus message", first ? `#${first.id} from ${first.from_agent}` : `${messages.length} new message(s)`);
+        }
+        if (opts.json === true) {
+          console.log(JSON.stringify({ timed_out: false, messages }, null, 2));
+        } else {
+          console.log(`${kleur.green("message available")} ${messages.length} pending message(s) for ${opts.agent}`);
+          for (const message of messages) {
+            console.log(`#${message.id} ${message.from_agent} ${message.kind} len=${message.content_length}${message.truncated ? " truncated" : ""}: ${message.content_preview}`);
+          }
+        }
+        return;
+      }
+      if (timeoutS !== 0) {
+        remaining = timeoutS - Math.floor((Date.now() - started) / 1000);
+        if (remaining <= 0) {
+          const result = { timed_out: true, messages: [] };
+          if (opts.json === true) console.log(JSON.stringify(result, null, 2));
+          else console.log(kleur.yellow(`timeout: no pending message for ${opts.agent}`));
+          process.exitCode = 2;
+          return;
+        }
+      }
+    }
+  });
+
+program
   .command("inbox-status")
   .description("Show unread, claimed/in-flight, and recent delivered inbox messages without consuming them")
   .requiredOption("--agent <name>", "agent inbox to inspect")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
   .option("--team <name>", "only inspect messages for this team (use 'all' for every team)")
+  .option("--thread <id>", "only inspect messages in this thread")
+  .option("--since-id <id>", "only inspect messages with id > this")
   .option("-n, --last <count>", "maximum rows per section", "20")
   .option("--json", "print raw JSON")
-  .action((opts: { agent: string; team?: string; last: string; json?: boolean }) => {
-    const status = inboxStatus({ agent: opts.agent, team: normalizeTeamOption(opts.team), limit: Number(opts.last) });
+  .action((opts: { agent: string; project?: string; area?: string; team?: string; thread?: string; sinceId?: string; last: string; json?: boolean }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
+    const status = inboxStatus({
+      agent: opts.agent,
+      ...scope,
+      thread_id: opts.thread,
+      since_id: opts.sinceId ? Number(opts.sinceId) : undefined,
+      limit: Number(opts.last),
+    });
     if (opts.json === true) {
       console.log(JSON.stringify(status, null, 2));
       return;
@@ -485,16 +654,21 @@ program
   .command("inbox-previews")
   .description("Preview unread inbox messages without consuming them or printing full bodies")
   .requiredOption("--agent <name>", "agent inbox to inspect")
+  .option("--project <name>", "accepted for consistency; inbox ownership is still by agent")
+  .option("--area <name>", "accepted for consistency; inbox ownership is still by agent")
   .option("--team <name>", "only inspect messages for this team (use 'all' for every team)")
+  .option("--thread <id>", "only preview messages in this thread")
   .option("--since-id <id>", "only preview messages with id > this")
   .option("-n, --last <count>", "maximum previews", "20")
   .option("--wait-s <seconds>", "block up to N seconds for a message")
   .option("--preview-chars <count>", "max content preview chars per message", "300")
   .option("--json", "print raw JSON")
-  .action(async (opts: { agent: string; team?: string; sinceId?: string; last: string; waitS?: string; previewChars: string; json?: boolean }) => {
+  .action(async (opts: { agent: string; project?: string; area?: string; team?: string; thread?: string; sinceId?: string; last: string; waitS?: string; previewChars: string; json?: boolean }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
     const previews = await inboxPreviews({
       agent: opts.agent,
-      team: normalizeTeamOption(opts.team),
+      ...scope,
+      thread_id: opts.thread,
       since_id: opts.sinceId ? Number(opts.sinceId) : undefined,
       limit: Number(opts.last),
       wait_s: opts.waitS ? Number(opts.waitS) : undefined,
@@ -1096,18 +1270,19 @@ program
   .description("Fetch one message by id; use --preview-chars or --no-content for large messages")
   .option("--preview-chars <count>", "return only this many content chars")
   .option("--no-content", "return metadata and a small preview, not full content")
+  .option("--include-content", "include full content (default; accepted for consistency)")
   .option("--project <name>", "require message project scope (use all for any project)")
   .option("--area <name>", "require message area scope (use all for any area)")
   .option("--team <name>", "require message team scope (use all for any team)")
   .option("--json", "print raw JSON")
-  .action((messageId: string, opts: { previewChars?: string; content?: boolean; project?: string; area?: string; team?: string; json?: boolean }) => {
+  .action((messageId: string, opts: { previewChars?: string; content?: boolean; includeContent?: boolean; project?: string; area?: string; team?: string; json?: boolean }) => {
     const scoped = opts.project !== undefined || opts.area !== undefined || opts.team !== undefined
       ? resolveScopeOptions(opts.project, opts.area, opts.team)
       : {};
     const result = getMessage({
       message_id: Number(messageId),
       preview_chars: opts.previewChars ? Number(opts.previewChars) : undefined,
-      include_content: opts.content,
+      include_content: opts.content === false ? false : true,
       ...scoped,
     });
     if (opts.json === true) {
@@ -1558,6 +1733,7 @@ program
       project: opts.project,
       area: opts.area,
       team: opts.team,
+      bus_version: packageVersion(),
     });
     console.log(`${kleur.green("registered")} ${a.name}`);
   });

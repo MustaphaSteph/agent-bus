@@ -47,6 +47,8 @@ export interface Agent {
   status: AgentStatus;
   session_id: string | null;
   removed_at: number | null;
+  bus_version: string | null;
+  listening_until: number | null;
 }
 
 export interface Message {
@@ -96,6 +98,8 @@ interface AgentRow {
   status: AgentStatus;
   session_id: string | null;
   removed_at: number | null;
+  bus_version: string | null;
+  listening_until: number | null;
 }
 
 interface MessageRow {
@@ -134,6 +138,8 @@ function toAgent(row: AgentRow): Agent {
     status: row.status,
     session_id: row.session_id,
     removed_at: row.removed_at,
+    bus_version: row.bus_version,
+    listening_until: row.listening_until,
   };
 }
 
@@ -323,6 +329,7 @@ export interface RegisterOptions {
   routing_weight?: number;
   status?: AgentStatus;
   session_id?: string | null;
+  bus_version?: string | null;
 }
 
 export function register(opts: RegisterOptions): Agent {
@@ -333,6 +340,9 @@ export function register(opts: RegisterOptions): Agent {
   validateRole(opts.role);
   validateAgentStatus(opts.status);
   validateSessionId(opts.session_id);
+  if (opts.bus_version !== undefined && opts.bus_version !== null && (opts.bus_version.length === 0 || opts.bus_version.length > 64)) {
+    throw new BusError("INVALID_INPUT", "bus_version must be 1-64 chars or omitted");
+  }
   if (opts.routing_weight !== undefined && !Number.isFinite(opts.routing_weight)) {
     throw new BusError("INVALID_INPUT", "routing_weight must be a number");
   }
@@ -360,9 +370,10 @@ export function register(opts: RegisterOptions): Agent {
   const routingWeight = Math.trunc(opts.routing_weight ?? 0);
   const status = opts.status ?? "idle";
   const sessionId = opts.session_id ?? null;
+  const busVersion = opts.bus_version ?? null;
   db.prepare(
-    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, team, role, routing_weight, status, session_id, removed_at)
-       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @team, @role, @routingWeight, @status, @sessionId, NULL)
+    `INSERT INTO agents (name, capabilities, registered_at, last_seen, paused, project, area, team, role, routing_weight, status, session_id, removed_at, bus_version, listening_until)
+       VALUES (@name, @capabilities, @ts, @ts, 0, @project, @area, @team, @role, @routingWeight, @status, @sessionId, NULL, @busVersion, NULL)
      ON CONFLICT(name) DO UPDATE SET
        capabilities = excluded.capabilities,
        registered_at = excluded.registered_at,
@@ -375,8 +386,10 @@ export function register(opts: RegisterOptions): Agent {
        routing_weight = excluded.routing_weight,
        status = excluded.status,
        session_id = excluded.session_id,
+       bus_version = excluded.bus_version,
+       listening_until = NULL,
        removed_at = NULL`,
-  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, team, role, routingWeight, status, sessionId });
+  ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, team, role, routingWeight, status, sessionId, busVersion });
 
   const agent = requireAgent(opts.name);
   notifyPendingAssignments(agent.name);
@@ -400,6 +413,12 @@ function notifyPendingAssignments(name: string): void {
 export function heartbeat(name: string): void {
   const db = getDb();
   db.prepare("UPDATE agents SET last_seen = ? WHERE name = ? AND removed_at IS NULL").run(now(), name);
+}
+
+function markAgentListening(name: string, listeningUntil: number): void {
+  getDb()
+    .prepare("UPDATE agents SET last_seen = ?, listening_until = ? WHERE name = ? AND removed_at IS NULL")
+    .run(now(), listeningUntil, name);
 }
 
 export interface WhoisOptions {
@@ -439,6 +458,7 @@ export function whois(opts: WhoisOptions = {}): Agent[] {
 export interface AgentDirectoryEntry extends Agent {
   presence: "online" | "idle" | "stale" | "paused";
   age_s: number;
+  listening: boolean;
   active_task_id: number | null;
 }
 
@@ -461,6 +481,7 @@ export function directory(opts: WhoisOptions = {}): AgentDirectoryEntry[] {
   const ts = now();
   return agents.map((agent) => {
     const age_s = Math.max(0, Math.round((ts - agent.last_seen) / 1000));
+    const listening = agent.listening_until !== null && agent.listening_until > ts && !agent.paused;
     const presence =
       agent.paused
         ? "paused"
@@ -473,6 +494,7 @@ export function directory(opts: WhoisOptions = {}): AgentDirectoryEntry[] {
       ...agent,
       presence,
       age_s,
+      listening,
       active_task_id: activeByAgent.get(agent.name) ?? null,
     };
   });
@@ -627,7 +649,10 @@ function inferTaskThreadId(content: string, from: string, to: string): string | 
 
 export interface InboxOptions {
   agent: string;
+  project?: string;
+  area?: string;
   team?: string;
+  thread_id?: string;
   since_id?: number;
   mark_delivered?: boolean;
   limit?: number;
@@ -637,7 +662,10 @@ export interface InboxOptions {
 
 export interface InboxPreviewOptions {
   agent: string;
+  project?: string;
+  area?: string;
   team?: string;
+  thread_id?: string;
   since_id?: number;
   limit?: number;
   wait_s?: number;
@@ -646,6 +674,8 @@ export interface InboxPreviewOptions {
 
 export async function inbox(opts: InboxOptions): Promise<Message[]> {
   validateName(opts.agent);
+  validateProject(opts.project);
+  validateArea(opts.area);
   if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
   const agent = requireAgent(opts.agent);
   heartbeat(opts.agent);
@@ -656,9 +686,10 @@ export async function inbox(opts: InboxOptions): Promise<Message[]> {
 
   const waitMs = Math.min(opts.wait_s, MAX_INBOX_WAIT_S) * 1000;
   const deadline = now() + waitMs;
+  markAgentListening(opts.agent, deadline);
   while (now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
-    heartbeat(opts.agent);
+    markAgentListening(opts.agent, deadline);
     const fresh = readInbox(opts);
     if (fresh.length > 0) return fresh;
   }
@@ -667,6 +698,8 @@ export async function inbox(opts: InboxOptions): Promise<Message[]> {
 
 export async function inboxPreviews(opts: InboxPreviewOptions): Promise<MessagePreview[]> {
   validateName(opts.agent);
+  validateProject(opts.project);
+  validateArea(opts.area);
   if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
   const agent = requireAgent(opts.agent);
   heartbeat(opts.agent);
@@ -677,9 +710,10 @@ export async function inboxPreviews(opts: InboxPreviewOptions): Promise<MessageP
 
   const waitMs = Math.min(opts.wait_s, MAX_INBOX_WAIT_S) * 1000;
   const deadline = now() + waitMs;
+  markAgentListening(opts.agent, deadline);
   while (now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
-    heartbeat(opts.agent);
+    markAgentListening(opts.agent, deadline);
     const fresh = readInboxPreviews(opts);
     if (fresh.length > 0) return fresh;
   }
@@ -699,9 +733,21 @@ function readInbox(opts: InboxOptions): Message[] {
     "(claim_deadline IS NULL OR claim_deadline < ?)",
   ];
   const params: unknown[] = [opts.agent, since, ts];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    where.push("project = ?");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    where.push("area = ?");
+    params.push(opts.area);
+  }
   if (teamFilter !== null) {
     where.push("team = ?");
     params.push(teamFilter);
+  }
+  if (opts.thread_id !== undefined) {
+    where.push("thread_id = ?");
+    params.push(opts.thread_id);
   }
 
   const rows = db
@@ -762,9 +808,21 @@ function readInboxPreviews(opts: InboxPreviewOptions): MessagePreview[] {
     "(claim_deadline IS NULL OR claim_deadline < ?)",
   ];
   const params: unknown[] = [opts.agent, since, ts];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    where.push("project = ?");
+    params.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    where.push("area = ?");
+    params.push(opts.area);
+  }
   if (teamFilter !== null) {
     where.push("team = ?");
     params.push(teamFilter);
+  }
+  if (opts.thread_id !== undefined) {
+    where.push("thread_id = ?");
+    params.push(opts.thread_id);
   }
   const rows = db
     .prepare(
@@ -881,7 +939,11 @@ export function ack(opts: AckOptions): Message {
 
 export interface InboxStatusOptions {
   agent: string;
+  project?: string;
+  area?: string;
   team?: string;
+  thread_id?: string;
+  since_id?: number;
   limit?: number;
 }
 
@@ -897,23 +959,46 @@ export interface InboxStatus {
 
 export function inboxStatus(opts: InboxStatusOptions): InboxStatus {
   validateName(opts.agent);
+  validateProject(opts.project);
+  validateArea(opts.area);
   if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
   requireAgent(opts.agent);
   heartbeat(opts.agent);
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
   const ts = now();
-  const teamFilter = opts.team !== undefined && opts.team !== TEAM_WILDCARD ? opts.team : null;
-  const teamWhere = teamFilter === null ? "" : " AND team = ?";
-  const unreadParams = teamFilter === null ? [opts.agent, ts, limit] : [opts.agent, ts, teamFilter, limit];
-  const deliveredParams = teamFilter === null ? [opts.agent, limit] : [opts.agent, teamFilter, limit];
-  const lastParams = teamFilter === null ? [opts.agent] : [opts.agent, teamFilter];
+  const filters: string[] = [];
+  const filterParams: unknown[] = [];
+  if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
+    filters.push("project = ?");
+    filterParams.push(opts.project);
+  }
+  if (opts.area !== undefined && opts.area !== AREA_WILDCARD) {
+    filters.push("area = ?");
+    filterParams.push(opts.area);
+  }
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) {
+    filters.push("team = ?");
+    filterParams.push(opts.team);
+  }
+  if (opts.thread_id !== undefined) {
+    filters.push("thread_id = ?");
+    filterParams.push(opts.thread_id);
+  }
+  if (opts.since_id !== undefined) {
+    filters.push("id > ?");
+    filterParams.push(opts.since_id);
+  }
+  const filterWhere = filters.length === 0 ? "" : ` AND ${filters.join(" AND ")}`;
+  const unreadParams = [opts.agent, ts, ...filterParams, limit];
+  const deliveredParams = [opts.agent, ...filterParams, limit];
+  const lastParams = [opts.agent, ...filterParams];
   const unread = getDb()
     .prepare(
       `SELECT * FROM messages
         WHERE to_agent = ?
           AND status = 'pending'
           AND (claim_deadline IS NULL OR claim_deadline < ?)
-          ${teamWhere}
+          ${filterWhere}
         ORDER BY id ASC
         LIMIT ?`,
     )
@@ -925,7 +1010,7 @@ export function inboxStatus(opts: InboxStatusOptions): InboxStatus {
           AND status = 'pending'
           AND claim_deadline IS NOT NULL
           AND claim_deadline >= ?
-          ${teamWhere}
+          ${filterWhere}
         ORDER BY claim_deadline ASC, id ASC
         LIMIT ?`,
     )
@@ -935,13 +1020,13 @@ export function inboxStatus(opts: InboxStatusOptions): InboxStatus {
       `SELECT * FROM messages
         WHERE to_agent = ?
           AND status IN ('delivered','answered')
-          ${teamWhere}
+          ${filterWhere}
         ORDER BY id DESC
         LIMIT ?`,
     )
     .all(...deliveredParams) as MessageRow[];
   const last = getDb()
-    .prepare(`SELECT * FROM messages WHERE to_agent = ?${teamWhere} ORDER BY id DESC LIMIT 1`)
+    .prepare(`SELECT * FROM messages WHERE to_agent = ?${filterWhere} ORDER BY id DESC LIMIT 1`)
     .get(...lastParams) as MessageRow | undefined;
   const nextClaim = inFlight.reduce<number | null>(
     (best, row) => row.claim_deadline !== null && (best === null || row.claim_deadline < best) ? row.claim_deadline : best,
@@ -1056,7 +1141,7 @@ function askAsyncWithScope(
   const { asked, recipient } = createAskMessage(opts, scope, { failIfUnavailable: false });
   const suggested = [
     `ask #${asked.id} is pending; keep working and check inbox_status(${opts.from}) later`,
-    `recipient ${opts.to} is ${recipient ? `${recipient.status}/${recipient.presence}, seen ${recipient.age_s}s ago` : "not in directory"}`,
+    `recipient ${opts.to} is ${recipient ? `${recipient.status}/${recipient.presence}${recipient.listening ? "/listening" : "/not-listening"}, seen ${recipient.age_s}s ago` : "not in directory"}`,
     `use message_status(${asked.id}) or why_no_reply(${asked.id}) for diagnostics`,
   ];
   if (recipient?.presence === "stale" || recipient?.presence === "paused") {
@@ -1349,6 +1434,8 @@ export async function askBest(opts: AskBestOptions): Promise<Message> {
   }).sort((a, b) => {
     const weightDiff = b.routing_weight - a.routing_weight;
     if (weightDiff !== 0) return weightDiff;
+    const listeningDiff = Number((b.listening_until ?? 0) > ts) - Number((a.listening_until ?? 0) > ts);
+    if (listeningDiff !== 0) return listeningDiff;
     return b.last_seen - a.last_seen;
   });
 
@@ -1632,6 +1719,8 @@ export interface RecentMessagesOptions {
   project?: string;
   area?: string;
   team?: string;
+  thread_id?: string;
+  since_id?: number;
 }
 
 export function recentMessages(arg: number | RecentMessagesOptions = 100): Message[] {
@@ -1641,6 +1730,10 @@ export function recentMessages(arg: number | RecentMessagesOptions = 100): Messa
   const db = getDb();
   const where: string[] = [];
   const params: unknown[] = [];
+  if (opts.since_id !== undefined) {
+    where.push("id > ?");
+    params.push(opts.since_id);
+  }
   if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
     validateProject(opts.project);
     where.push("(project = ? OR project IS NULL)");
@@ -1655,6 +1748,10 @@ export function recentMessages(arg: number | RecentMessagesOptions = 100): Messa
     validateTeam(opts.team);
     where.push("team = ?");
     params.push(opts.team);
+  }
+  if (opts.thread_id !== undefined) {
+    where.push("thread_id = ?");
+    params.push(opts.thread_id);
   }
   const rows = db
     .prepare(

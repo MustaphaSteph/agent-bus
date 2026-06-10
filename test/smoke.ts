@@ -485,6 +485,48 @@ await test("inbox and inbox_status can filter by team", async () => {
   assert.equal(betaRows[0]?.content, "beta direct note");
 });
 
+await test("inbox thread filter only consumes matching pending messages", async () => {
+  register({ name: "thread-filter-a", capabilities: [], project: "threadfilter", team: "tf", replace: true });
+  register({ name: "thread-filter-b", capabilities: [], project: "threadfilter", team: "tf", replace: true });
+  const matching = send({ from: "thread-filter-a", to: "thread-filter-b", content: "matching", thread_id: "t_filter_match" });
+  const unrelated = send({ from: "thread-filter-a", to: "thread-filter-b", content: "unrelated", thread_id: "t_filter_other" });
+
+  const got = await inbox({ agent: "thread-filter-b", project: "threadfilter", team: "tf", thread_id: "t_filter_match" });
+  assert.deepEqual(got.map((m) => m.id), [matching.id]);
+
+  const status = inboxStatus({ agent: "thread-filter-b", project: "threadfilter", team: "tf" });
+  assert.ok(!status.unread.some((m) => m.id === matching.id));
+  assert.ok(status.unread.some((m) => m.id === unrelated.id), "unrelated pending message should remain unread");
+});
+
+await test("inbox_previews thread filter does not consume matching or unrelated messages", async () => {
+  register({ name: "preview-filter-a", capabilities: [], project: "previewfilter", team: "pf", replace: true });
+  register({ name: "preview-filter-b", capabilities: [], project: "previewfilter", team: "pf", replace: true });
+  const matching = send({ from: "preview-filter-a", to: "preview-filter-b", content: "preview matching", thread_id: "t_preview_match" });
+  const unrelated = send({ from: "preview-filter-a", to: "preview-filter-b", content: "preview unrelated", thread_id: "t_preview_other" });
+
+  const previews = await inboxPreviews({ agent: "preview-filter-b", project: "previewfilter", team: "pf", thread_id: "t_preview_match" });
+  assert.deepEqual(previews.map((m) => m.id), [matching.id]);
+
+  const got = await inbox({ agent: "preview-filter-b", project: "previewfilter", team: "pf" });
+  assert.ok(got.some((m) => m.id === matching.id), "previewed matching message should remain pending");
+  assert.ok(got.some((m) => m.id === unrelated.id), "unrelated message should remain pending");
+});
+
+await test("directory exposes bus_version and active listening window", async () => {
+  register({ name: "versioned-listener", capabilities: [], project: "presence", team: "pt", replace: true, bus_version: "9.9.9" });
+  const before = directory({ project: "presence", team: "pt" }).find((agent) => agent.name === "versioned-listener");
+  assert.equal(before?.bus_version, "9.9.9");
+  assert.equal(before?.listening, false);
+
+  const wait = inbox({ agent: "versioned-listener", project: "presence", team: "pt", wait_s: 1, mark_delivered: false });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const during = directory({ project: "presence", team: "pt" }).find((agent) => agent.name === "versioned-listener");
+  assert.equal(during?.listening, true);
+  assert.ok((during?.listening_until ?? 0) > Date.now());
+  await wait;
+});
+
 await test("message_status and why_no_reply explain unanswered asks", async () => {
   const askMessage = send({ from: "alice", to: "bob", content: "need answer", kind: "ask" });
   let status = messageStatus({ message_id: askMessage.id });

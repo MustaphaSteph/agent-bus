@@ -162,6 +162,12 @@ function migrate(db: Database.Database): void {
   if (!agentCols.has("removed_at")) {
     db.exec(`ALTER TABLE agents ADD COLUMN removed_at INTEGER`);
   }
+  if (!agentCols.has("bus_version")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN bus_version TEXT`);
+  }
+  if (!agentCols.has("listening_until")) {
+    db.exec(`ALTER TABLE agents ADD COLUMN listening_until INTEGER`);
+  }
 
   const taskCols = tableColumns(db, "tasks");
   if (!taskCols.has("project")) {

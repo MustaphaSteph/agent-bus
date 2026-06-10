@@ -43,6 +43,8 @@ patterns:
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=…, message=…)` |
 | "Show team chat" / "watch the <team> conversation" | Use `recent(team=…)` and render only that team scope; if using the CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch` |
 | "Listen only to this team" / "check this team inbox" | `inbox_status(agent="$ARGUMENTS", team=…)` for diagnostics; `inbox(agent="$ARGUMENTS", team=…, wait_s=110)` only when intentionally processing |
+| "Wait for this thread" / "only watch this conversation" | `inbox(agent="$ARGUMENTS", team=…, thread_id=…, wait_s=110)`; with CLI use `agent-bus team-chat --team <team> --thread <thread>` or `agent-bus wait --agent <name> --team <team> --thread <thread>` |
+| "Wake me when a message arrives" | Explain that MCP cannot wake an idle model session by itself; use `agent-bus wait --agent <name> --team <team> --notify`, a Claude listener hook, or a host automation |
 | "Inbox is too large" / "message got truncated" | `inbox_previews(agent="$ARGUMENTS", team=…)`, then `get_message(message_id=…, team=…, include_content=false)` or fetch one exact message only when needed |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user it's been dispatched. |
 | "Ask <specific name> to do X" | `ask(from="$ARGUMENTS", to="<specific name>", question=…)` only when the agent is online/listening and the user needs the answer now; otherwise `ask_async(from="$ARGUMENTS", to="<specific name>", question=…)` |
@@ -140,6 +142,15 @@ Do not make the user wait in silence while bus calls happen. For
 - Do not chain repeated inbox/status/diagnostic calls just because one
   bus interaction completed.
 
+## Delivery vs attention
+
+Agent Bus stores messages durably, but it cannot force an idle model
+session to take a new turn by MCP alone. An agent is truly listening
+only while it is inside `inbox(wait_s)`, covered by a Claude listener
+hook, watched by `agent-bus wait`, or driven by host automation. If two
+waits are empty, check `whois`/`directory`, `inbox_status`, and task
+state instead of silently polling forever.
+
 ## Rules
 
 - Don't auto-poll the inbox between user turns. Only check inbox when
@@ -164,9 +175,9 @@ Do not make the user wait in silence while bus calls happen. For
   `get_message(team=..., include_content=false)` before fetching a full message.
   For very large briefs, ask the sender to use a file path or task
   artifact reference instead of a giant chat payload.
-- `reply` only answers `kind="ask"`. For normal `kind="msg"` inbox
-  rows, use `reply_thread(thread_id=...)` or
-  `send(..., thread_id=...)`.
+- `reply` works for asks and normal messages. For asks, it answers the
+  pending ask. For normal messages, it infers the thread and creates a
+  threaded reply. Use task tools for task assignments and state changes.
 - Use `activity` to answer "what happened?", `cockpit` to answer
   "what needs attention?", and `now` to update your own current work
   without inventing ad hoc status messages.

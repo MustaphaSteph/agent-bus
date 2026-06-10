@@ -27,6 +27,7 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
 14. Wait for expected rosters, reserve tasks for not-yet-registered
     workers, split edit scope from read scope, and record test evidence.
 15. Show activity timelines and coordinator cockpit dashboards.
+16. See whether an agent is actively listening and which bus version it registered with.
 
 ## Core rules
 
@@ -38,21 +39,26 @@ practice (e.g. `mcp__agent-bus__send`). They let you:
    registered (except your own — register yourself first).
 3. **`inbox` only returns `pending` messages.** Once returned they flip
    to `delivered` (or stay pending with a claim if `claim_s` was set).
-4. **Listener pattern uses `wait_s`, not a loop.** Set `wait_s=110` and
+4. **Delivery is not attention.** Agent Bus stores messages durably, but
+   it cannot force an idle model session to take a turn. Attention comes
+   from `inbox(wait_s)`, a Claude listener hook, a background
+   `agent-bus wait`, a host automation, or a human prompting the
+   session.
+5. **Listener pattern uses `wait_s`, not a loop.** Set `wait_s=110` and
    the call blocks until a message lands. Re-call only after it returns.
-5. **Reply to asks with `reply`, not `send`.** `reply` closes the ask so
+6. **Reply to asks with `reply`, not `send`.** `reply` closes the ask so
    the asker unblocks. Plain `send` won't.
-6. **Pass `thread_id` when continuing a conversation.** The thread_id is
+7. **Pass `thread_id` when continuing a conversation.** The thread_id is
    on every message you receive. Pass it back in your replies/sends so
    threads stay coherent.
-7. **Project/area scope is automatic for MCP sessions.** Register
+8. **Project/area scope is automatic for MCP sessions.** Register
    defaults to the repo cwd-derived project and optional `.agent-bus.json`
    area. Use `project: "*"` / `area: "*"` only when you really want
    broader routing/listing.
-8. **Team is required for agent workflows.** Use a concrete `team` when
+9. **Team is required for agent workflows.** Use a concrete `team` when
    registering and when reading inboxes. If the user did not give a
    team, ask which team to join before registering.
-9. **Surface bus progress to the user.** Before a blocking bus wait,
+10. **Surface bus progress to the user.** Before a blocking bus wait,
    say who/what you are waiting on. When the needed answer arrives,
    summarize it and continue local work. Do not keep polling for
    unrelated bus messages unless the user explicitly asked you to keep
@@ -105,9 +111,12 @@ Read pending messages addressed to you.
 
 Input:
 - `agent: string` — your name
+- `project?: string` — optional exact project filter
+- `area?: string` — optional exact area filter
+- `team?: string` — optional team filter; concrete team reads only that team's messages, `*` means all teams
+- `thread_id?: string` — only read/consume one conversation thread
 - `wait_s?: number` — block up to N seconds for first arrival (max 110)
 - `claim_s?: number` — at-least-once: claim returned rows for N seconds, require `ack`
-- `team?: string` — optional team filter; concrete team reads only that team's messages, `*` means all teams
 - `since_id?: number` — only return id > this
 - `limit?: number` — default 50, max 500
 - `mark_delivered?: boolean` — default true (ignored when claim_s set)
@@ -120,7 +129,10 @@ and will not appear under `open_tasks` or `active_tasks` on
 
 Behavior:
 - No `wait_s`: snapshot, return what's pending.
-- With `wait_s`: block until first message or timeout.
+- With `wait_s`: block until first matching message or timeout and mark
+  the agent as visibly `listening`.
+- With `thread_id`: only matching thread messages are returned; other
+  pending messages stay queued.
 - With `claim_s`: returned rows stay `pending` with a claim_deadline. You must `ack` each one or it'll redeliver after the claim expires.
 
 ### ack
@@ -141,7 +153,11 @@ Inspect inbox state without consuming messages.
 
 Input:
 - `agent: string`
+- `project?: string`
+- `area?: string`
 - `team?: string` — optional team filter; concrete team inspects only that team's rows, `*` means all teams
+- `thread_id?: string`
+- `since_id?: number`
 - `limit?: number` — default 20, max 100 per section
 
 Returns unread messages, claimed/in-flight messages, recent delivered
@@ -154,7 +170,10 @@ message bodies. Use this first if `inbox` output might be too large.
 
 Input:
 - `agent: string`
+- `project?: string`
+- `area?: string`
 - `team?: string`
+- `thread_id?: string`
 - `since_id?: number`
 - `wait_s?: number`
 - `limit?: number` — default 20, max 100
@@ -967,8 +986,19 @@ want each worker's assignment to show on the team board, use
 
 For a human terminal view of one team's discussion, use
 `agent-bus team-chat --team <team>` or
-`agent-bus team-chat --team <team> --watch`. With MCP only, call
+`agent-bus team-chat --team <team> --watch`. For noisy chats, use
+`agent-bus team-chat --team <team> --since-id <id>`,
+`agent-bus team-chat --team <team> --thread <thread_id>`, or
+`agent-bus team-chat --team <team> --threads`. With MCP only, call
 `recent(team=<team>)` and render the matching scoped messages.
+
+For a terminal or human that wants a notification without consuming the
+message:
+
+```
+agent-bus wait --agent worker-a --team frontend --notify
+agent-bus wait --agent worker-a --team frontend --thread t_abc123
+```
 
 ### Continue a thread
 

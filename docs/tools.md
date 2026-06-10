@@ -22,7 +22,9 @@ register({
 }) → Agent
 ```
 
-**Returns** the `Agent` row.
+**Returns** the `Agent` row, including `bus_version` when the adapter
+knows it and `listening_until` when a blocking inbox wait or CLI waiter
+has marked the session as actively listening.
 
 **Errors**: `INVALID_INPUT` (bad name format), `NAME_TAKEN` (name active
 within last 60s and `replace` not passed).
@@ -63,7 +65,10 @@ Read pending messages addressed to you.
 ```ts
 inbox({
   agent: string,
+  project?: string,            // optional exact project filter
+  area?: string,               // optional exact area filter
   team?: string,               // concrete team only; "*" means all teams
+  thread_id?: string,          // only consume this thread
   wait_s?: number,             // block up to N seconds for first arrival (max 110)
   claim_s?: number,            // at-least-once mode: keep pending, require ack
   since_id?: number,           // only return messages with id > this
@@ -73,7 +78,10 @@ inbox({
 ```
 
 Without `wait_s` it's a snapshot. With `wait_s` it blocks until a message
-arrives or the timeout fires.
+arrives or the timeout fires and marks the agent as `listening` until the
+wait window expires. Thread/project/area/team filters apply before
+delivery, so a thread-scoped inbox only consumes messages from that
+thread and leaves unrelated pending messages queued.
 
 **Without `claim_s`**: returned messages flip to `delivered` immediately.
 At-most-once delivery.
@@ -106,7 +114,11 @@ message already delivered". If message bodies may be huge, use
 ```ts
 inbox_status({
   agent: string,
+  project?: string,
+  area?: string,
   team?: string,               // concrete team only; "*" means all teams
+  thread_id?: string,
+  since_id?: number,
   limit?: number,              // default 20, max 100 per section
 }) -> {
   agent: string,
@@ -128,7 +140,10 @@ have large messages queued.
 ```ts
 inbox_previews({
   agent: string,
+  project?: string,
+  area?: string,
   team?: string,               // concrete team only; "*" means all teams
+  thread_id?: string,
   since_id?: number,
   wait_s?: number,             // block up to N seconds for first arrival (max 110)
   limit?: number,              // default 20, max 100

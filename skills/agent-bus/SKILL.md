@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.29.0
+  - agent-bus-mcp >= 0.30.0
 ---
 
 # agent-bus
@@ -66,6 +66,8 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Tell the <team> team X" / "message everyone on <team>" | `send_team(team=<team>, message=…)` |
 | "Show team chat" / "watch the <team> conversation" | If using CLI, run `agent-bus team-chat --team <team>` or `agent-bus team-chat --team <team> --watch`; with MCP, use `recent(team=<team>)` and render only that team scope |
 | "Listen only to my team" / "keep checking this team" | `inbox(agent=<your name>, team=<team>, wait_s=110, claim_s=300)`; use `inbox_status(agent=<your name>, team=<team>)` for non-consuming checks |
+| "Wait for this thread" / "only watch this conversation" | `inbox(agent=<your name>, team=<team>, thread_id=<thread>, wait_s=110)`; with CLI use `agent-bus team-chat --team <team> --thread <thread>` or `agent-bus wait --agent <name> --team <team> --thread <thread>` |
+| "Wake me when a message arrives" | Explain that MCP cannot wake an idle model session by itself; use `agent-bus wait --agent <name> --team <team> --notify`, a Claude listener hook, or a host automation |
 | "Inbox is too large" / "message got truncated" | Use `inbox_previews(agent=<your name>, team=<team>)`, then `get_message(message_id=…, team=<team>, include_content=false)` or fetch one full message only when needed |
 | "Delegate this to a helper" or "tell someone to…" | `send(to=<best-fit helper>, message=…)`. Don't block; tell the user you dispatched it. |
 | "Ask <specific name> to do X" | `ask(from=<your name>, to="<specific name>", question=…)` only if they are online/listening and the user needs the answer now; otherwise `ask_async(from=<your name>, to="<specific name>", question=…)` |
@@ -124,6 +126,25 @@ The user speaks normally. You pick the tool. Common patterns:
   `active_tasks` on `project_board` / `team_board`. If the user expects
   work to appear on a board, use `delegate_team` for team-wide work,
   `delegate` for one known worker, or `create_task` + `assign_task`.
+
+## Delivery vs attention
+
+Agent Bus is a durable local queue, not a pager. Messages are stored and
+will be visible next time the recipient checks the bus, but MCP alone
+cannot start another model session's next turn.
+
+Attention comes from one of these:
+
+- A session currently inside `inbox(wait_s)`; `directory`/`whois` show it
+  as `listening`.
+- Claude Code's listener/Stop hook re-entering the inbox loop.
+- A background CLI waiter such as
+  `agent-bus wait --agent worker-a --team frontend --notify`.
+- A host automation or the human prompting the idle session.
+
+If you wait twice and get no new message, stop blind polling. Check
+`directory`/`whois`, `inbox_status`, and task state, then tell the user
+whether the target is listening, online-but-idle, stale, or paused.
 
 ## When to choose a specific name vs ask_best
 
@@ -235,6 +256,9 @@ create roles, prompts, or behavior rules.
   handoff memory and can reassign the task in one step.
 - Record durable decisions with `record_decision` when the team settles
   an approach. Use `list_decisions` before reopening an old debate.
+- Convert deliverable chat into a task or decision. If a thread produces
+  a concrete implementation/review/documentation action, create or
+  update a task. If it settles an approach, record a decision.
 - Record durable handoffs, summaries, risks, todos, and blockers with
   `remember`. Pin handoffs that the next agent should see first. Use
   `session_brief` at the start of a fresh session or before handing work
@@ -291,6 +315,9 @@ create roles, prompts, or behavior rules.
 - Use `cancel_task` when work is superseded or intentionally stopped.
 - Use `review_gate` and `final_report` before commit/push/deploy
   decisions.
+- Before changing shared repo state during multi-agent review, announce
+  intent on the active task/thread: commit, push, publish, rebase,
+  merge, or amend. Check for recent task/message activity first.
 
 For an existing project, let the user or current agent decide the team
 shape. A common pattern is one coordinator, one or more area-focused
