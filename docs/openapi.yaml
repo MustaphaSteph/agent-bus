@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.28.0
+  version: 0.29.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 65 tools over an MCP stdio server. This OpenAPI
@@ -1735,6 +1735,7 @@ components:
                 - TASK_FORBIDDEN
                 - TASK_SCOPE_CONFLICT
                 - TASK_REVIEW_REQUIRED
+                - REVIEW_SELF_FORBIDDEN
                 - INTERNAL
             message:
               type: string
@@ -2204,6 +2205,16 @@ components:
           type: [string, 'null']
         session_id:
           type: [string, 'null']
+        review_required:
+          type: boolean
+        independent_review:
+          type: boolean
+        deadline_at:
+          type: [integer, 'null']
+          format: int64
+        checkin_at:
+          type: [integer, 'null']
+          format: int64
 
     DelegateRequest:
       type: object
@@ -2235,6 +2246,10 @@ components:
           type: array
           items: { type: string }
         allow_pending_agent:
+          type: boolean
+        review_required:
+          type: boolean
+        independent_review:
           type: boolean
         allow_conflicts:
           type: boolean
@@ -2280,6 +2295,10 @@ components:
         file_scope:
           type: array
           items: { type: string }
+        review_required:
+          type: boolean
+        independent_review:
+          type: boolean
         allow_conflicts:
           type: boolean
 
@@ -2319,6 +2338,16 @@ components:
           type: [string, 'null']
         session_id:
           type: [string, 'null']
+        review_required:
+          type: boolean
+        independent_review:
+          type: boolean
+        deadline_at:
+          type: [integer, 'null']
+          format: int64
+        checkin_at:
+          type: [integer, 'null']
+          format: int64
 
     ReleaseTaskRequest:
       type: object

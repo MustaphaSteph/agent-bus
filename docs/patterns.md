@@ -92,6 +92,11 @@ For more copy-paste registration, verifier, and listener prompts, see
 **Failure modes**:
 
 - Claude ends the turn unexpectedly → install the Stop hook to auto-resume.
+- Codex/Cursor sessions do not have Claude Code's Stop-hook auto-resume.
+  For long work, prefer tracked tasks and have the PM re-arm
+  `wait_for_task(task_id, wait_s=110)` only after giving the user a
+  visible status update. A timeout is not failure if the task has recent
+  events or the holder is still online.
 - Tool round-trip takes seconds per cycle → that's Claude's reasoning,
   not the bus. Use a smaller model in the listener session if you can.
 - Listener process killed mid-message → at-most-once delivery means the
@@ -601,10 +606,13 @@ Use these memory kinds consistently:
 For implementation work, make "done" a verifier gate:
 
 1. Create or delegate a task with `review_required=true` when another
-   agent should check it.
+   agent should check it. Add `independent_review=true` when a separate
+   reviewer is available and self-review should be rejected.
 2. The implementer records progress with `record_task_event`.
 3. The implementer records evidence with `record_test_result` for build,
-   lint, unit tests, browser/simulator smoke, or manual checks.
+   lint, unit tests, browser/simulator smoke, or manual checks. Include
+   `git_ref` and `cwd` when available; the bus stores them but does not
+   derive or enforce git state.
 4. The reviewer inspects `task_result({ task_id })` and calls
    `submit_review(approved=true)` or requests changes.
 5. The coordinator calls `review_gate` and `final_report` before
@@ -628,3 +636,6 @@ Done = implementation finished
   a reason.
 - Task marked complete but review is pending -> use `review_gate`; it
   should block manager sign-off until the review is resolved.
+- PM keeps waiting silently -> re-arm `wait_for_task` in visible
+  intervals, or continue locally with the latest task evidence instead
+  of blind inbox polling.

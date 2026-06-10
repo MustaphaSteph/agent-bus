@@ -595,6 +595,7 @@ create_task({
   read_scope?: string[],       // files this task may inspect
   ack_required?: boolean,
   review_required?: boolean,
+  independent_review?: boolean, // reject holder/pending assignee as reviewer
   changed_files?: string[],
   phase?: string | null,
   session_id?: string | null,
@@ -669,6 +670,7 @@ delegate({
   read_scope?: string[],
   ack_required?: boolean,      // default true
   review_required?: boolean,
+  independent_review?: boolean,
   allow_pending_agent?: boolean,
   allow_conflicts?: boolean,
 }) -> {
@@ -709,6 +711,7 @@ delegate_team({
   read_scope?: string[],
   ack_required?: boolean,       // default true
   review_required?: boolean,
+  independent_review?: boolean,
   allow_conflicts?: boolean,
   include_self?: boolean,
   max_recipients?: number,
@@ -767,6 +770,7 @@ update_task({
   read_scope?: string[],
   ack_required?: boolean,
   review_required?: boolean,
+  independent_review?: boolean,
   review_state?: "none" | "pending" | "approved" | "changes_requested",
   reviewed_by?: string | null,
   review_notes?: string | null,
@@ -790,6 +794,16 @@ Allowed transitions:
 Only the requester or holder can update. **Errors**:
 `TASK_INVALID_TRANSITION`, `TASK_FORBIDDEN`, `TASK_NOT_FOUND`,
 `TASK_SCOPE_CONFLICT`, `TASK_REVIEW_REQUIRED`.
+
+`independent_review` is default false for compatibility. When true,
+`submit_review` rejects the current `claimed_by` holder or
+`pending_assignee` with `REVIEW_SELF_FORBIDDEN`; the requester may still
+review because PM-requester review is the common workflow.
+
+`deadline_at` is surfaced as overdue for open/claimed/working/blocked
+tasks. `checkin_at` is surfaced as check-in due for claimed/working/
+blocked tasks. These are computed when boards/cockpit are read; they do
+not create task events or require a daemon.
 
 ## release_task
 
@@ -1117,6 +1131,8 @@ record_test_result({
   command: string,
   status: "passed" | "failed" | "skipped",
   output_summary?: string | null,
+  git_ref?: string | null,      // caller-supplied ref/commit tested
+  cwd?: string | null,          // working directory where evidence ran
   project?: string | null,
   area?: string | null,
   team?: string | null,
@@ -1132,6 +1148,9 @@ list_test_results({
   limit?: number,
 }) -> TestResult[]
 ```
+
+`git_ref` and `cwd` are informational evidence anchors. The bus never
+derives git state and `review_gate` does not block on missing refs.
 
 ## final_report
 

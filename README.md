@@ -94,7 +94,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.28.0
+agent-bus --version                # 0.29.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
@@ -406,7 +406,7 @@ For real project work, keep it simple:
 - Use `send_team` for discussion and `delegate` / `delegate_team` for work that should appear on the board.
 - Keep the board honest: create or claim a task before tracked edits, update `now()` / status while working, and move finished work to review or done.
 - Treat memory as the loop's notebook: record decisions, current risks, done work, next actions, and handoff notes so tomorrow's agent does not rediscover today's context.
-- Treat "done" as a gate, not a feeling: implementation finished, test evidence recorded, reviewer approved when required, and `final_report` / `review_gate` says the work is safe.
+- Treat "done" as a gate, not a feeling: implementation finished, test evidence recorded with optional `git_ref`/`cwd`, independent reviewer approved when required, and `final_report` / `review_gate` says the work is safe.
 - Use the web cockpit (`agent-bus ui`) when you want the big picture.
 
 Detailed CLI commands, task workflows, memory examples, separated-folder
@@ -436,6 +436,7 @@ Everything below ships in that one `npm install`. No add-ons, no tiers, no aster
 | [`docs/tools.md`](docs/tools.md) | All MCP tools — signatures, errors, examples |
 | [`docs/cli.md`](docs/cli.md) | `agent-bus` CLI reference |
 | [`docs/patterns.md`](docs/patterns.md) | Listener mode, async chat, capability routing, broadcast, ack/retry, threading |
+| [`docs/loops.md`](docs/loops.md) | Loop engineering with memory, verifier gates, liveness, and cockpit attention |
 | [`docs/architecture.md`](docs/architecture.md) | Schema, internals, tuning, what it can and can't do |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common errors and fixes |
 | [`docs/openapi.yaml`](docs/openapi.yaml) | Core synthetic OpenAPI 3.1 mapping; [`docs/tools.md`](docs/tools.md) is authoritative for the full MCP surface |

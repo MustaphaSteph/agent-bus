@@ -81,7 +81,7 @@ export function taskDetail(taskId: number, limit: number, json: boolean): void {
   console.log(kleur.bold("Events:"));
   printList(result.events.map((row) => `#${row.id} [${row.event_type}] ${row.by_agent}: ${row.message}${row.phase ? ` phase=${row.phase}` : ""}`));
   console.log(kleur.bold("Test evidence:"));
-  printList(result.test_results.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}`));
+  printList(result.test_results.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}${row.git_ref ? ` @${row.git_ref}` : ""}${row.cwd ? ` cwd=${row.cwd}` : ""}`));
   console.log(kleur.bold("Memories:"));
   printList(result.memories.map((row) => `#${row.id} [${row.kind}] ${row.content}`));
   console.log(kleur.bold("Messages:"));

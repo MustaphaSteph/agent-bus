@@ -209,6 +209,9 @@ function migrate(db: Database.Database): void {
   if (!taskCols.has("review_required")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN review_required INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!taskCols.has("independent_review")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN independent_review INTEGER NOT NULL DEFAULT 0`);
+  }
   if (!taskCols.has("review_state")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN review_state TEXT NOT NULL DEFAULT 'none'`);
   }
@@ -308,6 +311,12 @@ function migrate(db: Database.Database): void {
   }
   if (!testResultCols.has("team")) {
     db.exec(`ALTER TABLE test_results ADD COLUMN team TEXT`);
+  }
+  if (!testResultCols.has("git_ref")) {
+    db.exec(`ALTER TABLE test_results ADD COLUMN git_ref TEXT`);
+  }
+  if (!testResultCols.has("cwd")) {
+    db.exec(`ALTER TABLE test_results ADD COLUMN cwd TEXT`);
   }
   if (!taskEventCols.has("team")) {
     db.exec(`ALTER TABLE task_events ADD COLUMN team TEXT`);

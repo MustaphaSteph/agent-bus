@@ -14,6 +14,7 @@ meeting room.
 | See every MCP tool an agent can call, with examples | [tools.md](tools.md) |
 | Run the `agent-bus` command-line | [cli.md](cli.md) |
 | Pick the right communication pattern (listener, ask, broadcast, etc.) | [patterns.md](patterns.md) |
+| Design long-running agent loops with memory and review gates | [loops.md](loops.md) |
 | Understand the schema and internals | [architecture.md](architecture.md) |
 | Diagnose a problem | [troubleshooting.md](troubleshooting.md) |
 

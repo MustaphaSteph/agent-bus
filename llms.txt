@@ -463,6 +463,7 @@ Input:
 - `read_scope?: string[]` — files this task may inspect
 - `ack_required?: boolean`
 - `review_required?: boolean`
+- `independent_review?: boolean` — when true, holder/pending assignee cannot approve their own task
 - `changed_files?: string[]`
 - `phase?: string | null`
 - `session_id?: string | null`
@@ -504,6 +505,7 @@ Input:
 - `read_scope?: string[]`
 - `ack_required?: boolean`
 - `review_required?: boolean`
+- `independent_review?: boolean`
 - `review_state?: "none" | "pending" | "approved" | "changes_requested"`
 - `reviewed_by?: string | null`
 - `review_notes?: string | null`
@@ -713,6 +715,8 @@ Record and list explicit build/lint/test evidence for `final_report`.
 - `command: string`
 - `status: "passed" | "failed" | "skipped"`
 - `output_summary?: string | null`
+- `git_ref?: string | null` — caller-supplied ref/commit/branch tested
+- `cwd?: string | null` — directory where evidence was produced
 - `project?: string | null`
 - `area?: string | null`
 - `team?: string | null`
@@ -771,6 +775,13 @@ implementation is finished, test evidence is recorded with
 `submit_review(approved=true)`, and `review_gate` / `final_report`
 reports safe. Do not treat a chat reply or task status alone as final
 completion.
+
+Set `independent_review=true` with `review_required=true` when there is
+another agent available to review implementation work. This rejects
+self-review by the current holder or pending assignee with
+`REVIEW_SELF_FORBIDDEN`; requester/PM review is still allowed. Do not
+set it for solo-agent work unless the user accepts that another reviewer
+is needed.
 
 ### get_task
 
@@ -881,6 +892,7 @@ Returns `Task`.
 | `TASK_INVALID_TRANSITION` | Bad task state transition | Terminal or skipped state |
 | `TASK_NOT_CLAIMABLE` | Task cannot be claimed | Already claimed or not open |
 | `TASK_FORBIDDEN` | Task mutation denied | Not requester or holder |
+| `REVIEW_SELF_FORBIDDEN` | Independent review rejects self-review | Have another agent review, or disable independent_review for solo work |
 | `INTERNAL` | Bug / unexpected | File a report |
 
 ## Patterns
@@ -894,7 +906,7 @@ You sit waiting for messages.
 2. inbox({ agent: "me", team: "frontend", wait_s: 110 })   ← blocks on this team only
 3. For each returned message:
      - if kind=="ask": reply({ from: "me", ask_id: m.id, answer: ... })
-     - else: reply({ from: "me", ask_id: m.id, answer: ... })
+     - else: send({ from: "me", to: m.from_agent, message: ..., thread_id: m.thread_id })
 4. Go to step 2 immediately. Do NOT narrate empty timeouts.
 ```
 

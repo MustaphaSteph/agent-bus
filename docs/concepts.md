@@ -53,6 +53,28 @@ Project/area scoping reduces noise without isolating the bus:
 Direct `send`, `ask`, and `reply` still work across projects and areas by
 explicit agent name.
 
+## Team
+
+A soft workgroup boundary inside a project or area. Teams are the
+beginner-friendly scope: put the agents that should coordinate together
+in one concrete team such as `frontend`, `ios-ui`, `api`, or
+`agent-bus-devs`.
+
+`team` is metadata, not behavior. The bus does not hard-code what a
+designer, verifier, PM, or worker must do. It only uses team scope for
+routing and views:
+
+- `directory`, `whois`, `recent`, `tasks`, `project_board`, `team_board`,
+  and the cockpit can filter to one team.
+- `send_team` broadcasts chat to active members of a team.
+- `ask_team` asks the best active team member, optionally by capability
+  or role.
+- `delegate_team` creates board-visible tasks for matching active team
+  members.
+
+Direct addressed `send` and `ask` still work across teams when you name
+the exact agent.
+
 ## Message
 
 A row in the `messages` table. Fields you care about:
@@ -149,6 +171,12 @@ Task safety metadata makes agent work easier to manage:
 - `review_required`, `review_state`, `reviewed_by`, and `review_notes`
   create a review gate. A review-required task cannot move to
   `completed` until `submit_review(approved:true)` has run.
+- `independent_review` optionally hardens that gate by rejecting
+  self-review from the current holder or pending assignee. It is
+  default-off for solo/backward-compatible workflows.
+- `deadline_at` and `checkin_at` are evaluated when boards/cockpit are
+  read. Overdue tasks and check-in-due tasks are attention items; no
+  daemon or scheduler writes hidden task events.
 - `changed_files` records what an agent says it changed; the bus rejects
   files outside `file_scope` unless explicitly allowed.
 - `check_scope_conflicts` and `project_board` surface overlapping active
@@ -180,6 +208,24 @@ Tasks do not auto-requeue when an agent goes stale. `list_tasks` surfaces
 `stale: true` for active tasks whose holder has not heartbeated within
 `AGENT_BUS_TASK_STALE_MS` (default 5 minutes). A human or orchestrator can
 then release or reassign the task explicitly.
+
+## Cockpit
+
+`agent-bus ui` is the local web cockpit. It reads the same SQLite bus
+state as MCP/CLI and shows:
+
+- projects and teams
+- Slack-style team chat with threads
+- Kanban task lanes
+- activity timeline
+- people/presence
+- attention items such as blocked, stale, pending review, missing
+  acknowledgement, overdue, check-in due, and edit-scope conflicts
+- pinned risks, decisions, and throughput metrics
+
+The cockpit is primarily read-only. The explicit exceptions are guarded
+roster cleanup actions for removing stale members or deleting a team
+scope while preserving message/task history.
 
 ## Claim
 
@@ -246,6 +292,7 @@ Error codes:
 | `TASK_INVALID_TRANSITION` | Tried to move a task through an impossible state transition |
 | `TASK_NOT_CLAIMABLE` | Tried to claim a task that is not open and unheld |
 | `TASK_FORBIDDEN` | Tried to update or release a task without requester/holder rights |
+| `REVIEW_SELF_FORBIDDEN` | Task requires independent review and the reviewer is the holder/pending assignee |
 | `INTERNAL` | Bug or unexpected exception |
 
 ## What this is NOT

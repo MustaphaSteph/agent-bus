@@ -718,6 +718,7 @@ program
   .option("--thread <id>", "existing thread id")
   .option("--no-ack", "do not require acknowledgement")
   .option("--review", "require approved review before completion")
+  .option("--independent-review", "reject task holder/pending assignee as reviewer")
   .option("--allow-pending-agent", "reserve for an agent that is not registered yet")
   .option("--allow-conflicts", "allow overlapping edit scopes")
   .option("--project <name>", "project scope (use all for global)")
@@ -741,6 +742,7 @@ program
     thread?: string;
     ack?: boolean;
     review?: boolean;
+    independentReview?: boolean;
     allowPendingAgent?: boolean;
     allowConflicts?: boolean;
     project?: string;
@@ -766,6 +768,7 @@ program
       thread_id: opts.thread,
       ack_required: opts.ack !== false,
       review_required: opts.review === true,
+      independent_review: opts.independentReview === true,
       allow_pending_agent: opts.allowPendingAgent,
       allow_conflicts: opts.allowConflicts,
       project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? undefined),
@@ -802,6 +805,7 @@ program
   .option("--include-self", "include sender if they are in the target team")
   .option("--no-ack", "do not require acknowledgement")
   .option("--review", "require approved review before completion")
+  .option("--independent-review", "reject task holder/pending assignee as reviewer")
   .option("--allow-conflicts", "allow overlapping edit scopes")
   .option("--project <name>", "project scope (use all for global)")
   .option("--area <name>", "area scope (use all for global)")
@@ -827,6 +831,7 @@ program
     includeSelf?: boolean;
     ack?: boolean;
     review?: boolean;
+    independentReview?: boolean;
     allowConflicts?: boolean;
     project?: string;
     area?: string;
@@ -854,6 +859,7 @@ program
       include_self: opts.includeSelf === true,
       ack_required: opts.ack !== false,
       review_required: opts.review === true,
+      independent_review: opts.independentReview === true,
       allow_conflicts: opts.allowConflicts,
       project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? undefined),
       area: scope.area === AREA_WILDCARD ? null : (scope.area ?? undefined),
@@ -1330,11 +1336,13 @@ program
   .option("--command <text>", "command that was run")
   .option("--status <status>", "passed, failed, or skipped")
   .option("--summary <text>", "short output summary")
+  .option("--git-ref <ref>", "git ref/commit/branch that was tested")
+  .option("--cwd <path>", "working directory where the evidence was produced")
   .option("--list", "list results")
   .option("-n, --last <count>", "how many to list", "50")
   .option("--project <name>", "project scope (use all for global)")
   .option("--area <name>", "area scope (use all for global)")
-  .action((opts: { by?: string; task?: string; command?: string; status?: string; summary?: string; list?: boolean; last: string; project?: string; area?: string }) => {
+  .action((opts: { by?: string; task?: string; command?: string; status?: string; summary?: string; gitRef?: string; cwd?: string; list?: boolean; last: string; project?: string; area?: string }) => {
     const scope = resolveScopeOptions(opts.project, opts.area);
     if (opts.list === true) {
       const rows = listTestResults({
@@ -1344,7 +1352,7 @@ program
         status: opts.status as never,
         limit: Number(opts.last),
       });
-      console.log(formatList(rows.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}`)));
+      console.log(formatList(rows.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}${row.git_ref ? ` @${row.git_ref}` : ""}${row.cwd ? ` cwd=${row.cwd}` : ""}`)));
       return;
     }
     if (!opts.by || !opts.command || !opts.status) throw new Error("--by, --command, and --status are required unless --list is used");
@@ -1354,6 +1362,8 @@ program
       command: opts.command,
       status: opts.status as never,
       output_summary: opts.summary ?? null,
+      git_ref: opts.gitRef ?? null,
+      cwd: opts.cwd ?? null,
       project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? null),
       area: scope.area === AREA_WILDCARD ? null : (scope.area ?? null),
     });
@@ -1480,7 +1490,7 @@ program
     console.log(`Not implemented:\n${formatList(report.not_implemented)}`);
     console.log(`Known risks:\n${formatList(report.known_risks)}`);
     console.log(`Tests passed:\n${formatList(report.tests_passed)}`);
-    console.log(`Test evidence:\n${formatList(report.test_results.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}`))}`);
+    console.log(`Test evidence:\n${formatList(report.test_results.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}${row.git_ref ? ` @${row.git_ref}` : ""}${row.cwd ? ` cwd=${row.cwd}` : ""}`))}`);
     console.log(`Manual tests needed:\n${formatList(report.manual_tests_needed)}`);
     console.log(`Safe to commit: ${report.safe_to_commit ? "yes" : "no"}`);
     console.log(`Safe to push: ${report.safe_to_push ? "yes" : "no"}`);

@@ -1201,6 +1201,67 @@ await test("tasks: review gate requires approval before completion", () => {
   assert.equal(done.state, "completed");
 });
 
+await test("tasks: independent_review blocks implementer self-approval but allows requester review", () => {
+  register({ name: "independent-pm", project: "indrev", replace: true });
+  register({ name: "independent-worker", project: "indrev", replace: true });
+  register({ name: "independent-reviewer", project: "indrev", replace: true });
+  const task = createTask({
+    requested_by: "independent-pm",
+    title: "independent review task",
+    project: "indrev",
+    review_required: true,
+    independent_review: true,
+  });
+  assert.equal(task.independent_review, true);
+  claimTask({ agent: "independent-worker", task_id: task.id });
+  assert.throws(
+    () => submitReview({ reviewer: "independent-worker", task_id: task.id, approved: true }),
+    (e: unknown) => e instanceof BusError && e.code === "REVIEW_SELF_FORBIDDEN",
+  );
+  const requesterReview = submitReview({ reviewer: "independent-pm", task_id: task.id, approved: true });
+  assert.equal(requesterReview.review_state, "approved");
+
+  const thirdParty = createTask({
+    requested_by: "independent-pm",
+    title: "third party review task",
+    project: "indrev",
+    review_required: true,
+    independent_review: true,
+  });
+  claimTask({ agent: "independent-worker", task_id: thirdParty.id });
+  assert.equal(submitReview({ reviewer: "independent-reviewer", task_id: thirdParty.id, approved: true }).review_state, "approved");
+});
+
+await test("tasks: independent_review blocks pending assignee self-approval and default keeps compat", () => {
+  register({ name: "compat-pm", project: "compat-review", replace: true });
+  register({ name: "compat-worker", project: "compat-review", replace: true });
+  const compat = createTask({
+    requested_by: "compat-pm",
+    title: "compat self review",
+    project: "compat-review",
+    review_required: true,
+  });
+  claimTask({ agent: "compat-worker", task_id: compat.id });
+  assert.equal(submitReview({ reviewer: "compat-worker", task_id: compat.id, approved: true }).review_state, "approved");
+
+  const pending = createTask({
+    requested_by: "compat-pm",
+    title: "pending self review",
+    project: "compat-review",
+    review_required: true,
+    independent_review: true,
+  });
+  assignTask({ task_id: pending.id, to_agent: "future-review-worker", allow_pending_agent: true });
+  register({ name: "future-review-worker", project: "compat-review", replace: true });
+  assert.throws(
+    () => submitReview({ reviewer: "future-review-worker", task_id: pending.id, approved: true }),
+    (e: unknown) => e instanceof BusError && e.code === "REVIEW_SELF_FORBIDDEN",
+  );
+  const updated = updateTask({ agent: "compat-pm", task_id: pending.id, independent_review: false });
+  assert.equal(updated.independent_review, false);
+  assert.equal(submitReview({ reviewer: "future-review-worker", task_id: pending.id, approved: true }).review_state, "approved");
+});
+
 await test("tasks: handoff records pinned memory and reassigns", () => {
   register({ name: "handoff-pm", project: "handoffp", replace: true });
   register({ name: "handoff-a", project: "handoffp", replace: true });
@@ -1240,6 +1301,34 @@ await test("project board: summarizes review and pinned risks", () => {
   assert.ok(board.active_tasks.some((row) => row.id === task.id));
   assert.ok(board.waiting_review.some((row) => row.id === task.id));
   assert.ok(board.pinned_risks.some((row) => row.content.includes("pending review")));
+});
+
+await test("project board and cockpit surface overdue and check-in due tasks", () => {
+  register({ name: "timing-pm", project: "timing", replace: true });
+  register({ name: "timing-worker", project: "timing", replace: true });
+  const past = Date.now() - 5_000;
+  const open = createTask({ requested_by: "timing-pm", title: "open overdue", project: "timing", deadline_at: past, checkin_at: past });
+  const claimed = createTask({ requested_by: "timing-pm", title: "claimed overdue", project: "timing", deadline_at: past, checkin_at: past });
+  claimTask({ agent: "timing-worker", task_id: claimed.id });
+  const working = createTask({ requested_by: "timing-pm", title: "working overdue", project: "timing", deadline_at: past, checkin_at: past });
+  claimTask({ agent: "timing-worker", task_id: working.id });
+  updateTask({ agent: "timing-worker", task_id: working.id, state: "working" });
+  const blocked = createTask({ requested_by: "timing-pm", title: "blocked overdue", project: "timing", deadline_at: past, checkin_at: past });
+  claimTask({ agent: "timing-worker", task_id: blocked.id });
+  updateTask({ agent: "timing-worker", task_id: blocked.id, state: "working" });
+  updateTask({ agent: "timing-worker", task_id: blocked.id, state: "blocked", blocked_reason: "waiting" });
+  const done = createTask({ requested_by: "timing-pm", title: "done overdue", project: "timing", deadline_at: past, checkin_at: past });
+  claimTask({ agent: "timing-worker", task_id: done.id });
+  updateTask({ agent: "timing-worker", task_id: done.id, state: "completed", manager_reviewed: true });
+
+  const board = projectBoard({ project: "timing" });
+  assert.deepEqual(board.overdue_tasks.map((task) => task.id).sort((a, b) => a - b), [open.id, claimed.id, working.id, blocked.id].sort((a, b) => a - b));
+  assert.deepEqual(board.checkin_due_tasks.map((task) => task.id).sort((a, b) => a - b), [claimed.id, working.id, blocked.id].sort((a, b) => a - b));
+  assert.ok(board.overdue_tasks.every((task) => task.overdue === true));
+  assert.ok(board.checkin_due_tasks.every((task) => task.checkin_due === true));
+  const dashboard = cockpit({ project: "timing" });
+  assert.ok(dashboard.blockers.some((item) => item.includes("overdue")));
+  assert.ok(dashboard.waiting_on.some((item) => item.includes("check-in due")));
 });
 
 await test("wait_for_agents reports ready, stale, missing, and wrong scope", async () => {
@@ -1327,12 +1416,18 @@ await test("test results are recorded in final report", () => {
     command: "npm run build",
     status: "passed",
     output_summary: "build passed",
+    git_ref: "abc1234-dirty",
+    cwd: "/tmp/agent-bus-evidence",
   });
   assert.equal(result.project, "evidence");
+  assert.equal(result.git_ref, "abc1234-dirty");
+  assert.equal(result.cwd, "/tmp/agent-bus-evidence");
   assert.ok(listTestResults({ project: "evidence" }).some((row) => row.id === result.id));
+  const bundle = taskResult(task.id);
+  assert.ok(bundle.test_results.some((row) => row.git_ref === "abc1234-dirty" && row.cwd === "/tmp/agent-bus-evidence"));
   const report = finalReport({ project: "evidence" });
   assert.ok(report.test_results.some((row) => row.command === "npm run build"));
-  assert.ok(report.tests_passed.some((line) => line.includes("npm run build")));
+  assert.ok(report.tests_passed.some((line) => line.includes("npm run build") && line.includes("@abc1234-dirty")));
 });
 
 await test("decisions: record and list by scope", () => {

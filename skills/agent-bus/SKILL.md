@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.28.0
+  - agent-bus-mcp >= 0.29.0
 ---
 
 # agent-bus
@@ -224,6 +224,11 @@ create roles, prompts, or behavior rules.
 - Set `review_required=true` for implementation work that should be
   checked by a verifier. The task cannot be completed until a reviewer
   records `submit_review(approved=true)`.
+- Set `independent_review=true` together with `review_required=true`
+  when another agent is available to review implementation work. Do not
+  set it for solo-agent work unless the user accepts that a different
+  reviewer is required; self-review by the holder or pending assignee
+  fails with `REVIEW_SELF_FORBIDDEN`.
 - Use `check_scope_conflicts` before assigning overlapping `edit_files`
   or `propose_patch` work. Split ownership when conflicts are real.
 - Use `handoff_task` when a worker stops mid-task; it records a pinned
@@ -235,14 +240,18 @@ create roles, prompts, or behavior rules.
   `session_brief` at the start of a fresh session or before handing work
   to another agent.
 - Record explicit build, lint, unit test, browser smoke, and manual
-  verification evidence with `record_test_result`; final reports surface
-  these rows.
+  verification evidence with `record_test_result`; include caller-
+  supplied `git_ref` and `cwd` when available so reviewers know what
+  code state was tested. Final reports surface these rows.
 - Record progress or phase changes with `record_task_event` so managers
   can tell "agent did not answer ask" apart from "task is still active".
 - Use phases consistently: `planning`, `editing`, `testing`, `review`,
   and `done`. The CLI Kanban maps state plus phase into `Todo`,
   `Accepted`, `Doing`, `Testing`, `Review`, and `Blocked` lanes. Do not
   invent new task states for phases; keep the state machine stable.
+- Use `deadline_at` for hard target times and `checkin_at` for expected
+  progress updates. Boards and cockpit surface overdue/check-in-due
+  tasks at read time; no scheduler is required.
 - Use `team-chat`/`recent(team=...)` for discussion history and human
   visibility. Use `delegate_team`, `team_board`, `kanban`, and `done`
   for tracked work. A team chat message alone is not a task.
@@ -349,5 +358,6 @@ intent calls for them.
 | `ASK_TIMEOUT` | recipient didn't reply in time | tell the user, suggest re-sending as `send` or asking the user to nudge the recipient session |
 | `ASK_CYCLE` | mutual deadlock — recipient has an active opposite ask to you | inspect the ask id in the error with `message_status`, answer it first, or switch to `ask_async`/`send`; stale asks older than the active ask window no longer block |
 | `AGENT_HAS_ACTIVE_TASKS` / `TEAM_HAS_ACTIVE_TASKS` | cleanup target still owns active work | show task ids; only pass `release_tasks=true` with explicit approval |
+| `REVIEW_SELF_FORBIDDEN` | independent review rejects self-review by the holder/pending assignee | ask a different agent to review, or disable `independent_review` for solo work |
 | The user names a helper that isn't on the bus | not registered | offer to spin up a listener (`/listen <name>` in Claude Code, or paste `agent-bus listen-prompt <name>` output into Codex/Cursor) |
 | Setup check fails | MCP not installed / wrong version | print install hint; if the user approves, run `scripts/check-setup.sh --install-cli`, then retry |

@@ -1860,6 +1860,7 @@ export interface Task {
   acknowledged_at: number | null;
   acknowledged_by: string | null;
   review_required: boolean;
+  independent_review: boolean;
   review_state: TaskReviewState;
   reviewed_by: string | null;
   review_notes: string | null;
@@ -1869,6 +1870,8 @@ export interface Task {
   session_id: string | null;
   scope_conflicts?: ScopeConflict[];
   stale?: boolean;
+  overdue?: boolean;
+  checkin_due?: boolean;
 }
 
 interface TaskRow {
@@ -1905,6 +1908,7 @@ interface TaskRow {
   acknowledged_at: number | null;
   acknowledged_by: string | null;
   review_required: number;
+  independent_review: number;
   review_state: TaskReviewState;
   reviewed_by: string | null;
   review_notes: string | null;
@@ -1925,6 +1929,8 @@ function readTaskStaleThresholdMs(): number {
 export const TASK_STALE_THRESHOLD_MS = readTaskStaleThresholdMs();
 
 const ACTIVE_TASK_STATES: TaskState[] = ["claimed", "working", "blocked"];
+const DEADLINE_ATTENTION_STATES: TaskState[] = ["open", "claimed", "working", "blocked"];
+const CHECKIN_ATTENTION_STATES: TaskState[] = ["claimed", "working", "blocked"];
 
 // Exported so tests and tooling can mirror the state machine without
 // re-declaring it. Terminal states (completed/failed/canceled) have no
@@ -1974,6 +1980,7 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     acknowledged_at: row.acknowledged_at,
     acknowledged_by: row.acknowledged_by,
     review_required: row.review_required === 1,
+    independent_review: row.independent_review === 1,
     review_state: row.review_state,
     reviewed_by: row.reviewed_by,
     review_notes: row.review_notes,
@@ -2165,6 +2172,7 @@ export interface CreateTaskOptions {
   read_scope?: string[];
   ack_required?: boolean;
   review_required?: boolean;
+  independent_review?: boolean;
   changed_files?: string[];
   phase?: string | null;
   session_id?: string | null;
@@ -2240,8 +2248,8 @@ export function createTask(opts: CreateTaskOptions): Task {
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, team, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, review_state, changed_files, phase, session_id)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, team, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, independent_review, review_state, changed_files, phase, session_id)
+       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
@@ -2268,6 +2276,7 @@ export function createTask(opts: CreateTaskOptions): Task {
       readScope,
       opts.ack_required === true ? 1 : 0,
       reviewRequired ? 1 : 0,
+      opts.independent_review === true ? 1 : 0,
       reviewRequired ? "pending" : "none",
       changedFiles,
       opts.phase ?? null,
@@ -2370,6 +2379,7 @@ export interface UpdateTaskOptions {
   mode?: TaskMode;
   ack_required?: boolean;
   review_required?: boolean;
+  independent_review?: boolean;
   review_state?: TaskReviewState;
   reviewed_by?: string | null;
   review_notes?: string | null;
@@ -2529,6 +2539,10 @@ export function updateTask(opts: UpdateTaskOptions): Task {
       sets.push("review_state = ?");
       params.push("pending");
     }
+  }
+  if (opts.independent_review !== undefined) {
+    sets.push("independent_review = ?");
+    params.push(opts.independent_review ? 1 : 0);
   }
   if (opts.review_state !== undefined) {
     validateReviewState(opts.review_state);
@@ -3162,6 +3176,13 @@ export function submitReview(opts: SubmitReviewOptions): Task {
   requireAgent(opts.reviewer);
   heartbeat(opts.reviewer);
   const row = getTaskRow(opts.task_id);
+  if (row.independent_review === 1 && (row.claimed_by === opts.reviewer || row.pending_assignee === opts.reviewer)) {
+    const holder = row.claimed_by ?? row.pending_assignee ?? "unknown";
+    throw new BusError(
+      "REVIEW_SELF_FORBIDDEN",
+      `task ${opts.task_id} requires independent review; '${opts.reviewer}' is the implementer/assignee (${holder}). Have a different agent review, or disable independent_review for solo work.`,
+    );
+  }
   const ts = now();
   const reviewState: TaskReviewState = opts.approved ? "approved" : "changes_requested";
   getDb()
@@ -3554,6 +3575,8 @@ export interface TestResult {
   command: string;
   status: TestResultStatus;
   output_summary: string | null;
+  git_ref: string | null;
+  cwd: string | null;
   project: string | null;
   area: string | null;
   team: string | null;
@@ -3567,6 +3590,8 @@ interface TestResultRow {
   command: string;
   status: TestResultStatus;
   output_summary: string | null;
+  git_ref: string | null;
+  cwd: string | null;
   project: string | null;
   area: string | null;
   team: string | null;
@@ -3669,6 +3694,8 @@ export interface RecordTestResultOptions {
   command: string;
   status: TestResultStatus;
   output_summary?: string | null;
+  git_ref?: string | null;
+  cwd?: string | null;
   project?: string | null;
   area?: string | null;
   team?: string | null;
@@ -3694,10 +3721,10 @@ export function recordTestResult(opts: RecordTestResultOptions): TestResult {
   const ts = now();
   const info = getDb()
     .prepare(
-      `INSERT INTO test_results (by_agent, task_id, command, status, output_summary, project, area, team, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO test_results (by_agent, task_id, command, status, output_summary, git_ref, cwd, project, area, team, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(opts.by_agent, opts.task_id ?? null, opts.command, opts.status, opts.output_summary ?? null, project, area, team, ts);
+    .run(opts.by_agent, opts.task_id ?? null, opts.command, opts.status, opts.output_summary ?? null, opts.git_ref ?? null, opts.cwd ?? null, project, area, team, ts);
   const row = getDb().prepare("SELECT * FROM test_results WHERE id = ?").get(info.lastInsertRowid) as TestResultRow;
   return toTestResult(row);
 }
@@ -3967,6 +3994,8 @@ export interface ProjectBoard {
   waiting_review: Task[];
   waiting_acknowledgement: Task[];
   stale_tasks: Task[];
+  overdue_tasks: Task[];
+  checkin_due_tasks: Task[];
   scope_conflicts: Array<{ task_id: number; title: string; conflicts: ScopeConflict[] }>;
   pinned_risks: Memory[];
   pinned_handoffs: Memory[];
@@ -4025,6 +4054,15 @@ export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
     .filter((task) => task.ack_required && task.acknowledged_at === null && (task.pending_assignee !== null || task.claimed_by !== null))
     .slice(0, limit);
   const staleTasks = tasks.filter((task) => task.stale === true).slice(0, limit);
+  const ts = now();
+  const overdueTasks = tasks
+    .filter((task) => task.deadline_at !== null && task.deadline_at < ts && DEADLINE_ATTENTION_STATES.includes(task.state))
+    .map((task) => ({ ...task, overdue: true }))
+    .slice(0, limit);
+  const checkinDueTasks = tasks
+    .filter((task) => task.checkin_at !== null && task.checkin_at < ts && CHECKIN_ATTENTION_STATES.includes(task.state))
+    .map((task) => ({ ...task, checkin_due: true }))
+    .slice(0, limit);
   const scopeConflicts = tasks
     .filter((task) => task.edit_scope.length > 0 && (task.state === "claimed" || task.state === "working" || task.state === "blocked"))
     .map((task) => ({
@@ -4044,6 +4082,8 @@ export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
   const pinnedHandoffs = listMemories({ ...scope, kind: "handoff", pinned: true, limit });
   const suggested: string[] = [];
   if (scopeConflicts.length > 0) suggested.push("Resolve overlapping edit_scope before allowing more edits.");
+  if (overdueTasks.length > 0) suggested.push("Review overdue tasks and update deadlines, blockers, or ownership.");
+  if (checkinDueTasks.length > 0) suggested.push("Ask task holders for due check-ins or record current progress.");
   if (waitingAck.length > 0) suggested.push("Follow up with agents who have not acknowledged assigned work.");
   if (blockedTasks.length > 0) suggested.push("Review blocked tasks and update blockers or release ownership.");
   if (waitingReview.length > 0) suggested.push("Assign a verifier to pending review tasks.");
@@ -4056,6 +4096,8 @@ export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
     blocked_tasks: blockedTasks,
     waiting_review: waitingReview,
     stale_tasks: staleTasks,
+    overdue_tasks: overdueTasks,
+    checkin_due_tasks: checkinDueTasks,
     waiting_acknowledgement: waitingAck,
     scope_conflicts: scopeConflicts,
     pinned_risks: pinnedRisks,
@@ -4198,8 +4240,14 @@ export function cockpit(opts: SessionBriefOptions = {}): Cockpit {
   for (const task of board.blocked_tasks) {
     blockers.push(`task #${task.id} blocked${task.blocked_reason ? `: ${task.blocked_reason}` : ""}`);
   }
+  for (const task of board.overdue_tasks) {
+    blockers.push(`task #${task.id} overdue: ${task.title}`);
+  }
   for (const task of board.stale_tasks) {
     blockers.push(`task #${task.id} stale holder ${task.claimed_by ?? "unknown"}: ${task.title}`);
+  }
+  for (const task of board.checkin_due_tasks) {
+    waitingOn.push(`task #${task.id} check-in due from ${task.claimed_by ?? task.pending_assignee ?? "holder"}: ${task.title}`);
   }
   for (const row of board.scope_conflicts) {
     blockers.push(`task #${row.task_id} edit scope overlaps ${row.conflicts.map((conflict) => `#${conflict.task_id}`).join(", ")}`);
@@ -4246,6 +4294,8 @@ export interface ScopeTeamSummary {
   blocked_tasks: number;
   waiting_review: number;
   stale_tasks: number;
+  overdue_tasks: number;
+  checkin_due_tasks: number;
   attention: number;
 }
 
@@ -4258,6 +4308,8 @@ export interface ScopeProjectSummary {
   blocked_tasks: number;
   waiting_review: number;
   stale_tasks: number;
+  overdue_tasks: number;
+  checkin_due_tasks: number;
   attention: number;
   teams: ScopeTeamSummary[];
 }
@@ -4332,6 +4384,8 @@ export function scopes(): ScopesResult {
         blocked_tasks: 0,
         waiting_review: 0,
         stale_tasks: 0,
+        overdue_tasks: 0,
+        checkin_due_tasks: 0,
         attention: 0,
       };
       acc.teams.set(key, summary);
@@ -4356,6 +4410,9 @@ export function scopes(): ScopesResult {
     const isBlocked = task.state === "blocked";
     const isWaitingReview = task.review_required && task.review_state === "pending";
     const isStale = task.stale === true;
+    const ts = now();
+    const isOverdue = task.deadline_at !== null && task.deadline_at < ts && DEADLINE_ATTENTION_STATES.includes(task.state);
+    const isCheckinDue = task.checkin_at !== null && task.checkin_at < ts && CHECKIN_ATTENTION_STATES.includes(task.state);
     const isWaitingAck =
       task.ack_required &&
       task.acknowledged_at === null &&
@@ -4365,13 +4422,15 @@ export function scopes(): ScopesResult {
     if (isBlocked) summary.blocked_tasks += 1;
     if (isWaitingReview) summary.waiting_review += 1;
     if (isStale) summary.stale_tasks += 1;
+    if (isOverdue) summary.overdue_tasks += 1;
+    if (isCheckinDue) summary.checkin_due_tasks += 1;
     // Count attention items the same way the cockpit board does: one point per
     // condition, so the rail badge matches the rows shown in the Attention view
     // (a single task can be both stale and pending-review). Scope conflicts are
     // the one board attention source not counted here — computing them needs a
     // cross-task check per task, too costly for this discovery-level summary.
     summary.attention +=
-      (isBlocked ? 1 : 0) + (isWaitingReview ? 1 : 0) + (isStale ? 1 : 0) + (isWaitingAck ? 1 : 0);
+      (isBlocked ? 1 : 0) + (isWaitingReview ? 1 : 0) + (isStale ? 1 : 0) + (isWaitingAck ? 1 : 0) + (isOverdue ? 1 : 0) + (isCheckinDue ? 1 : 0);
   }
 
   const projectSummaries: ScopeProjectSummary[] = [];
@@ -4388,6 +4447,8 @@ export function scopes(): ScopesResult {
         blocked_tasks: sum.blocked_tasks + team.blocked_tasks,
         waiting_review: sum.waiting_review + team.waiting_review,
         stale_tasks: sum.stale_tasks + team.stale_tasks,
+        overdue_tasks: sum.overdue_tasks + team.overdue_tasks,
+        checkin_due_tasks: sum.checkin_due_tasks + team.checkin_due_tasks,
         attention: sum.attention + team.attention,
       }),
       {
@@ -4398,6 +4459,8 @@ export function scopes(): ScopesResult {
         blocked_tasks: 0,
         waiting_review: 0,
         stale_tasks: 0,
+        overdue_tasks: 0,
+        checkin_due_tasks: 0,
         attention: 0,
       },
     );
@@ -4677,7 +4740,7 @@ export function finalReport(opts: ListTasksOptions = {}): FinalReport {
     .filter((task) => task.mode === "test_only" && task.state === "completed")
     .map((task) => task.final_answer ?? task.result ?? task.title);
   for (const result of testResults.filter((row) => row.status === "passed")) {
-    testsPassed.push(`${result.command}${result.output_summary ? ` - ${result.output_summary}` : ""}`);
+    testsPassed.push(`${result.command}${result.output_summary ? ` - ${result.output_summary}` : ""}${result.git_ref ? ` @${result.git_ref}` : ""}${result.cwd ? ` cwd=${result.cwd}` : ""}`);
   }
   const manualTestsNeeded = tasks
     .filter((task) => task.state !== "completed" || task.manager_reviewed === false || (task.review_required && task.review_state !== "approved"))
@@ -4705,6 +4768,8 @@ export function reviewGate(opts: ListTasksOptions = {}): ReviewGateReport {
   if (board.blocked_tasks.length > 0) blockers.push(`${board.blocked_tasks.length} blocked task(s)`);
   if (board.waiting_review.length > 0) blockers.push(`${board.waiting_review.length} task(s) waiting for review`);
   if (board.waiting_acknowledgement.length > 0) warnings.push(`${board.waiting_acknowledgement.length} task(s) waiting for acknowledgement`);
+  if (board.overdue_tasks.length > 0) blockers.push(`${board.overdue_tasks.length} overdue task(s)`);
+  if (board.checkin_due_tasks.length > 0) warnings.push(`${board.checkin_due_tasks.length} task(s) due for check-in`);
   if (board.stale_tasks.length > 0) warnings.push(`${board.stale_tasks.length} stale task holder(s)`);
   if (board.scope_conflicts.length > 0) blockers.push(`${board.scope_conflicts.length} edit scope conflict(s)`);
   if (!report.safe_to_commit) blockers.push("final_report says safe_to_commit=false");

@@ -16,7 +16,8 @@ export type BusErrorCode =
   | "TASK_NOT_CLAIMABLE"
   | "TASK_FORBIDDEN"
   | "TASK_SCOPE_CONFLICT"
-  | "TASK_REVIEW_REQUIRED";
+  | "TASK_REVIEW_REQUIRED"
+  | "REVIEW_SELF_FORBIDDEN";
 
 export class BusError extends Error {
   readonly code: BusErrorCode;

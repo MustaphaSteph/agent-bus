@@ -106,8 +106,8 @@ The layout has three regions plus a global KPI strip:
   earlier" history**), **Kanban** (full Todo/Accepted/Doing/Testing/
   Review/Blocked/Done board), **Activity** (timeline), **People**
   (roster grouped by presence + work status), and **Attention**
-  (blocked / stale / pending-review / unacknowledged / scope-conflict,
-  sorted by severity).
+  (blocked / overdue / check-in due / stale / pending-review /
+  unacknowledged / scope-conflict, sorted by severity).
 - **Ops right rail** — KPIs, real time-series sparklines (message volume
   + trend delta), an agent×status roster heatmap, a mini-Kanban, a
   tasks/day throughput chart, decisions, and pinned memory.
@@ -540,7 +540,7 @@ agent-bus cockpit --team ios-ui
 agent-bus kanban --team ios-ui --watch
 agent-bus done --team ios-ui
 agent-bus scope-conflicts --files "src/module/**"
-agent-bus delegate --from coordinator --to worker-a --title "Investigate bug" --mode investigate_only --expect "findings and fix options"
+agent-bus delegate --from coordinator --to worker-a --title "Implement bug fix" --mode edit_files --review --independent-review --expect "patch + tests"
 agent-bus delegate-team --from coordinator --team ios-ui --title "Compare detail screen options" --mode investigate_only --expect "one plan per designer"
 agent-bus ack-task 12 --agent worker-a --response claimed
 agent-bus review-task 12 --reviewer reviewer --approve --notes "tests passed"
@@ -558,7 +558,7 @@ agent-bus message-status 45
 agent-bus why-no-reply 45
 agent-bus reply-thread t_abc123 --from coordinator --message "continue from here"
 agent-bus cancel-task 12 --agent worker-a --reason "superseded by task 18"
-agent-bus test-result --by reviewer --task 12 --command "npm test" --status passed --summary "60 smoke tests passed"
+agent-bus test-result --by reviewer --task 12 --command "npm test" --status passed --summary "60 smoke tests passed" --git-ref "$(git rev-parse --short HEAD)" --cwd "$PWD"
 agent-bus test-result --list
 
 agent-bus final-report
@@ -579,6 +579,9 @@ level progress/phase/log/result notes; `task` and `task-result` show
 one task with its events, test evidence, memories, and thread messages.
 `delegate` creates a task, assigns it,
 notifies the worker, and requires acknowledgement by default.
+Use `--review --independent-review` for implementation work when a
+separate reviewer is available; the holder/pending assignee cannot
+approve their own work.
 `delegate-team` creates board-visible tracked tasks for active matching
 members of one team and reports skipped stale/paused/mismatched members.
 `wait-task` waits for task activity and reports latest evidence without
@@ -587,7 +590,9 @@ repeated manual polling.
 recipient presence, and related task context. `reply-thread` continues a
 thread without looking up the exact recipient. `cancel-task` marks
 active work canceled and notifies the other side. `test-result` records
-explicit build/lint/test evidence for the final report. `final-report`
+explicit build/lint/test evidence for the final report, with optional
+`--git-ref` and `--cwd` anchors so reviewers know what code state was
+tested. `final-report`
 summarizes implemented work, gaps, risks, tests,
 manual checks, and commit/push/deploy safety. `review-gate` turns the
 board and final report into a deterministic ready/block decision.
