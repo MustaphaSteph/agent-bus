@@ -3177,10 +3177,9 @@ export function submitReview(opts: SubmitReviewOptions): Task {
   heartbeat(opts.reviewer);
   const row = getTaskRow(opts.task_id);
   if (row.independent_review === 1 && (row.claimed_by === opts.reviewer || row.pending_assignee === opts.reviewer)) {
-    const holder = row.claimed_by ?? row.pending_assignee ?? "unknown";
     throw new BusError(
       "REVIEW_SELF_FORBIDDEN",
-      `task ${opts.task_id} requires independent review; '${opts.reviewer}' is the implementer/assignee (${holder}). Have a different agent review, or disable independent_review for solo work.`,
+      `task ${opts.task_id} requires independent review; '${opts.reviewer}' is the implementer/assignee. Have a different agent review, or disable independent_review for solo work.`,
     );
   }
   const ts = now();
@@ -4396,6 +4395,7 @@ export function scopes(): ScopesResult {
   // Seed buckets for every scope that appears in message history, so a team
   // that has only chat (no current agents or active tasks) still shows up.
   for (const row of messageScopes) ensureTeam(row.project, row.team);
+  const ts = now();
 
   for (const agent of agents) {
     const summary = ensureTeam(agent.project, agent.team);
@@ -4410,7 +4410,6 @@ export function scopes(): ScopesResult {
     const isBlocked = task.state === "blocked";
     const isWaitingReview = task.review_required && task.review_state === "pending";
     const isStale = task.stale === true;
-    const ts = now();
     const isOverdue = task.deadline_at !== null && task.deadline_at < ts && DEADLINE_ATTENTION_STATES.includes(task.state);
     const isCheckinDue = task.checkin_at !== null && task.checkin_at < ts && CHECKIN_ATTENTION_STATES.includes(task.state);
     const isWaitingAck =

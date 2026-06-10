@@ -95,5 +95,9 @@ Boards and cockpit surface loop-health issues at read time:
 - due `checkin_at`
 - edit-scope conflicts
 
+`review_gate` treats overdue tasks as blockers. Set `deadline_at` only
+when missing the deadline should stop "safe to merge/push" reports until
+the task is completed, canceled, or rescheduled.
+
 There is no scheduler or daemon. A PM loop can simply read `team_board`,
 `cockpit`, or the web UI to decide the next prompt.

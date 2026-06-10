@@ -905,8 +905,8 @@ You sit waiting for messages.
 1. register({ name: "me", replace: true })
 2. inbox({ agent: "me", team: "frontend", wait_s: 110 })   ← blocks on this team only
 3. For each returned message:
-     - if kind=="ask": reply({ from: "me", ask_id: m.id, answer: ... })
-     - else: send({ from: "me", to: m.from_agent, message: ..., thread_id: m.thread_id })
+     - reply({ from: "me", ask_id: m.id, answer: ... })
+       // answers asks; creates a threaded reply for normal messages
 4. Go to step 2 immediately. Do NOT narrate empty timeouts.
 ```
 
