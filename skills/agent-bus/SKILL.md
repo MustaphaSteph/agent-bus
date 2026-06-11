@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.30.0
+  - agent-bus-mcp >= 0.31.0
 ---
 
 # agent-bus
@@ -86,6 +86,9 @@ The user speaks normally. You pick the tool. Common patterns:
 | "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render |
 | "Track this as a task" / "Open a task to do X" | `create_task(requested_by=<your name>, title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigned and `review_required` for implementation work |
+| "Put this idea in backlog" / "Save this for later" | `create_task(requested_by=<your name>, title=…, description=…, state="backlog", milestone=…)`; backlog tasks are visible but not claimable/blocking until promoted |
+| "Start this backlog item" / "Promote task X" | `update_task(agent=<your name>, task_id=…, state="open", priority=…)`; then assign/delegate or let workers `claim_best_task` |
+| "Park task X" / "Move this back to backlog" | `update_task(agent=<your name>, task_id=…, state="backlog")`; this clears active holder/pending assignee fields |
 | "Delegate this to <agent>" / "Assign this to <agent>" | Prefer `delegate(from=<your name>, to_agent=…, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; if the task already exists, use `assign_task(task_id=…, to_agent=…)`; use `allow_pending_agent=true` when the worker is not registered yet |
 | "Delegate this to the <team> team" / "assign this to everyone on <team>" | `delegate_team(from=<your name>, team=<team>, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; add `capability`, `role`, or `max_recipients` when the user wants only matching members |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
@@ -126,6 +129,10 @@ The user speaks normally. You pick the tool. Common patterns:
   `active_tasks` on `project_board` / `team_board`. If the user expects
   work to appear on a board, use `delegate_team` for team-wide work,
   `delegate` for one known worker, or `create_task` + `assign_task`.
+- **Ideas belong in backlog.** Use `state="backlog"` for future ideas,
+  deferred risks, and options discovered mid-session. Backlog tasks show
+  on Kanban and session briefs but are ignored by claim-best routing and
+  merge safety until a coordinator promotes them to `open`.
 
 ## Delivery vs attention
 

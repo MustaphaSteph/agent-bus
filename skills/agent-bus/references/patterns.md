@@ -135,6 +135,23 @@ update_task({
 Use `assign_task` when the manager chooses the worker, or
 `claim_best_task` when a worker asks for its next matching task.
 
+Use backlog for ideas that are not ready to claim:
+
+```
+create_task({
+  requested_by: <coordinator>,
+  title: "try alternate onboarding flow",
+  state: "backlog",
+  milestone: "mvp",
+})
+
+// Later, when the coordinator decides this should become real work:
+update_task({ agent: <coordinator>, task_id, state: "open", priority: 8 })
+```
+
+Backlog tasks remain visible on boards and briefs, but `claim_best_task`,
+`review_gate`, and `final_report` ignore them until promoted to `open`.
+
 `list_tasks` (or `agent-bus tasks --watch` from a shell) shows
 pending and active work. Stale tasks (holder gone idle) surface with
 `stale: true` — surface them to the user; they can `release_task`

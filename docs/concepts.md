@@ -139,7 +139,7 @@ other `msg` in their inbox — except `m.channel` is set.
 A queryable unit of work in the `tasks` table. Use tasks when you need
 coordination state, not just an event. A task has a title, optional
 description, thread_id, project, area, requester, optional holder, state,
-priority, optional `required_capability`, `mode`, `expected_output`,
+optional `milestone`, priority, optional `required_capability`, `mode`, `expected_output`,
 deadlines/check-ins, `file_scope`, final answer, manager review flag, cwd,
 blocker metadata, result, and timestamps.
 
@@ -147,14 +147,21 @@ The state machine is strict:
 
 | From | To |
 |---|---|
-| `open` | `claimed`, `canceled` |
-| `claimed` | `working`, `open`, `canceled`, `failed` |
+| `backlog` | `open`, `canceled` |
+| `open` | `backlog`, `claimed`, `canceled` |
+| `claimed` | `working`, `completed`, `open`, `canceled`, `failed` |
 | `working` | `blocked`, `completed`, `failed`, `canceled` |
 | `blocked` | `working`, `completed`, `failed`, `canceled` |
 | `completed`, `failed`, `canceled` | none |
 
 `claim_task` is atomic. If two agents try to claim the same open task,
 one wins and the other gets `TASK_NOT_CLAIMABLE`.
+
+`backlog` is a parking state for ideas and future work. Backlog tasks
+show on boards and briefs but are ignored by `claim_best_task`,
+`review_gate`, and `final_report` until promoted to `open`. `milestone`
+is a free-form label for release/sprint grouping; it does not create
+automatic workflow behavior.
 
 `assign_task` moves an open task directly to a named agent. `claim_best_task`
 lets a worker claim the highest-priority open task in its scope that

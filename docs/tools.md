@@ -592,6 +592,8 @@ create_task({
   title: string,               // 1-200 chars
   description?: string,
   thread_id?: string,          // auto-generated otherwise
+  state?: "backlog" | "open",  // default open
+  milestone?: string | null,   // free-form label such as "mvp"
   priority?: number,           // higher sorts first
   cwd?: string,                // target working directory
   blocked_on_task_id?: number, // soft dependency, no auto-unblock
@@ -618,8 +620,12 @@ create_task({
 }) -> Task
 ```
 
-Creates the task in `open` state. **Errors**: `INVALID_INPUT`,
-`UNKNOWN_AGENT`, `TASK_NOT_FOUND` for a missing dependency.
+Creates the task in `open` state by default. Use `state:"backlog"` for
+ideas or parked work that should show on boards but should not be
+claimable or block `review_gate`/`final_report` safety. `milestone` is a
+free-form label only; it does not create hierarchy or automatic release
+behavior. **Errors**: `INVALID_INPUT`, `UNKNOWN_AGENT`,
+`TASK_NOT_FOUND` for a missing dependency.
 
 ## claim_task
 
@@ -669,6 +675,7 @@ delegate({
   title: string,
   description?: string,
   thread_id?: string,
+  milestone?: string | null,
   priority?: number,
   cwd?: string,
   blocked_on_task_id?: number,
@@ -710,6 +717,7 @@ delegate_team({
   title: string,
   description?: string,
   thread_id?: string,           // shared by all created tasks
+  milestone?: string | null,
   priority?: number,
   cwd?: string,
   project?: string | null,
@@ -748,8 +756,9 @@ paused/stale agents, self, capability or role mismatches, and
 
 ## claim_best_task
 
-Claim the highest-priority open task in the agent's project/area that
-matches its capabilities.
+Claim the highest-priority open task in the agent's project/area/team
+that matches its capabilities. Backlog tasks are intentionally ignored
+until promoted to `open`.
 
 ```ts
 claim_best_task({
@@ -768,11 +777,12 @@ Update task metadata or move through the strict state machine.
 update_task({
   agent: string,
   task_id: number,
-  state?: "open" | "claimed" | "working" | "blocked" |
+  state?: "backlog" | "open" | "claimed" | "working" | "blocked" |
           "completed" | "failed" | "canceled",
   blocked_reason?: string | null,
   blocked_on_task_id?: number | null,
   result?: string | null,
+  milestone?: string | null,
   priority?: number,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   expected_output?: string | null,
@@ -800,7 +810,8 @@ Allowed transitions:
 
 | From | To |
 |---|---|
-| `open` | `claimed`, `canceled` |
+| `backlog` | `open`, `canceled` |
+| `open` | `backlog`, `claimed`, `canceled` |
 | `claimed` | `working`, `completed`, `open`, `canceled`, `failed` |
 | `working` | `blocked`, `completed`, `failed`, `canceled` |
 | `blocked` | `working`, `completed`, `failed`, `canceled` |
@@ -815,7 +826,9 @@ Only the requester or holder can update. **Errors**:
 `pending_assignee` with `REVIEW_SELF_FORBIDDEN`; the requester may still
 review because PM-requester review is the common workflow.
 
-`deadline_at` is surfaced as overdue for open/claimed/working/blocked
+Moving a task to `backlog` parks it and clears the holder/pending
+assignee/phase fields. `deadline_at` is surfaced as overdue for
+open/claimed/working/blocked
 tasks. `checkin_at` is surfaced as check-in due for claimed/working/
 blocked tasks. These are computed when boards/cockpit are read; they do
 not create task events or require a daemon.
@@ -890,6 +903,7 @@ project_board({
   open_tasks: Task[],
   active_tasks: Task[],
   blocked_tasks: Task[],
+  backlog_tasks: Task[],
   waiting_review: Task[],
   waiting_acknowledgement: Task[],
   stale_tasks: Task[],
@@ -968,15 +982,17 @@ list_tasks({
   team?: string,                // concrete team or "*" for all
   required_capability?: string,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  milestone?: string,
   manager_reviewed?: boolean,
 }) -> Task[]
 ```
 
-By default terminal tasks (`completed`, `failed`, `canceled`) are hidden.
-Active tasks may include `stale: true` when the holder has not
-heartbeated within `AGENT_BUS_TASK_STALE_MS` (default 5 minutes).
-Concrete project and area filters hide null-scope legacy tasks;
-`project: "*"` and `area: "*"` return all projects/areas.
+By default terminal tasks (`completed`, `failed`, `canceled`) are hidden,
+but backlog tasks are included so a manager can see parked ideas and
+ready work together. Active tasks may include `stale: true` when the
+holder has not heartbeated within `AGENT_BUS_TASK_STALE_MS` (default 5
+minutes). Concrete project and area filters hide null-scope legacy
+tasks; `project: "*"` and `area: "*"` return all projects/areas.
 
 ## get_task
 

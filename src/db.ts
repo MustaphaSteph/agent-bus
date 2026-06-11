@@ -30,6 +30,120 @@ function tableColumns(db: Database.Database, table: string): Set<string> {
   return new Set(rows.map((r) => r.name));
 }
 
+const TASK_CORE_INDEXES_SQL = `
+  CREATE INDEX IF NOT EXISTS idx_tasks_state_claimed
+    ON tasks(state, claimed_by);
+  CREATE INDEX IF NOT EXISTS idx_tasks_requested_by
+    ON tasks(requested_by);
+  CREATE INDEX IF NOT EXISTS idx_tasks_thread
+    ON tasks(thread_id);
+  CREATE INDEX IF NOT EXISTS idx_tasks_blocked_on
+    ON tasks(blocked_on_task_id);
+`;
+
+function taskSchemaSql(db: Database.Database): string {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'tasks'")
+    .get() as { sql: string } | undefined;
+  return row?.sql ?? "";
+}
+
+function rebuildTasksTableForBacklog(db: Database.Database): void {
+  const schema = taskSchemaSql(db);
+  if (schema.includes("'backlog'") && schema.includes("milestone")) return;
+  const previousForeignKeys = db.pragma("foreign_keys", { simple: true }) as number;
+  db.pragma("foreign_keys = OFF");
+  let committed = false;
+  try {
+    db.exec("BEGIN IMMEDIATE");
+    db.exec(`
+      DROP TABLE IF EXISTS tasks_new;
+      CREATE TABLE tasks_new (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        title               TEXT NOT NULL,
+        description         TEXT,
+        thread_id           TEXT NOT NULL,
+        requested_by        TEXT NOT NULL REFERENCES agents(name),
+        claimed_by          TEXT REFERENCES agents(name),
+        state               TEXT NOT NULL CHECK (state IN ('backlog','open','claimed','working','blocked','completed','failed','canceled')),
+        milestone           TEXT,
+        priority            INTEGER NOT NULL DEFAULT 0,
+        cwd                 TEXT,
+        blocked_reason      TEXT,
+        blocked_on_task_id  INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+        result              TEXT,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL,
+        claimed_at          INTEGER,
+        finished_at         INTEGER,
+        project             TEXT,
+        area                TEXT,
+        team                TEXT,
+        required_capability TEXT,
+        mode                TEXT NOT NULL DEFAULT 'edit_files',
+        expected_output     TEXT,
+        deadline_at         INTEGER,
+        checkin_at          INTEGER,
+        final_answer        TEXT,
+        manager_reviewed    INTEGER NOT NULL DEFAULT 0,
+        file_scope          TEXT NOT NULL DEFAULT '[]',
+        ack_required        INTEGER NOT NULL DEFAULT 0,
+        acknowledged_at     INTEGER,
+        acknowledged_by     TEXT,
+        review_required     INTEGER NOT NULL DEFAULT 0,
+        independent_review  INTEGER NOT NULL DEFAULT 0,
+        review_state        TEXT NOT NULL DEFAULT 'none',
+        reviewed_by         TEXT,
+        review_notes        TEXT,
+        changed_files       TEXT NOT NULL DEFAULT '[]',
+        edit_scope          TEXT NOT NULL DEFAULT '[]',
+        read_scope          TEXT NOT NULL DEFAULT '[]',
+        pending_assignee    TEXT,
+        phase               TEXT,
+        session_id          TEXT
+      );
+      INSERT INTO tasks_new (
+        id, title, description, thread_id, requested_by, claimed_by, state,
+        milestone, priority, cwd, blocked_reason, blocked_on_task_id, result,
+        created_at, updated_at, claimed_at, finished_at, project, area, team,
+        required_capability, mode, expected_output, deadline_at, checkin_at,
+        final_answer, manager_reviewed, file_scope, ack_required,
+        acknowledged_at, acknowledged_by, review_required, independent_review,
+        review_state, reviewed_by, review_notes, changed_files, edit_scope,
+        read_scope, pending_assignee, phase, session_id
+      )
+      SELECT
+        id, title, description, thread_id, requested_by, claimed_by, state,
+        milestone, priority, cwd, blocked_reason, blocked_on_task_id, result,
+        created_at, updated_at, claimed_at, finished_at, project, area, team,
+        required_capability, mode, expected_output, deadline_at, checkin_at,
+        final_answer, manager_reviewed, file_scope, ack_required,
+        acknowledged_at, acknowledged_by, review_required, independent_review,
+        review_state, reviewed_by, review_notes, changed_files, edit_scope,
+        read_scope, pending_assignee, phase, session_id
+      FROM tasks;
+      DROP TABLE tasks;
+      ALTER TABLE tasks_new RENAME TO tasks;
+      ${TASK_CORE_INDEXES_SQL}
+    `);
+    const violations = db.pragma("foreign_key_check") as unknown[];
+    if (violations.length > 0) {
+      throw new Error(`tasks migration failed foreign_key_check (${violations.length} violation${violations.length === 1 ? "" : "s"})`);
+    }
+    db.exec("COMMIT");
+    committed = true;
+  } finally {
+    if (!committed) {
+      try {
+        db.exec("ROLLBACK");
+      } catch {
+        // Ignore rollback failures when SQLite has already unwound the transaction.
+      }
+    }
+    if (previousForeignKeys) db.pragma("foreign_keys = ON");
+  }
+}
+
 function migrate(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
@@ -86,7 +200,8 @@ function migrate(db: Database.Database): void {
       thread_id           TEXT NOT NULL,
       requested_by        TEXT NOT NULL REFERENCES agents(name),
       claimed_by          TEXT REFERENCES agents(name),
-      state               TEXT NOT NULL CHECK (state IN ('open','claimed','working','blocked','completed','failed','canceled')),
+      state               TEXT NOT NULL CHECK (state IN ('backlog','open','claimed','working','blocked','completed','failed','canceled')),
+      milestone           TEXT,
       priority            INTEGER NOT NULL DEFAULT 0,
       cwd                 TEXT,
       blocked_reason      TEXT,
@@ -101,14 +216,7 @@ function migrate(db: Database.Database): void {
       team                TEXT
     );
 
-    CREATE INDEX IF NOT EXISTS idx_tasks_state_claimed
-      ON tasks(state, claimed_by);
-    CREATE INDEX IF NOT EXISTS idx_tasks_requested_by
-      ON tasks(requested_by);
-    CREATE INDEX IF NOT EXISTS idx_tasks_thread
-      ON tasks(thread_id);
-    CREATE INDEX IF NOT EXISTS idx_tasks_blocked_on
-      ON tasks(blocked_on_task_id);
+    ${TASK_CORE_INDEXES_SQL}
   `);
 
   const messageCols = tableColumns(db, "messages");
@@ -179,6 +287,9 @@ function migrate(db: Database.Database): void {
   if (!taskCols.has("team")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN team TEXT`);
   }
+  if (!taskCols.has("milestone")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN milestone TEXT`);
+  }
   if (!taskCols.has("required_capability")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN required_capability TEXT`);
   }
@@ -245,6 +356,7 @@ function migrate(db: Database.Database): void {
   if (!taskCols.has("session_id")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN session_id TEXT`);
   }
+  rebuildTasksTableForBacklog(db);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS decisions (

@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.30.0
+  version: 0.31.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 65 tools over an MCP stdio server. This OpenAPI
@@ -1429,8 +1429,9 @@ components:
 
     TaskState:
       type: string
-      enum: [open, claimed, working, blocked, completed, failed, canceled]
+      enum: [backlog, open, claimed, working, blocked, completed, failed, canceled]
       description: |
+        `backlog` tasks are parked ideas and are not claimable.
         `open` tasks can be claimed. `claimed`, `working`, and `blocked`
         are active holder states. `completed`, `failed`, and `canceled`
         are terminal.
@@ -1651,6 +1652,9 @@ components:
           description: Agent currently holding the task, if any.
         state:
           $ref: '#/components/schemas/TaskState'
+        milestone:
+          type: [string, 'null']
+          description: Free-form milestone/release/sprint label.
         priority:
           type: integer
           description: Higher values sort first.
@@ -2209,6 +2213,14 @@ components:
           type: string
         thread_id:
           $ref: '#/components/schemas/ThreadId'
+        state:
+          type: string
+          enum: [backlog, open]
+          default: open
+          description: Backlog tasks are parked and not claimable until promoted.
+        milestone:
+          type: [string, 'null']
+          maxLength: 120
         priority:
           type: integer
           default: 0
@@ -2259,6 +2271,9 @@ components:
           maxLength: 200
         description:
           type: string
+        milestone:
+          type: [string, 'null']
+          maxLength: 120
         mode:
           type: string
           enum: [investigate_only, propose_patch, edit_files, test_only]
@@ -2298,6 +2313,9 @@ components:
           maxLength: 200
         description:
           type: string
+        milestone:
+          type: [string, 'null']
+          maxLength: 120
         mode:
           type: string
           enum: [investigate_only, propose_patch, edit_files, test_only]
@@ -2360,6 +2378,9 @@ components:
           format: int64
         result:
           type: [string, 'null']
+        milestone:
+          type: [string, 'null']
+          maxLength: 120
         priority:
           type: integer
         phase:
@@ -2418,6 +2439,8 @@ components:
         team:
           $ref: '#/components/schemas/TeamFilter'
         required_capability:
+          type: string
+        milestone:
           type: string
 
     GetTaskRequest:

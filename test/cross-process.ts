@@ -101,6 +101,41 @@ assert.match(done.stdout, new RegExp(`#${taskId}`));
 assert.match(done.stdout, /workflow verified/);
 console.log("✓ task workflow shortcuts update Kanban and done history");
 
+const idea = await run([
+  "idea",
+  "Parking lot polish",
+  "--by",
+  "pm",
+  "--project",
+  "kanban-demo",
+  "--team",
+  "kanban-demo",
+  "--milestone",
+  "v0.31",
+  "--priority",
+  "3",
+]);
+assert.equal(idea.code, 0, "idea command should create a backlog task");
+const ideaId = idea.stdout.match(/#(\d+)/)?.[1];
+assert.ok(ideaId, `expected idea task id in output: ${idea.stdout}`);
+const backlog = await run(["backlog", "--project", "kanban-demo", "--team", "kanban-demo", "--milestone", "v0.31"]);
+assert.match(backlog.stdout, new RegExp(`#${ideaId}`));
+assert.match(backlog.stdout, /Parking lot polish/);
+assert.match(backlog.stdout, /milestone=v0\.31/);
+const parkedBoard = await run(["kanban", "--project", "kanban-demo", "--team", "kanban-demo", "--milestone", "v0.31"]);
+assert.match(parkedBoard.stdout, /Backlog:/);
+assert.match(parkedBoard.stdout, new RegExp(`#${ideaId}`));
+assert.equal((await run(["task-promote", ideaId, "--by", "pm", "--priority", "8"])).code, 0);
+const ready = await run(["backlog", "--ready", "--project", "kanban-demo", "--team", "kanban-demo"]);
+assert.match(ready.stdout, new RegExp(`#${ideaId}`));
+assert.match(ready.stdout, /p8/);
+assert.equal((await run(["task-priority", ideaId, "2", "--by", "pm"])).code, 0);
+assert.equal((await run(["task-park", ideaId, "--by", "pm"])).code, 0);
+const ideas = await run(["backlog", "--ideas", "--project", "kanban-demo", "--team", "kanban-demo"]);
+assert.match(ideas.stdout, new RegExp(`#${ideaId}`));
+assert.match(ideas.stdout, /p2/);
+console.log("✓ backlog CLI captures, promotes, prioritizes, and parks ideas");
+
 await run(["register", "--name", "send-worker", "--team", "send-demo", "--project", "send-demo", "--capabilities", "implementation", "--replace"]);
 const directSend = await run([
   "send",

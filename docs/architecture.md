@@ -110,7 +110,8 @@ Indexes:
 | `thread_id` | TEXT | task discussion thread |
 | `requested_by` | TEXT | FK → `agents.name` |
 | `claimed_by` | TEXT nullable | current holder |
-| `state` | TEXT | `open` / `claimed` / `working` / `blocked` / `completed` / `failed` / `canceled` |
+| `state` | TEXT | `backlog` / `open` / `claimed` / `working` / `blocked` / `completed` / `failed` / `canceled` |
+| `milestone` | TEXT nullable | free-form release/sprint label |
 | `priority` | INTEGER | higher sorts first |
 | `cwd` | TEXT nullable | target working directory |
 | `blocked_reason` | TEXT nullable | holder-supplied reason |

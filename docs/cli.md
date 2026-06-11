@@ -344,16 +344,38 @@ Group tasks into workflow columns.
 agent-bus kanban --project actionvoice-ai --team vorec-cli-plugin
 agent-bus kanban --team ui-design --all       # include completed/failed/canceled
 agent-bus kanban --team ui-design --done      # only terminal columns
+agent-bus kanban --team ui-design --milestone mvp
 agent-bus kanban --team ui-design --compact   # shorter rows
 agent-bus kanban --team ui-design --watch     # refresh in place
 agent-bus kanban --team ui-design --state-columns
 ```
 
-Default workflow lanes are `Todo`, `Accepted`, `Doing`, `Testing`,
-`Review`, and `Blocked`. They are derived from task state, `phase`, and
-review fields, so agents keep the stable state machine while humans get
-a natural board. Pass `--state-columns` to show raw task states:
-`Open`, `Claimed`, `Working`, `Blocked`, and `Waiting Review`.
+Default workflow lanes are `Backlog`, `Todo`, `Accepted`, `Doing`,
+`Testing`, `Review`, and `Blocked`. They are derived from task state,
+`phase`, and review fields, so agents keep the stable state machine
+while humans get a natural board. Pass `--state-columns` to show raw
+task states: `Backlog`, `Open`, `Claimed`, `Working`, `Blocked`, and
+`Waiting Review`.
+
+### `agent-bus backlog`
+
+Capture and manage work that is not ready to claim yet. Backlog tasks
+show on boards, but `claim-best-task`, `review-gate`, and `final-report`
+ignore them until they are promoted to `open`.
+
+```bash
+agent-bus idea "try offline movie cache" --by codex-pm --team ios-ui --milestone mvp
+agent-bus backlog --team ios-ui              # parked + ready work
+agent-bus backlog --team ios-ui --ideas      # only parked backlog
+agent-bus backlog --team ios-ui --ready      # only open/ready work
+agent-bus task-promote 12 --by codex-pm --priority 10
+agent-bus task-park 12 --by codex-pm
+agent-bus task-priority 12 4 --by codex-pm
+```
+
+Use `backlog` for ideas, deferred risks, and candidate work discovered
+mid-session. Use `task-promote` when the team should start treating it
+as claimable work.
 
 ### `agent-bus done`
 
@@ -363,6 +385,7 @@ Show finished task history without the active board noise.
 agent-bus done --project actionvoice-ai --team vorec-cli-plugin
 agent-bus done --team ui-design --state completed
 agent-bus done --team ui-design --state failed
+agent-bus done --team ui-design --milestone mvp
 ```
 
 ### `agent-bus task`
@@ -757,7 +780,8 @@ Format per task:
 #<id> p<priority> [<state>] <title> - by <requested_by>, held=<claimed_by|->, thread=<last8>
 ```
 
-If `stale` is true, the line ends with `stale` and is colored red.
+If `milestone` is set, it appears in the metadata. If `stale` is true,
+the line ends with `stale` and is colored red.
 
 ## Project and area scoping
 

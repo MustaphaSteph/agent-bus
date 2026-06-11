@@ -359,6 +359,24 @@ Use `wait_for_task` when blocking for progress is useful, and
 can show `stale: true` if their holder has not heartbeated recently;
 release them explicitly instead of relying on automatic requeue.
 
+Use backlog for ideas that should remain visible but are not ready to
+claim:
+
+```js
+const idea = create_task({
+  requested_by: "orchestrator",
+  title: "Try offline cache for saved searches",
+  state: "backlog",
+  milestone: "mvp",
+  description: "Worth exploring after the first usable flow lands.",
+})
+
+update_task({ agent: "orchestrator", task_id: idea.id, state: "open", priority: 8 })
+```
+
+Backlog items appear in Kanban and `session_brief`, but they are ignored
+by `claim_best_task`, `review_gate`, and `final_report` until promoted.
+
 **Failure modes**:
 
 - Two agents try to claim the same task -> one gets `TASK_NOT_CLAIMABLE`.
@@ -602,7 +620,7 @@ Use these memory kinds consistently:
 | `decision` | Settled product, architecture, or workflow choices. |
 | `risk` | Known problems the team must keep visible until resolved. |
 | `summary` | Done work and useful context that should survive the session. |
-| `todo` | Next actions that are not yet formal tasks. |
+| `todo` | Tiny next actions that are not worth a formal task yet. Use backlog tasks for visible team work. |
 | `handoff` | What the next agent needs before taking over. Pin these. |
 
 For implementation work, make "done" a verifier gate:

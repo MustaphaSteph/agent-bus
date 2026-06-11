@@ -82,6 +82,7 @@ import { deriveScope } from "../util/project.js";
 const SESSION_SCOPE = deriveScope();
 
 const TASK_STATES = [
+  "backlog",
   "open",
   "claimed",
   "working",
@@ -270,6 +271,8 @@ const CreateTaskInput = z.object({
   title: z.string().min(1).max(200),
   description: z.string().optional(),
   thread_id: z.string().optional(),
+  state: z.enum(["backlog", "open"]).optional(),
+  milestone: z.string().min(1).max(120).nullable().optional(),
   priority: z.number().int().optional(),
   cwd: z.string().optional(),
   blocked_on_task_id: z.number().int().positive().optional(),
@@ -295,7 +298,7 @@ const CreateTaskInput = z.object({
   allow_conflicts: z.boolean().optional(),
 });
 
-const DelegateInput = CreateTaskInput.omit({ requested_by: true }).extend({
+const DelegateInput = CreateTaskInput.omit({ requested_by: true, state: true }).extend({
   from: z.string().min(1),
   to_agent: z.string().min(1),
   allow_pending_agent: z.boolean().optional(),
@@ -333,6 +336,7 @@ const UpdateTaskInput = z.object({
   agent: z.string().min(1),
   task_id: z.number().int().positive(),
   state: TaskStateEnum.optional(),
+  milestone: z.string().min(1).max(120).nullable().optional(),
   blocked_reason: z.string().nullable().optional(),
   blocked_on_task_id: z.number().int().positive().nullable().optional(),
   result: z.string().nullable().optional(),
@@ -481,6 +485,7 @@ const ReleaseTaskInput = z.object({
 
 const ListTasksInput = z.object({
   state: z.union([TaskStateEnum, z.array(TaskStateEnum)]).optional(),
+  milestone: z.string().min(1).max(120).optional(),
   claimed_by: z.string().optional(),
   requested_by: z.string().optional(),
   thread_id: z.string().optional(),
@@ -1082,8 +1087,9 @@ const TOOLS = [
   {
     name: "create_task",
     description:
-      "Create a new task in state 'open'. Tasks are first-class units of work — different from " +
+      "Create a new task in state 'open' or 'backlog'. Tasks are first-class units of work — different from " +
       "messages, which are events. A new thread_id is generated unless provided. " +
+      "Use state='backlog' for ideas/parked work that should not be claimable or block review_gate. " +
       "Use blocked_on_task_id to record a soft dependency (no auto-unblock behavior in v1).",
     inputSchema: {
       type: "object",
@@ -1092,6 +1098,8 @@ const TOOLS = [
         title: { type: "string", description: "1-200 chars" },
         description: { type: "string" },
         thread_id: { type: "string" },
+        state: { type: "string", enum: ["backlog", "open"], description: "Default open; backlog means idea/parked work" },
+        milestone: { type: ["string", "null"], description: "Optional free-form milestone label" },
         priority: { type: "number", description: "Higher = sorts first in list_tasks" },
         cwd: { type: "string", description: "Working directory the task targets" },
         blocked_on_task_id: { type: "number" },
@@ -1131,6 +1139,7 @@ const TOOLS = [
         title: { type: "string", description: "1-200 chars" },
         description: { type: "string" },
         thread_id: { type: "string" },
+        milestone: { type: ["string", "null"], description: "Optional free-form milestone label" },
         priority: { type: "number" },
         cwd: { type: "string" },
         blocked_on_task_id: { type: "number" },
@@ -1168,6 +1177,7 @@ const TOOLS = [
         title: { type: "string", description: "1-200 chars" },
         description: { type: "string" },
         thread_id: { type: "string", description: "Optional shared thread id for all created tasks" },
+        milestone: { type: ["string", "null"], description: "Optional free-form milestone label" },
         priority: { type: "number" },
         cwd: { type: "string" },
         blocked_on_task_id: { type: "number" },
@@ -1255,7 +1265,7 @@ const TOOLS = [
   {
     name: "claim_best_task",
     description:
-      "Claim the highest-priority open task in this agent's project/area that matches its capabilities. Returns null if none.",
+      "Claim the highest-priority open task in this agent's project/area/team that matches its capabilities. Backlog tasks are ignored until promoted to open. Returns null if none.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1269,7 +1279,7 @@ const TOOLS = [
   {
     name: "update_task",
     description:
-      "Update a task. State transitions are strict: open->claimed|canceled, claimed->working|open|canceled|failed, " +
+      "Update a task. State transitions are strict: backlog->open|canceled, open->backlog|claimed|canceled, claimed->working|open|canceled|failed, " +
       "working->blocked|completed|failed|canceled, blocked->working|completed|failed|canceled. " +
       "Terminal states (completed, failed, canceled) cannot transition. Only the claimer or the requester can update.",
     inputSchema: {
@@ -1279,8 +1289,9 @@ const TOOLS = [
         task_id: { type: "number" },
         state: {
           type: "string",
-          enum: ["open", "claimed", "working", "blocked", "completed", "failed", "canceled"],
+          enum: ["backlog", "open", "claimed", "working", "blocked", "completed", "failed", "canceled"],
         },
+        milestone: { type: ["string", "null"], description: "Optional free-form milestone label" },
         blocked_reason: { type: ["string", "null"] },
         blocked_on_task_id: { type: ["number", "null"] },
         result: {
@@ -1502,7 +1513,7 @@ const TOOLS = [
   {
     name: "list_tasks",
     description:
-      "List tasks. By default excludes terminal states (completed/failed/canceled); set include_terminal:true to show them. " +
+      "List tasks. By default excludes terminal states (completed/failed/canceled) but includes backlog; set include_terminal:true to show terminal tasks. " +
       "Sorted by priority DESC, then creation order. Each returned task includes a `stale` flag when its holder hasn't been " +
       "seen in the last AGENT_BUS_TASK_STALE_MS (default 5 min).",
     inputSchema: {
@@ -1512,13 +1523,13 @@ const TOOLS = [
           oneOf: [
             {
               type: "string",
-              enum: ["open", "claimed", "working", "blocked", "completed", "failed", "canceled"],
+              enum: ["backlog", "open", "claimed", "working", "blocked", "completed", "failed", "canceled"],
             },
             {
               type: "array",
               items: {
                 type: "string",
-                enum: ["open", "claimed", "working", "blocked", "completed", "failed", "canceled"],
+                enum: ["backlog", "open", "claimed", "working", "blocked", "completed", "failed", "canceled"],
               },
             },
           ],
@@ -1526,6 +1537,7 @@ const TOOLS = [
         claimed_by: { type: "string" },
         requested_by: { type: "string" },
         thread_id: { type: "string" },
+        milestone: { type: "string", description: "Optional free-form milestone label filter" },
         include_terminal: { type: "boolean" },
         limit: { type: "number" },
         project: { type: "string", description: "Optional project filter; '*' means all projects" },

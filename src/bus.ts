@@ -16,6 +16,7 @@ function readPollInterval(): number {
 }
 
 export const POLL_INTERVAL_MS = readPollInterval();
+export const LISTENING_HORIZON_MS = Math.max(5000, 3 * POLL_INTERVAL_MS);
 
 export type MessageKind = "msg" | "ask" | "reply";
 export type MessageStatus = "pending" | "delivered" | "answered";
@@ -266,6 +267,13 @@ function validateTaskEventType(eventType: TaskEventType | undefined): void {
   }
 }
 
+function validateMilestone(milestone: string | null | undefined): void {
+  if (milestone === undefined || milestone === null) return;
+  if (typeof milestone !== "string" || milestone.length === 0 || milestone.length > 120) {
+    throw new BusError("INVALID_INPUT", "milestone must be 1-120 chars or null");
+  }
+}
+
 function validateSessionId(sessionId: string | null | undefined): void {
   if (sessionId === undefined || sessionId === null) return;
   if (typeof sessionId !== "string" || sessionId.length === 0 || sessionId.length > 128) {
@@ -416,9 +424,11 @@ export function heartbeat(name: string): void {
 }
 
 function markAgentListening(name: string, listeningUntil: number): void {
+  const ts = now();
+  const boundedListeningUntil = Math.min(listeningUntil, ts + LISTENING_HORIZON_MS);
   getDb()
     .prepare("UPDATE agents SET last_seen = ?, listening_until = ? WHERE name = ? AND removed_at IS NULL")
-    .run(now(), listeningUntil, name);
+    .run(ts, boundedListeningUntil, name);
 }
 
 export interface WhoisOptions {
@@ -1913,6 +1923,7 @@ export function messageThread(rootId: number, limit = 200): MessageThreadResult 
 // ---------------------------------------------------------------------------
 
 export type TaskState =
+  | "backlog"
   | "open"
   | "claimed"
   | "working"
@@ -1931,6 +1942,7 @@ export interface Task {
   requested_by: string;
   claimed_by: string | null;
   state: TaskState;
+  milestone: string | null;
   priority: number;
   cwd: string | null;
   blocked_reason: string | null;
@@ -1979,6 +1991,7 @@ interface TaskRow {
   requested_by: string;
   claimed_by: string | null;
   state: TaskState;
+  milestone: string | null;
   priority: number;
   cwd: string | null;
   blocked_reason: string | null;
@@ -2033,7 +2046,8 @@ const CHECKIN_ATTENTION_STATES: TaskState[] = ["claimed", "working", "blocked"];
 // re-declaring it. Terminal states (completed/failed/canceled) have no
 // successors. `claimed -> open` exists for releaseTask-style flows.
 export const ALLOWED_TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
-  open: ["claimed", "canceled"],
+  backlog: ["open", "canceled"],
+  open: ["backlog", "claimed", "canceled"],
   claimed: ["working", "completed", "open", "canceled", "failed"],
   working: ["blocked", "completed", "failed", "canceled"],
   blocked: ["working", "completed", "failed", "canceled"],
@@ -2051,6 +2065,7 @@ function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
     requested_by: row.requested_by,
     claimed_by: row.claimed_by,
     state: row.state,
+    milestone: row.milestone,
     priority: row.priority,
     cwd: row.cwd,
     blocked_reason: row.blocked_reason,
@@ -2251,6 +2266,8 @@ export interface CreateTaskOptions {
   title: string;
   description?: string;
   thread_id?: string;
+  state?: "backlog" | "open";
+  milestone?: string | null;
   priority?: number;
   cwd?: string;
   blocked_on_task_id?: number;
@@ -2287,6 +2304,10 @@ export function createTask(opts: CreateTaskOptions): Task {
   if (opts.priority !== undefined && !Number.isFinite(opts.priority)) {
     throw new BusError("INVALID_INPUT", "priority must be a number");
   }
+  if (opts.state !== undefined && opts.state !== "backlog" && opts.state !== "open") {
+    throw new BusError("INVALID_INPUT", "task create state must be backlog or open");
+  }
+  validateMilestone(opts.milestone);
   validateProject(opts.project);
   validateArea(opts.area);
   validateTeam(opts.team);
@@ -2345,14 +2366,16 @@ export function createTask(opts: CreateTaskOptions): Task {
   const info = db
     .prepare(
       `INSERT INTO tasks
-         (title, description, thread_id, requested_by, state, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, team, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, independent_review, review_state, changed_files, phase, session_id)
-       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (title, description, thread_id, requested_by, state, milestone, priority, cwd, blocked_on_task_id, created_at, updated_at, project, area, team, required_capability, mode, expected_output, deadline_at, checkin_at, final_answer, manager_reviewed, file_scope, edit_scope, read_scope, ack_required, review_required, independent_review, review_state, changed_files, phase, session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       opts.title,
       opts.description ?? null,
       threadId,
       opts.requested_by,
+      opts.state ?? "open",
+      opts.milestone ?? null,
       opts.priority ?? 0,
       opts.cwd ?? null,
       opts.blocked_on_task_id ?? null,
@@ -2461,6 +2484,7 @@ export interface UpdateTaskOptions {
   agent: string;
   task_id: number;
   state?: TaskState;
+  milestone?: string | null;
   blocked_reason?: string | null;
   blocked_on_task_id?: number | null;
   result?: string | null;
@@ -2525,6 +2549,9 @@ export function updateTask(opts: UpdateTaskOptions): Task {
     if (opts.state === "open") {
       sets.push("claimed_by = NULL", "pending_assignee = NULL", "claimed_at = NULL");
     }
+    if (opts.state === "backlog") {
+      sets.push("claimed_by = NULL", "pending_assignee = NULL", "claimed_at = NULL", "phase = NULL");
+    }
     if (TERMINAL_TASK_STATES.includes(opts.state)) {
       if (opts.state === "completed" && row.review_required === 1 && row.review_state !== "approved") {
         throw new BusError("TASK_REVIEW_REQUIRED", `task ${opts.task_id} requires approved review before completion`);
@@ -2562,6 +2589,11 @@ export function updateTask(opts: UpdateTaskOptions): Task {
     }
     sets.push("priority = ?");
     params.push(opts.priority);
+  }
+  if (opts.milestone !== undefined) {
+    validateMilestone(opts.milestone);
+    sets.push("milestone = ?");
+    params.push(opts.milestone);
   }
   if (opts.mode !== undefined) {
     validateTaskMode(opts.mode);
@@ -2923,6 +2955,7 @@ export function deleteTeam(opts: DeleteTeamOptions): DeleteTeamResult {
 
 export interface ListTasksOptions {
   state?: TaskState | TaskState[];
+  milestone?: string;
   claimed_by?: string;
   requested_by?: string;
   thread_id?: string;
@@ -2974,6 +3007,11 @@ export function listTasks(opts: ListTasksOptions = {}): Task[] {
     validateTaskMode(opts.mode);
     where.push("mode = ?");
     params.push(opts.mode);
+  }
+  if (opts.milestone !== undefined) {
+    validateMilestone(opts.milestone);
+    where.push("milestone = ?");
+    params.push(opts.milestone);
   }
   if (opts.manager_reviewed !== undefined) {
     where.push("manager_reviewed = ?");
@@ -4072,6 +4110,7 @@ export interface SessionBrief {
   team: string | null;
   agent: string | null;
   active_agents: AgentDirectoryEntry[];
+  backlog_tasks: Task[];
   open_tasks: Task[];
   blocked_tasks: Task[];
   stale_tasks: Task[];
@@ -4084,6 +4123,7 @@ export interface SessionBrief {
 
 export interface ProjectBoard {
   agents: AgentDirectoryEntry[];
+  backlog_tasks: Task[];
   open_tasks: Task[];
   active_tasks: Task[];
   blocked_tasks: Task[];
@@ -4104,6 +4144,7 @@ export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   const scope = { project: opts.project, area: opts.area, team: opts.team };
   const activeAgents = directory(scope).filter((agent) => agent.presence !== "stale");
   const tasks = listTasks({ ...scope, include_terminal: false, limit: 500 });
+  const backlogTasks = tasks.filter((task) => task.state === "backlog").slice(0, limit);
   const openTasks = tasks.filter((task) => task.state === "open").slice(0, limit);
   const blockedTasks = tasks.filter((task) => task.state === "blocked").slice(0, limit);
   const staleTasks = tasks.filter((task) => task.stale === true).slice(0, limit);
@@ -4115,6 +4156,7 @@ export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   if (blockedTasks.length > 0) suggested.push("Review blocked tasks and record the unblocker or release/reassign ownership.");
   if (staleTasks.length > 0) suggested.push("Check stale task holders before continuing or reassigning their work.");
   if (openTasks.length > 0) suggested.push("Assign or claim the highest-priority open task with an explicit mode and file scope.");
+  if (backlogTasks.length > 0 && openTasks.length === 0) suggested.push("Promote a backlog item to open when the team is ready to work it.");
   if (pinnedMemories.length === 0 && recentMemories.length === 0) suggested.push("Record a handoff, risk, or todo memory before ending the session.");
   if (activeAgents.length === 0) suggested.push("Register or wake the agents needed for this project/area.");
 
@@ -4124,6 +4166,7 @@ export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
     team: opts.team ?? null,
     agent: opts.agent ?? null,
     active_agents: activeAgents.slice(0, limit),
+    backlog_tasks: backlogTasks,
     open_tasks: openTasks,
     blocked_tasks: blockedTasks,
     stale_tasks: staleTasks,
@@ -4140,6 +4183,7 @@ export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
   const scope = { project: opts.project, area: opts.area, team: opts.team };
   const agents = directory(scope).slice(0, limit);
   const tasks = listTasks({ ...scope, include_terminal: false, limit: 500 });
+  const backlogTasks = tasks.filter((task) => task.state === "backlog").slice(0, limit);
   const openTasks = tasks.filter((task) => task.state === "open").slice(0, limit);
   const activeTasks = tasks.filter((task) => ["claimed", "working"].includes(task.state)).slice(0, limit);
   const blockedTasks = tasks.filter((task) => task.state === "blocked").slice(0, limit);
@@ -4187,6 +4231,7 @@ export function projectBoard(opts: SessionBriefOptions = {}): ProjectBoard {
   if (openTasks.length > 0) suggested.push("Assign or claim open tasks with explicit mode and file_scope.");
   return {
     agents,
+    backlog_tasks: backlogTasks,
     open_tasks: openTasks,
     active_tasks: activeTasks,
     blocked_tasks: blockedTasks,
@@ -4827,7 +4872,7 @@ export function finalReport(opts: ListTasksOptions = {}): FinalReport {
     .filter((task) => task.state === "completed")
     .map((task) => task.title);
   const notImplemented = tasks
-    .filter((task) => task.state !== "completed" && task.state !== "canceled")
+    .filter((task) => task.state !== "backlog" && task.state !== "completed" && task.state !== "canceled")
     .map((task) => task.title);
   const knownRisks = tasks
     .filter((task) => task.blocked_reason !== null || task.state === "failed" || task.stale === true)
@@ -4839,7 +4884,7 @@ export function finalReport(opts: ListTasksOptions = {}): FinalReport {
     testsPassed.push(`${result.command}${result.output_summary ? ` - ${result.output_summary}` : ""}${result.git_ref ? ` @${result.git_ref}` : ""}${result.cwd ? ` cwd=${result.cwd}` : ""}`);
   }
   const manualTestsNeeded = tasks
-    .filter((task) => task.state !== "completed" || task.manager_reviewed === false || (task.review_required && task.review_state !== "approved"))
+    .filter((task) => task.state !== "backlog" && (task.state !== "completed" || task.manager_reviewed === false || (task.review_required && task.review_state !== "approved")))
     .map((task) => task.title);
   const safe = notImplemented.length === 0 && knownRisks.length === 0 && manualTestsNeeded.length === 0;
   return {

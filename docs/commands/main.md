@@ -61,6 +61,8 @@ patterns:
 | "Give me a handoff / session brief" | `session_brief()` |
 | "Catch me up on the bus" | `recent(limit=20)` and render it |
 | "Make a task to do X" / "Track X as a task" | `create_task(requested_by="$ARGUMENTS", title=…, description=…, mode=…, expected_output=…, file_scope=…)`; set `ack_required` when assigning and `review_required` for implementation work |
+| "Put this idea in backlog" / "save this for later" | `create_task(requested_by="$ARGUMENTS", title=…, description=…, state="backlog", milestone=…)`; backlog is visible but not claimable/blocking until promoted |
+| "Promote / start backlog task X" | `update_task(agent="$ARGUMENTS", task_id=…, state="open", priority=…)` then assign/delegate or let a worker claim it |
 | "Assign/delegate this to <agent>" | Prefer `delegate(from="$ARGUMENTS", to_agent=…, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; use `assign_task(task_id=…, to_agent=…)` only for an existing task; use `allow_pending_agent=true` if the worker is not registered yet |
 | "Assign/delegate this to the <team> team" | `delegate_team(from="$ARGUMENTS", team=…, title=…, description=…, mode=…, expected_output=…, edit_scope=…)`; add `capability`, `role`, or `max_recipients` when needed |
 | "What's on the task list?" | `list_tasks()` and render the active ones |
@@ -88,6 +90,8 @@ patterns:
   later or when they ask.
 - Use `delegate` / `delegate_team` for long work with ownership, acknowledgement,
   progress, review, file scope, or evidence tracking.
+- Use `state="backlog"` for ideas and future work. Promote to `open`
+  only when the team should treat it as claimable.
 - Board-visible work must be a task. `send`, `send_team`, `ask`, and
   `ask_team` are messages only; they do not create `open_tasks` or
   `active_tasks` on `project_board` / `team_board`. If the user expects

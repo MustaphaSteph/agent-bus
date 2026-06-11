@@ -457,13 +457,16 @@ Returns `Message[]`.
 
 ### create_task
 
-Create a queryable unit of work in `open` state.
+Create a queryable unit of work. Default state is `open`; use `backlog`
+for ideas or parked work that should be visible but not claimable yet.
 
 Input:
 - `requested_by: string` — your registered name
 - `title: string` — 1-200 chars
 - `description?: string`
 - `thread_id?: string` — auto-generated otherwise
+- `state?: "backlog" | "open"`
+- `milestone?: string | null` — free-form label
 - `priority?: number` — higher sorts first
 - `cwd?: string`
 - `blocked_on_task_id?: number` — soft dependency
@@ -508,10 +511,11 @@ Update task metadata or move state.
 Input:
 - `agent: string`
 - `task_id: number`
-- `state?: "open" | "claimed" | "working" | "blocked" | "completed" | "failed" | "canceled"`
+- `state?: "backlog" | "open" | "claimed" | "working" | "blocked" | "completed" | "failed" | "canceled"`
 - `blocked_reason?: string | null`
 - `blocked_on_task_id?: number | null`
 - `result?: string | null`
+- `milestone?: string | null`
 - `priority?: number`
 - `mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only"`
 - `expected_output?: string | null`
@@ -560,12 +564,16 @@ Input:
 - `limit?: number` — default 100, max 500
 - `project?: string` — concrete project or `"*"` for all
 - `area?: string` — concrete area or `"*"` for all
+- `team?: string` — concrete team or `"*"` for all
 - `required_capability?: string`
 - `mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only"`
+- `milestone?: string`
 - `manager_reviewed?: boolean`
 
-Returns `Task[]`. Active tasks may include `stale: true` when the holder
-has not heartbeated within `AGENT_BUS_TASK_STALE_MS`.
+Returns `Task[]`. Terminal tasks are hidden by default, but backlog tasks
+are included so a manager can see parked ideas and ready work together.
+Active tasks may include `stale: true` when the holder has not heartbeated
+within `AGENT_BUS_TASK_STALE_MS`.
 
 ### assign_task
 
@@ -865,8 +873,9 @@ Returns `Task`.
   thread_id: string
   requested_by: string
   claimed_by: string | null
-  state: "open" | "claimed" | "working" | "blocked" |
+  state: "backlog" | "open" | "claimed" | "working" | "blocked" |
          "completed" | "failed" | "canceled"
+  milestone: string | null
   priority: number
   cwd: string | null
   blocked_reason: string | null
@@ -1017,10 +1026,11 @@ state. If the user expects work to show on `project_board`,
 `team_board`, `kanban`, or `done`, it must be represented as a task;
 plain `send` / `send_team` messages are not enough.
 
-Kanban uses stable task states plus phases. Keep states to
-`open/claimed/working/blocked/completed/failed/canceled`; use phases
-like `planning`, `editing`, `testing`, `review`, and `done` to drive
-human workflow lanes.
+Kanban uses stable task states plus phases. Use `backlog` for parked
+ideas, `open` for claimable work, then
+`claimed/working/blocked/completed/failed/canceled`; use phases like
+`planning`, `editing`, `testing`, `review`, and `done` to drive human
+workflow lanes.
 
 ```
 const task = create_task({

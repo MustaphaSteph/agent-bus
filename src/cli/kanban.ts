@@ -5,9 +5,9 @@ import { scopeBanner, type ScopeOptions } from "./project-scope.js";
 import { formatTask } from "./tasks.js";
 
 const TERMINAL_STATES: TaskState[] = ["completed", "failed", "canceled"];
-const ACTIVE_STATES: TaskState[] = ["open", "claimed", "working", "blocked"];
-const ALL_STATES: TaskState[] = ["open", "claimed", "working", "blocked", "completed", "failed", "canceled"];
-const WORKFLOW_COLUMNS = ["Todo", "Accepted", "Doing", "Testing", "Review", "Blocked"] as const;
+const ACTIVE_STATES: TaskState[] = ["backlog", "open", "claimed", "working", "blocked"];
+const ALL_STATES: TaskState[] = ["backlog", "open", "claimed", "working", "blocked", "completed", "failed", "canceled"];
+const WORKFLOW_COLUMNS = ["Backlog", "Todo", "Accepted", "Doing", "Testing", "Review", "Blocked"] as const;
 
 export interface KanbanOptions extends ScopeOptions {
   all?: boolean;
@@ -17,6 +17,7 @@ export interface KanbanOptions extends ScopeOptions {
   watch?: boolean;
   intervalMs?: number;
   limit?: number;
+  milestone?: string;
 }
 
 export async function kanban(opts: KanbanOptions): Promise<void> {
@@ -27,11 +28,12 @@ export async function kanban(opts: KanbanOptions): Promise<void> {
   printKanban(opts);
 }
 
-export function doneTasks(opts: ScopeOptions & { state?: string; limit?: number }): void {
+export function doneTasks(opts: ScopeOptions & { state?: string; limit?: number; milestone?: string }): void {
   const states = parseDoneState(opts.state);
   const rows = listTasks({
     ...opts,
     state: states,
+    milestone: opts.milestone,
     include_terminal: true,
     limit: opts.limit ?? 100,
   });
@@ -66,6 +68,7 @@ export function taskDetail(taskId: number, limit: number, json: boolean): void {
       `requested_by=${task.requested_by}`,
       `mode=${task.mode}`,
       `priority=${task.priority}`,
+      `milestone=${task.milestone ?? "-"}`,
     ].join(" "),
   );
   console.log(kleur.gray(`project=${task.project ?? "-"} area=${task.area ?? "-"} team=${task.team ?? "-"} thread=${task.thread_id}`));
@@ -105,6 +108,7 @@ function printKanban(opts: KanbanOptions): void {
   const rows = listTasks({
     ...opts,
     state: taskStates(opts),
+    milestone: opts.milestone,
     include_terminal: opts.all === true || opts.done === true,
     limit: opts.limit ?? 200,
   });
@@ -163,6 +167,8 @@ function columnLabel(state: TaskState): string {
   switch (state) {
     case "open":
       return "Open";
+    case "backlog":
+      return "Backlog";
     case "claimed":
       return "Claimed";
     case "working":
@@ -179,6 +185,7 @@ function columnLabel(state: TaskState): string {
 }
 
 function workflowColumn(task: Task): (typeof WORKFLOW_COLUMNS)[number] {
+  if (task.state === "backlog") return "Backlog";
   if (task.state === "open") return "Todo";
   if (task.state === "claimed") return "Accepted";
   if (task.state === "blocked") return "Blocked";

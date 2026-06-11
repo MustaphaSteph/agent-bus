@@ -11,6 +11,7 @@ import {
   askTeam,
   cancelTask,
   checkScopeConflicts,
+  createTask,
   delegate,
   delegateTeam,
   deleteTeam,
@@ -24,6 +25,7 @@ import {
   inboxStatus,
   listDecisions,
   listMemories,
+  listTasks,
   listTaskEvents,
   listTestResults,
   AREA_WILDCARD,
@@ -59,6 +61,7 @@ import {
   messageStatus,
   whyNoReply,
   type MessagePriority,
+  type TaskState,
 } from "../bus.js";
 import { dbPath } from "../util/paths.js";
 import { packageVersion } from "../util/package-info.js";
@@ -693,8 +696,9 @@ program
   .option("--required-capability <name>", "filter by required task capability")
   .option("--team <name>", "team scope (use 'all' for every team)")
   .option("--mode <mode>", "filter by task mode")
+  .option("--milestone <label>", "filter by milestone label")
   .option("--manager-reviewed", "only reviewed tasks")
-  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string; team?: string; requiredCapability?: string; mode?: string; managerReviewed?: boolean }) => {
+  .action(async (opts: { state?: string; all?: boolean; watch?: boolean; interval: string; project?: string; area?: string; team?: string; requiredCapability?: string; mode?: string; milestone?: string; managerReviewed?: boolean }) => {
     await tasks({
       state: opts.state,
       all: opts.all,
@@ -702,6 +706,7 @@ program
       intervalMs: Number(opts.interval),
       requiredCapability: opts.requiredCapability,
       mode: opts.mode,
+      milestone: opts.milestone,
       managerReviewed: opts.managerReviewed,
       ...resolveScopeOptions(opts.project, opts.area, opts.team),
     });
@@ -720,7 +725,8 @@ program
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
   .option("--team <name>", "team scope (use 'all' for every team)")
-  .action(async (opts: { all?: boolean; done?: boolean; compact?: boolean; stateColumns?: boolean; watch?: boolean; interval: string; last: string; project?: string; area?: string; team?: string }) => {
+  .option("--milestone <label>", "filter by milestone label")
+  .action(async (opts: { all?: boolean; done?: boolean; compact?: boolean; stateColumns?: boolean; watch?: boolean; interval: string; last: string; project?: string; area?: string; team?: string; milestone?: string }) => {
     await kanban({
       all: opts.all,
       done: opts.done,
@@ -729,6 +735,7 @@ program
       watch: opts.watch,
       intervalMs: Number(opts.interval),
       limit: Number(opts.last),
+      milestone: opts.milestone,
       ...resolveScopeOptions(opts.project, opts.area, opts.team),
     });
   });
@@ -741,12 +748,117 @@ program
   .option("--project <name>", "project scope (default current repo; use 'all' for global)")
   .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
   .option("--team <name>", "team scope (use 'all' for every team)")
-  .action((opts: { state?: string; last: string; project?: string; area?: string; team?: string }) => {
+  .option("--milestone <label>", "filter by milestone label")
+  .action((opts: { state?: string; last: string; project?: string; area?: string; team?: string; milestone?: string }) => {
     doneTasks({
       state: opts.state,
       limit: Number(opts.last),
+      milestone: opts.milestone,
       ...resolveScopeOptions(opts.project, opts.area, opts.team),
     });
+  });
+
+program
+  .command("backlog")
+  .description("List parked backlog ideas plus ready open work")
+  .option("--ready", "show only open/ready work")
+  .option("--ideas", "show only backlog/idea work")
+  .option("-n, --last <count>", "maximum tasks to show", "100")
+  .option("--project <name>", "project scope (default current repo; use 'all' for global)")
+  .option("--area <name>", "area scope from .agent-bus.json (use 'all' for every area)")
+  .option("--team <name>", "team scope (use 'all' for every team)")
+  .option("--milestone <label>", "filter by milestone label")
+  .action((opts: { ready?: boolean; ideas?: boolean; last: string; project?: string; area?: string; team?: string; milestone?: string }) => {
+    const state: TaskState | TaskState[] = opts.ready === true ? "open" : opts.ideas === true ? "backlog" : ["backlog", "open"];
+    const rows = listTasks({
+      ...resolveScopeOptions(opts.project, opts.area, opts.team),
+      state,
+      milestone: opts.milestone,
+      include_terminal: false,
+      limit: Number(opts.last),
+    });
+    const banner = scopeBanner(resolveScopeOptions(opts.project, opts.area, opts.team));
+    if (banner) console.log(banner);
+    console.log(kleur.bold("Backlog"));
+    console.log(formatList(rows.map((task) => `#${task.id} p${task.priority} [${task.state}] ${task.title}${task.milestone ? ` milestone=${task.milestone}` : ""}${task.claimed_by ? ` held=${task.claimed_by}` : ""}`)));
+  });
+
+program
+  .command("idea <title>")
+  .description("Capture an idea as a backlog task")
+  .requiredOption("--by <agent>", "agent/user creating the idea")
+  .option("--description <text>", "optional description")
+  .option("--priority <n>", "numeric priority", "0")
+  .option("--milestone <label>", "optional milestone label")
+  .option("--project <name>", "project scope (default current repo; use all for global)")
+  .option("--area <name>", "area scope (use all for global)")
+  .option("--team <name>", "team scope")
+  .action((title: string, opts: { by: string; description?: string; priority: string; milestone?: string; project?: string; area?: string; team?: string }) => {
+    const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
+    const task = createTask({
+      requested_by: opts.by,
+      title,
+      description: opts.description,
+      state: "backlog",
+      priority: Number(opts.priority),
+      milestone: opts.milestone ?? null,
+      project: scope.project === PROJECT_WILDCARD ? null : (scope.project ?? null),
+      area: scope.area === AREA_WILDCARD ? null : (scope.area ?? null),
+      team: scope.team === TEAM_WILDCARD ? null : (scope.team ?? null),
+      mode: "investigate_only",
+    });
+    console.log(`${kleur.green("idea")} task #${task.id} captured in backlog`);
+  });
+
+program
+  .command("task-park <task-id>")
+  .description("Move an open task back to backlog")
+  .requiredOption("--by <agent>", "requester/holder moving the task")
+  .option("--reason <text>", "optional event note")
+  .action((taskId: string, opts: { by: string; reason?: string }) => {
+    const task = updateTask({ agent: opts.by, task_id: Number(taskId), state: "backlog" });
+    if (opts.reason) {
+      recordTaskEvent({ by_agent: opts.by, task_id: task.id, event_type: "note", message: opts.reason, phase: "backlog" });
+    }
+    console.log(`${kleur.yellow("parked")} task #${task.id} in backlog`);
+  });
+
+program
+  .command("task-promote <task-id>")
+  .description("Promote a backlog task to open/ready work")
+  .requiredOption("--by <agent>", "requester promoting the task")
+  .option("--priority <n>", "new numeric priority")
+  .option("--milestone <label>", "set/update milestone label")
+  .option("--note <text>", "optional event note")
+  .action((taskId: string, opts: { by: string; priority?: string; milestone?: string; note?: string }) => {
+    const task = updateTask({
+      agent: opts.by,
+      task_id: Number(taskId),
+      state: "open",
+      priority: opts.priority ? Number(opts.priority) : undefined,
+      milestone: opts.milestone,
+    });
+    recordTaskEvent({
+      by_agent: opts.by,
+      task_id: task.id,
+      event_type: "progress",
+      message: opts.note ?? "promoted from backlog",
+      phase: "ready",
+    });
+    console.log(`${kleur.green("promoted")} task #${task.id} to open`);
+  });
+
+program
+  .command("task-priority <task-id> <priority>")
+  .description("Set task priority without changing ownership/state")
+  .requiredOption("--by <agent>", "agent/user changing priority")
+  .option("--note <text>", "optional reason")
+  .action((taskId: string, priority: string, opts: { by: string; note?: string }) => {
+    const task = updateTask({ agent: opts.by, task_id: Number(taskId), priority: Number(priority) });
+    if (opts.note) {
+      recordTaskEvent({ by_agent: opts.by, task_id: task.id, event_type: "note", message: `priority -> ${task.priority}: ${opts.note}` });
+    }
+    console.log(`${kleur.green("priority")} task #${task.id} p${task.priority}`);
   });
 
 program

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strict as assert } from "node:assert";
+import Database from "better-sqlite3";
 
 const tmp = mkdtempSync(join(tmpdir(), "agent-bus-"));
 process.env.AGENT_BUS_DIR = tmp;
@@ -32,6 +33,7 @@ const {
   inbox,
   inboxPreviews,
   inboxStatus,
+  LISTENING_HORIZON_MS,
   listTasks,
   listTaskEvents,
   listTestResults,
@@ -515,15 +517,18 @@ await test("inbox_previews thread filter does not consume matching or unrelated 
 
 await test("directory exposes bus_version and active listening window", async () => {
   register({ name: "versioned-listener", capabilities: [], project: "presence", team: "pt", replace: true, bus_version: "9.9.9" });
+  register({ name: "presence-pm", capabilities: [], project: "presence", team: "pt", replace: true });
   const before = directory({ project: "presence", team: "pt" }).find((agent) => agent.name === "versioned-listener");
   assert.equal(before?.bus_version, "9.9.9");
   assert.equal(before?.listening, false);
 
-  const wait = inbox({ agent: "versioned-listener", project: "presence", team: "pt", wait_s: 1, mark_delivered: false });
+  const wait = inbox({ agent: "versioned-listener", project: "presence", team: "pt", wait_s: 10, mark_delivered: false });
   await new Promise((resolve) => setTimeout(resolve, 100));
   const during = directory({ project: "presence", team: "pt" }).find((agent) => agent.name === "versioned-listener");
   assert.equal(during?.listening, true);
   assert.ok((during?.listening_until ?? 0) > Date.now());
+  assert.ok((during?.listening_until ?? 0) <= Date.now() + LISTENING_HORIZON_MS + 500);
+  send({ from: "presence-pm", to: "versioned-listener", content: "wake", project: "presence", team: "pt" });
   await wait;
 });
 
@@ -1614,6 +1619,41 @@ await test("tasks: claimed tasks can complete directly", () => {
   assert.equal(completed.result, "finished without explicit working phase");
 });
 
+await test("tasks: backlog is parked until promoted", () => {
+  register({ name: "backlog-pm", capabilities: ["coordination"], project: "backlogp", team: "bt", replace: true });
+  register({ name: "backlog-worker", capabilities: ["implementation"], project: "backlogp", team: "bt", replace: true });
+  const idea = createTask({
+    requested_by: "backlog-pm",
+    title: "Parked idea",
+    state: "backlog",
+    project: "backlogp",
+    team: "bt",
+    milestone: "mvp",
+    priority: 5,
+  });
+  assert.equal(idea.state, "backlog");
+  assert.equal(idea.milestone, "mvp");
+  assert.equal(claimBestTask({ agent: "backlog-worker", project: "backlogp", team: "bt" }), null);
+
+  const parkedBoard = projectBoard({ project: "backlogp", team: "bt" });
+  assert.ok(parkedBoard.backlog_tasks.some((task) => task.id === idea.id));
+  assert.ok(!parkedBoard.open_tasks.some((task) => task.id === idea.id));
+  assert.equal(reviewGate({ project: "backlogp", team: "bt" }).ok, true);
+  assert.ok(!finalReport({ project: "backlogp", team: "bt" }).not_implemented.some((task) => task.id === idea.id));
+  assert.deepEqual(listTasks({ project: "backlogp", team: "bt", milestone: "mvp" }).map((task) => task.id), [idea.id]);
+
+  const promoted = updateTask({ agent: "backlog-pm", task_id: idea.id, state: "open", priority: 9 });
+  assert.equal(promoted.state, "open");
+  assert.equal(promoted.priority, 9);
+  const claimed = claimBestTask({ agent: "backlog-worker", project: "backlogp", team: "bt" });
+  assert.equal(claimed?.id, idea.id);
+  releaseTask({ agent: "backlog-worker", task_id: idea.id });
+
+  const parkedAgain = updateTask({ agent: "backlog-pm", task_id: idea.id, state: "backlog" });
+  assert.equal(parkedAgain.state, "backlog");
+  assert.equal(parkedAgain.claimed_by, null);
+});
+
 await test("tasks: invalid transitions are rejected", () => {
   const t = createTask({ requested_by: "alice", title: "bad transition" });
   assert.throws(
@@ -1953,6 +1993,70 @@ await test("replyThread creates a threaded reply (reply_to=root, kind=reply)", a
   const rootRow = page.messages.find((m) => m.id === root.id);
   assert.equal(rootRow?.replies_count, 2);
   assert.equal(rootRow?.has_replies, true);
+});
+
+await test("migration: old task state check is rebuilt for backlog", () => {
+  const originalDir = process.env.AGENT_BUS_DIR;
+  const migrationTmp = mkdtempSync(join(tmpdir(), "agent-bus-migrate-"));
+  closeDb();
+  try {
+    process.env.AGENT_BUS_DIR = migrationTmp;
+    const oldDb = new Database(join(migrationTmp, "bus.db"));
+    const ts = Date.now();
+    oldDb.exec(`
+      CREATE TABLE agents (
+        name           TEXT PRIMARY KEY,
+        capabilities   TEXT NOT NULL DEFAULT '[]',
+        registered_at  INTEGER NOT NULL,
+        last_seen      INTEGER NOT NULL,
+        paused         INTEGER NOT NULL DEFAULT 0,
+        project        TEXT,
+        area           TEXT
+      );
+      CREATE TABLE tasks (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        title               TEXT NOT NULL,
+        description         TEXT,
+        thread_id           TEXT NOT NULL,
+        requested_by        TEXT NOT NULL REFERENCES agents(name),
+        claimed_by          TEXT REFERENCES agents(name),
+        state               TEXT NOT NULL CHECK (state IN ('open','claimed','working','blocked','completed','failed','canceled')),
+        priority            INTEGER NOT NULL DEFAULT 0,
+        cwd                 TEXT,
+        blocked_reason      TEXT,
+        blocked_on_task_id  INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+        result              TEXT,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL,
+        claimed_at          INTEGER,
+        finished_at         INTEGER
+      );
+    `);
+    oldDb.prepare("INSERT INTO agents (name, capabilities, registered_at, last_seen, project, area) VALUES (?, ?, ?, ?, ?, ?)").run("old-pm", "[]", ts, ts, "migration", "core");
+    oldDb
+      .prepare("INSERT INTO tasks (title, thread_id, requested_by, state, priority, created_at, updated_at) VALUES (?, ?, ?, 'open', ?, ?, ?)")
+      .run("old open task", "t_old", "old-pm", 1, ts, ts);
+    oldDb
+      .prepare("INSERT INTO tasks (title, thread_id, requested_by, state, priority, blocked_on_task_id, created_at, updated_at) VALUES (?, ?, ?, 'blocked', ?, ?, ?, ?)")
+      .run("old blocked task", "t_old_blocked", "old-pm", 0, 1, ts, ts);
+    oldDb.close();
+
+    const migrated = getTask(1);
+    assert.equal(migrated.state, "open");
+    assert.equal(migrated.milestone, null);
+    const blocked = getTask(2);
+    assert.equal(blocked.blocked_on_task_id, 1);
+    const indexes = getDb().prepare("PRAGMA index_list(tasks)").all() as { name: string }[];
+    assert.ok(indexes.some((row) => row.name === "idx_tasks_state_claimed"));
+    assert.ok(indexes.some((row) => row.name === "idx_tasks_blocked_on"));
+    const parked = updateTask({ agent: "old-pm", task_id: 1, state: "backlog", milestone: "migrated" });
+    assert.equal(parked.state, "backlog");
+    assert.equal(parked.milestone, "migrated");
+  } finally {
+    closeDb();
+    process.env.AGENT_BUS_DIR = originalDir;
+    rmSync(migrationTmp, { recursive: true, force: true });
+  }
 });
 
 await test("classifyTaskMessage tags task notifications, not normal chat", () => {

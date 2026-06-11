@@ -277,6 +277,8 @@ create_task({
   title: string,
   description?: string,
   thread_id?: string,
+  state?: "backlog" | "open",
+  milestone?: string | null,
   priority?: number,
   cwd?: string,
   blocked_on_task_id?: number,
@@ -312,8 +314,9 @@ claim_best_task({
 }) -> Task | null
 ```
 Use `assign_task` when the manager chooses the worker. Use
-`claim_best_task` when a worker asks for its next best task. Use
-`allow_pending_agent` to reserve work before a worker registers.
+`claim_best_task` when a worker asks for its next best open task.
+Backlog tasks are ignored until promoted. Use `allow_pending_agent` to
+reserve work before a worker registers.
 
 ### delegate
 ```ts
@@ -322,6 +325,7 @@ delegate({
   to_agent: string,
   title: string,
   description?: string,
+  milestone?: string | null,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   expected_output?: string | null,
   priority?: number,
@@ -353,6 +357,7 @@ delegate_team({
   team?: string,
   title: string,
   description?: string,
+  milestone?: string | null,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
   expected_output?: string | null,
   priority?: number,
@@ -384,10 +389,11 @@ active matching team member and reports skipped members.
 update_task({
   agent: string,
   task_id: number,
-  state?: "open" | "claimed" | "working" | "blocked" | "completed" | "failed" | "canceled",
+  state?: "backlog" | "open" | "claimed" | "working" | "blocked" | "completed" | "failed" | "canceled",
   blocked_reason?: string | null,
   blocked_on_task_id?: number | null,
   result?: string | null,
+  milestone?: string | null,
   priority?: number,
   required_capability?: string | null,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
@@ -422,13 +428,17 @@ list_tasks({
   team?: string | "*",
   required_capability?: string,
   mode?: "investigate_only" | "propose_patch" | "edit_files" | "test_only",
+  milestone?: string,
   manager_reviewed?: boolean,
 }) -> Task[]
 
 get_task({ task_id: number }) -> Task
 ```
-Terminal states cannot transition. Only requester or current holder can
-update/release. Stale active tasks are surfaced, not auto-requeued.
+Terminal states cannot transition. Backlog tasks are parked ideas:
+`backlog -> open|canceled`, `open -> backlog|claimed|canceled`. Moving
+to backlog clears active holder/pending-assignee fields. Only requester
+or current holder can update/release. Stale active tasks are surfaced,
+not auto-requeued.
 
 ### acknowledge_task / submit_review / handoff_task
 ```ts

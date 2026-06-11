@@ -94,7 +94,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.30.0
+agent-bus --version                # 0.31.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
@@ -183,6 +183,7 @@ The fun part — here's what people actually do with it:
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
 - **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
+- **Backlog and milestones.** Park ideas as backlog tasks, label work by milestone, then promote only the items the team is ready to claim.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive a project-specific `area` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Roster cleanup.** Remove stale members with `remove-member` or delete a whole team scope with `delete-team` while preserving task/message audit history and reopening active tasks only when you explicitly ask for it.
 - **Manager workflow controls.** Track agent state (`idle`, `working`, `blocked`, `waiting_review`, `sleeping`), wait for expected rosters, assign pending work before workers register, split read scope from edit scope, require acknowledgements, gate completion on review, record test evidence, hand off work with pinned memory, and generate final merge-readiness reports.
@@ -319,7 +320,9 @@ ios-developer are present. Then:
 4. Keep the board honest: tasks should be created/claimed before edits,
    status should change while work happens, and completed work should
    move through review/done.
-5. Report progress to me in plain English. Do not expose JSON unless I
+5. If new ideas appear but are not ready to build, park them as backlog
+   tasks and promote them only when I approve.
+6. Report progress to me in plain English. Do not expose JSON unless I
    ask for it.
 ```
 
