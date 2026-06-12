@@ -22,7 +22,7 @@ export function colorFor(agent: string): (s: string) => string {
   return chosen;
 }
 
-export function formatMessage(m: Message): string {
+export function formatMessage(m: Message, opts: { maxContentChars?: number | null } = {}): string {
   const time = new Date(m.created_at).toLocaleTimeString();
   const from = colorFor(m.from_agent)(m.from_agent);
   const to = colorFor(m.to_agent)(m.to_agent);
@@ -33,10 +33,21 @@ export function formatMessage(m: Message): string {
         ? kleur.bold().green("REPLY")
         : kleur.gray("msg");
   const replyRef = m.reply_to ? kleur.gray(` ↪#${m.reply_to}`) : "";
-  return `${kleur.gray(time)} #${m.id} ${from} ${kleur.gray("→")} ${to} ${tag}${replyRef}\n  ${truncate(m.content, 400)}`;
+  const maxContentChars = opts.maxContentChars === undefined ? 400 : opts.maxContentChars;
+  return `${kleur.gray(time)} #${m.id} ${from} ${kleur.gray("→")} ${to} ${tag}${replyRef}\n  ${formatContent(m.content, maxContentChars)}`;
+}
+
+export function formatContent(s: string, max: number | null): string {
+  if (max === null) return s;
+  return truncate(s, max);
+}
+
+export function previewText(s: string, max: number): string {
+  return truncate(s, max);
 }
 
 function truncate(s: string, max: number): string {
+  if (!Number.isFinite(max) || max < 0) return s;
   if (s.length <= max) return s;
   return `${s.slice(0, max)}${kleur.gray(`… (${s.length - max} more chars)`)}`;
 }

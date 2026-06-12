@@ -94,7 +94,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.31.0
+agent-bus --version                # 0.32.0
 claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
 ```
 
@@ -182,7 +182,8 @@ The fun part — here's what people actually do with it:
 - **Scoped workgroups.** Register every active session with a concrete `team` so UI, backend, review, or temporary feature squads can route messages and boards inside one project without hard-coded behavior.
 - **Worker pool.** Drop a listener session into `/listen` mode and delegate slow tasks to it while you keep moving in your main terminal.
 - **Cross-tool collaboration.** Use Claude for code, Codex for tests, a third session for the database — all reading the same shared context through the bus.
-- **Session memory.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history.
+- **Session memory and briefs.** Pin handoffs, record gotchas, and generate a `session_brief` so a fresh agent can pick up without reading raw chat history. `register` now returns a small scope teaser when handoffs, risks, open tasks, or recent decisions already exist.
+- **Native power discovery.** Agents can advertise real session powers with exact capability tags such as `tool:websearch`, `mcp:supabase`, `skill:flowdeck`, or `subagent:Review`, so PMs can route beyond generic roles.
 - **Backlog and milestones.** Park ideas as backlog tasks, label work by milestone, then promote only the items the team is ready to claim.
 - **Project and area isolation.** Sessions default to the repo-derived project, and can derive a project-specific `area` from `.agent-bus.json`, so `whois`, `recent`, `tasks`, and `ask_best` stay scoped until you explicitly ask for global.
 - **Roster cleanup.** Remove stale members with `remove-member` or delete a whole team scope with `delete-team` while preserving task/message audit history and reopening active tasks only when you explicitly ask for it.
@@ -412,14 +413,15 @@ For real project work, keep it simple:
 - Put every active session in a concrete team.
 - Use `send_team` for discussion and `delegate` / `delegate_team` for work that should appear on the board.
 - Keep the board honest: create or claim a task before tracked edits, update `now()` / status while working, and move finished work to review or done.
-- Treat memory as the loop's notebook: record decisions, current risks, done work, next actions, and handoff notes so tomorrow's agent does not rediscover today's context.
+- Treat memory as the loop's notebook: record decisions, current risks, done work, next actions, and handoff notes so tomorrow's agent does not rediscover today's context. Use event triggers: settled debate -> decision, reusable gotcha -> lesson memory, long-lived risk -> pinned risk, handoff/exit -> pinned handoff with `Next:`.
 - Treat "done" as a gate, not a feeling: implementation finished, test evidence recorded with optional `git_ref`/`cwd`, independent reviewer approved when required, and `final_report` / `review_gate` says the work is safe.
 - Use the web cockpit (`agent-bus ui`) when you want the big picture.
 
 Detailed CLI commands, task workflows, memory examples, separated-folder
 project setup, and copy-paste agent prompts live in
 [`docs/cli.md`](docs/cli.md), [`docs/patterns.md`](docs/patterns.md),
-and [`docs/agent-prompts.md`](docs/agent-prompts.md).
+[`docs/agent-prompts.md`](docs/agent-prompts.md), and the client
+playbooks in [`docs/clients/`](docs/clients/).
 
 ## What you get
 

@@ -72,7 +72,7 @@ Claim a name on the bus. Idempotent (with `replace: true`).
 
 Input:
 - `name: string` — 1-64 chars, `[a-zA-Z0-9_.-]`
-- `capabilities?: string[]` — tags for capability routing
+- `capabilities?: string[]` — exact-match tags for capability routing
 - `replace?: boolean` — take over an actively-held name
 - `project?: string | null` — MCP default is repo cwd; null is global
 - `area?: string | null` — MCP default from `.agent-bus.json`; null is no area
@@ -82,7 +82,15 @@ Input:
 - `status?: string` — idle, working, blocked, waiting_review, or sleeping
 - `session_id?: string | null` — optional host/model session id
 
-Returns the `Agent` row.
+Returns the `Agent` row. When useful context exists in the registered
+scope, the row may include `scope_summary` and `suggested_next_actions`.
+That is a cheap teaser; call `session_brief` before taking work if it
+mentions handoffs, risks, open tasks, or recent decisions.
+
+Capability tags are exact strings. Use namespaced tags for native powers
+when useful: `tool:websearch`, `tool:shell`, `mcp:posthog`,
+`skill:flowdeck`, `subagent:Explore`. `mcp:posthog` does not match
+`posthog`. Advertise only the most relevant powers for the project.
 
 Errors: `INVALID_INPUT`, `NAME_TAKEN`.
 
@@ -717,7 +725,9 @@ Use `remember` for summaries, handoffs, risks, todos, facts, blockers, or
 custom kinds. Pin handoff memories when the next agent should see them
 first. Use `session_brief` when a new session needs current agents,
 open/blocked/stale tasks, recent decisions, pinned memories, recent
-memories, recent messages, and suggested next actions.
+memories, recent messages, and suggested next actions. Pinned handoffs
+and risks never age out; recent decisions, unpinned memories, and
+messages use the brief recency window.
 
 For team work, use memory deliberately:
 - `kind="decision"` for settled architecture/product choices.
@@ -727,10 +737,13 @@ For team work, use memory deliberately:
 - `kind="handoff", pinned=true` before a session exits or transfers work.
 - Call `session_brief` before taking over an existing project/team.
 
-Loop memory pattern: do not leave important loop state only in chat
-context. Write durable decisions, current risks, done work, next
-actions, and handoff notes to decisions/memories so a later session can
-resume without re-discovery.
+Loop memory pattern: use event triggers. A settled debate or PM choice
+gets `record_decision`. A reusable task gotcha gets
+`remember(kind="lesson", task_id=...)`. A long-lived risk gets
+`remember(kind="risk", pinned=true)`. A stop/switch/handoff gets
+`remember(kind="handoff", pinned=true)` with a `Next:` line. Test and
+review evidence should stay in task/test/review records, not duplicated
+into memory.
 
 ### record_test_result / list_test_results
 
@@ -786,8 +799,8 @@ continue the local task in your own session.
 
 ### final_report
 
-Generate implemented / not implemented / risks / tests / manual checks
-and safe-to-commit/push/deploy flags from tasks.
+Generate implemented / not implemented / risks / tests / manual checks,
+warnings, and safe-to-commit/push/deploy flags from tasks.
 
 ### review_gate
 

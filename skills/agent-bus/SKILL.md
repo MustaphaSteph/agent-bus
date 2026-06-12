@@ -2,7 +2,7 @@
 name: agent-bus
 description: Coordinate work across Claude/Codex/Cursor sessions on the same machine via a local message bus. Use to delegate to helpers, get a second opinion, ask specialists by capability, or track shared tasks.
 requires:
-  - agent-bus-mcp >= 0.31.0
+  - agent-bus-mcp >= 0.32.0
 ---
 
 # agent-bus
@@ -40,8 +40,16 @@ interaction:
    user once for any missing name or team, then reuse both for the rest
    of the session. Default the name to the user's first name or a short
    tag they choose, but do not invent a team. Pass `replace=true`,
-   `team=<team>`, and capabilities `["human-driven", "coordinator"]`.
-   Do not register without a team.
+   `team=<team>`, and capabilities `["human-driven", "coordinator"]`
+   plus up to ten relevant native powers such as `tool:websearch`,
+   `tool:shell`, `mcp:posthog`, `skill:flowdeck`, or
+   `subagent:Explore`. Capabilities are exact-match tags:
+   `mcp:posthog` does not match `posthog`. Do not register without a
+   team.
+   If `register` returns `scope_summary` / `suggested_next_actions`,
+   follow the teaser. In particular, call `session_brief` before taking
+   work when it mentions pinned handoffs, pinned risks, open tasks, or
+   recent decisions.
 2. Call `directory` if available, otherwise `whois`, and show the user
    who else is on the bus, with
    their capabilities, in one compact line:
@@ -314,6 +322,16 @@ create roles, prompts, or behavior rules.
   `remember(kind="todo")` for next actions that are not formal tasks,
   and `remember(kind="handoff", pinned=true)` before a session exits.
   New sessions should call `session_brief` before taking work.
+- Use event triggers instead of vague memory judgment:
+  - Debate settled or PM picked an approach -> `record_decision`.
+  - Completed task revealed a reusable gotcha -> `remember(kind="lesson",
+    task_id=...)` in one transferable sentence.
+  - Risk/blocker will outlive the task -> `remember(kind="risk",
+    pinned=true)`.
+  - Session stops, switches owner, or hands off -> `remember(kind="handoff",
+    pinned=true)` with a `Next:` line.
+  - Tests/review evidence exists -> do not duplicate it into memory; use
+    `record_test_result`, task events, and reviews.
 - Treat "done" as a verifier gate for implementation tasks: code/work
   finished, `record_test_result` evidence captured, required
   `submit_review(approved=true)` recorded, and `review_gate` /

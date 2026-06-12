@@ -540,12 +540,15 @@ agent-bus inbox-status --agent worker-a --project movie-app --team frontend
 agent-bus inbox-status --agent worker-a --team frontend
 agent-bus inbox-status --agent worker-a --team frontend --thread t_abc123
 agent-bus inbox-status --agent worker-a --team frontend --since-id 973
+agent-bus inbox-status --agent worker-a --team frontend --preview-chars 120
 agent-bus inbox-status --agent worker-a --json
 ```
 
 The output separates unread, claimed/in-flight, and recent delivered
 messages, so coordinators can see whether an agent has no work, has a
-claimed message, or already consumed the last message.
+claimed message, or already consumed the last message. Human-readable
+output uses short previews by default; use `agent-bus message <id>` when
+you need the full body.
 
 ### `agent-bus inbox-previews`
 
@@ -575,6 +578,10 @@ agent-bus message 45 --project movie-app --team ios-ui --preview-chars 500
 message id exists but belongs to a different scope, the command fails
 instead of showing unrelated traffic.
 
+By default, `message` prints the full content. `--preview-chars N`
+limits the human-readable renderer to `N` characters, and `--json`
+always includes the full stored content when content is enabled.
+
 ### Agent state and reports
 
 ```bash
@@ -588,7 +595,7 @@ agent-bus decision --list
 agent-bus remember --by coordinator --kind handoff --pinned "handoff summary for the next session"
 agent-bus memories --kind handoff --pinned
 agent-bus pin-memory 12
-agent-bus brief --agent coordinator
+agent-bus brief --agent coordinator --team ios-ui --recent-days 7
 agent-bus activity --team ios-ui
 agent-bus board
 agent-bus team-board --team ios-ui
@@ -678,10 +685,16 @@ agent-bus resume alpha
 Manually create or update an agent row. Useful for scripting.
 
 ```bash
-agent-bus register --name worker-1 --capabilities "tests,ci" --replace
-agent-bus register --name reviewer --capabilities "tests,review" --role reviewer --area all --replace
-agent-bus register --name ui-1 --capabilities "swiftui,design" --project movie-app --area app --team ios-ui --replace
+agent-bus register --name worker-1 --capabilities "tests,ci,tool:shell" --replace
+agent-bus register --name reviewer --capabilities "tests,review,tool:websearch" --role reviewer --area all --replace
+agent-bus register --name ui-1 --capabilities "swiftui,design,skill:flowdeck,subagent:Explore" --project movie-app --area app --team ios-ui --replace
 ```
+
+Capabilities are exact-match tags. Namespaced tags such as
+`tool:websearch`, `mcp:supabase`, `skill:flowdeck`, and
+`subagent:Review` let agents advertise native session powers without new
+schema. If `register` prints a scope summary, call `agent-bus brief`
+before taking work.
 
 ## Listener support
 

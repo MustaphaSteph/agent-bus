@@ -565,6 +565,7 @@ const SessionBriefInput = z.object({
   team: TeamFilterField,
   agent: z.string().min(1).optional(),
   limit: z.number().int().positive().max(50).optional(),
+  recent_window_ms: z.number().int().nonnegative().optional(),
 });
 
 const TeamBoardInput = z.object({
@@ -604,8 +605,8 @@ const TOOLS = [
           type: "array",
           items: { type: "string" },
           description:
-            "Tags describing what this agent is good at (e.g. ['react','css','supabase']). " +
-            "Used by ask_best for capability-based routing.",
+            "Tags describing what this agent is good at (e.g. ['react','css','supabase','tool:websearch','skill:flowdeck','mcp:posthog']). " +
+            "Used by ask_best for exact-string capability routing.",
         },
         replace: {
           type: "boolean",
@@ -1742,6 +1743,7 @@ const TOOLS = [
         team: { type: "string", description: "Optional team filter; '*' means all teams" },
         agent: { type: "string", description: "Optional agent-specific memory filter" },
         limit: { type: "number", description: "Maximum items per section, up to 50" },
+        recent_window_ms: { type: "number", description: "Recency window for recent messages/memories/decisions. Pinned memories never age out. Default: 7 days." },
       },
     },
   },

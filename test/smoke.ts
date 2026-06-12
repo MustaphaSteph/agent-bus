@@ -1561,6 +1561,66 @@ await test("session brief: summarizes current scope", () => {
   assert.ok(brief.suggested_next_actions.length > 0);
 });
 
+await test("register scope summary nudges new agents to read brief", () => {
+  register({ name: "summary-pm", project: "summaryp", team: "docs", replace: true });
+  createTask({ requested_by: "summary-pm", title: "Open scoped work", project: "summaryp", team: "docs" });
+  remember({
+    by_agent: "summary-pm",
+    kind: "handoff",
+    content: "Next: read docs before editing.",
+    project: "summaryp",
+    team: "docs",
+    pinned: true,
+  });
+
+  const agent = register({ name: "summary-worker", project: "summaryp", team: "docs", replace: true });
+  assert.equal(agent.scope_summary?.open_tasks, 1);
+  assert.equal(agent.scope_summary?.pinned_handoffs, 1);
+  assert.ok(agent.suggested_next_actions?.some((action) => action.includes("session_brief")));
+});
+
+await test("session brief recency filters recent chatter but keeps pinned handoffs first", () => {
+  register({ name: "brief-window-pm", project: "briefwindow", team: "bw", replace: true });
+  register({ name: "brief-window-worker", project: "briefwindow", team: "bw", replace: true });
+  const summary = remember({
+    by_agent: "brief-window-pm",
+    kind: "summary",
+    content: "Pinned summary should be after handoff and risk.",
+    project: "briefwindow",
+    team: "bw",
+    pinned: true,
+  });
+  const risk = remember({
+    by_agent: "brief-window-pm",
+    kind: "risk",
+    content: "Pinned risk stays visible.",
+    project: "briefwindow",
+    team: "bw",
+    pinned: true,
+  });
+  const handoff = remember({
+    by_agent: "brief-window-pm",
+    kind: "handoff",
+    content: "Next: continue from here.",
+    project: "briefwindow",
+    team: "bw",
+    pinned: true,
+  });
+  remember({
+    by_agent: "brief-window-pm",
+    kind: "lesson",
+    content: "This unpinned lesson should be filtered with a zero window.",
+    project: "briefwindow",
+    team: "bw",
+  });
+  send({ from: "brief-window-pm", to: "brief-window-worker", content: "Recent message should be filtered." });
+
+  const brief = sessionBrief({ project: "briefwindow", team: "bw", recent_window_ms: 0 });
+  assert.deepEqual(brief.pinned_memories.map((row) => row.id), [handoff.id, risk.id, summary.id]);
+  assert.equal(brief.recent_memories.length, 0);
+  assert.equal(brief.recent_messages.length, 0);
+});
+
 await test("tasks: atomic claim rejects second claimant", () => {
   const t = createTask({ requested_by: "alice", title: "claim race" });
   const claimed = claimTask({ agent: "bob", task_id: t.id });
@@ -1843,6 +1903,26 @@ await test("reviewGate blocks unsafe project state and passes clean completed wo
 
   const clean = reviewGate({ project: "gate" });
   assert.equal(clean.ok, true);
+});
+
+await test("final report warns when implementation work has no memory raw material", () => {
+  register({ name: "raw-pm", project: "rawmat", replace: true });
+  register({ name: "raw-worker", project: "rawmat", replace: true });
+  for (const title of ["First implementation", "Second implementation"]) {
+    const task = createTask({
+      requested_by: "raw-pm",
+      title,
+      project: "rawmat",
+      mode: "edit_files",
+    });
+    claimTask({ agent: "raw-worker", task_id: task.id });
+    updateTask({ agent: "raw-worker", task_id: task.id, state: "completed", result: "done" });
+  }
+
+  const report = finalReport({ project: "rawmat" });
+  assert.ok(report.warnings.some((warning) => warning.includes("no decisions or memories")));
+  const gate = reviewGate({ project: "rawmat" });
+  assert.ok(gate.warnings.some((warning) => warning.includes("no decisions or memories")));
 });
 
 await test("activity, cockpit, and now summarize coordination state", () => {

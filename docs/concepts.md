@@ -17,11 +17,36 @@ given name.
 register({ name: "alpha", team: "frontend", capabilities: ["react", "css"] })
 ```
 
-`capabilities` is an array of tags. They're used by `ask_best` and
-capability-required tasks. `role` and `routing_weight` are optional
-directory/routing hints; higher weight wins before freshness when
-multiple agents match. `status` is the work-board state: `idle`,
-`working`, `blocked`, `waiting_review`, or `sleeping`.
+`capabilities` is an array of exact-match tags. They're used by
+`ask_best` and capability-required tasks. Tags are free-form strings, so
+agents can advertise native powers with a namespace convention:
+
+```text
+tool:websearch
+tool:shell
+tool:simulator
+mcp:posthog
+mcp:supabase
+skill:flowdeck
+skill:ios-debugger
+subagent:Explore
+```
+
+Routing is exact-string matching: `mcp:posthog` is not the same
+capability as `posthog`. Agents should advertise the ten or fewer powers
+that are most relevant to the current project rather than dumping every
+installed skill or tool.
+
+`role` and `routing_weight` are optional directory/routing hints; higher
+weight wins before freshness when multiple agents match. `status` is the
+work-board state: `idle`, `working`, `blocked`, `waiting_review`, or
+`sleeping`.
+
+`register` may return a small `scope_summary` and
+`suggested_next_actions` when useful context already exists in the
+scope. That is a cheap teaser, not a full brief. New agents should call
+`session_brief` before taking work when the teaser mentions handoffs,
+risks, open tasks, or recent decisions.
 
 For team-first workflows, pass a concrete `team` during registration.
 If a user asks an agent to register but does not provide a team, the
@@ -205,11 +230,13 @@ Common kinds are `summary`, `handoff`, `risk`, `todo`, `fact`, and
 formal decisions; use memories for handoffs, lessons, gotchas, and loose
 context.
 
-`session_brief` is the startup/handoff view for a project or area. It
-combines active agents, open/blocked/stale tasks, recent decisions,
-pinned memories, recent unpinned memories, recent messages, and suggested
-next actions. Use it when a fresh Claude or Codex session needs context
-without reading raw bus history line by line.
+`session_brief` is the startup/handoff view for a project, area, or
+team. It combines active agents, open/blocked/stale tasks, recent
+decisions, pinned memories, recent unpinned memories, recent messages,
+and suggested next actions. Pinned handoffs and pinned risks are shown
+first and never age out; recent decisions, recent unpinned memories, and
+recent messages use a recency window. Use it when a fresh Claude or
+Codex session needs context without reading raw bus history line by line.
 
 Tasks do not auto-requeue when an agent goes stale. `list_tasks` surfaces
 `stale: true` for active tasks whose holder has not heartbeated within

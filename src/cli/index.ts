@@ -72,7 +72,7 @@ import {
   writeScopeConfig,
 } from "../util/project.js";
 import { parseSince, printActivity, printCockpit, printNow } from "./coordination.js";
-import { formatMessage } from "./format.js";
+import { formatMessage, previewText } from "./format.js";
 import { installHook, uninstallHook } from "./install-hook.js";
 import { doneTasks, kanban, taskDetail } from "./kanban.js";
 import { listenPrompt } from "./listen-prompt.js";
@@ -92,6 +92,29 @@ program
 
 function normalizeTeamOption(value: string | undefined): string | undefined {
   return value === "all" ? TEAM_WILDCARD : value;
+}
+
+function formatCapabilityGroups(capabilities: string[], maxPerGroup = 4): string {
+  if (capabilities.length === 0) return "";
+  const groups = new Map<string, string[]>();
+  const seen = new Set<string>();
+  for (const cap of capabilities) {
+    if (seen.has(cap)) continue;
+    seen.add(cap);
+    const [prefix, ...rest] = cap.split(":");
+    const key = rest.length > 0 && prefix ? prefix : "cap";
+    const value = rest.length > 0 ? rest.join(":") : cap;
+    const values = groups.get(key) ?? [];
+    values.push(value);
+    groups.set(key, values);
+  }
+  return [...groups.entries()]
+    .map(([key, values]) => {
+      const shown = values.slice(0, maxPerGroup).join(",");
+      const more = values.length > maxPerGroup ? `,+${values.length - maxPerGroup}` : "";
+      return `${key}:${shown}${more}`;
+    })
+    .join(" ");
 }
 
 function phaseImpliesWorking(phase: string): boolean {
@@ -327,7 +350,8 @@ program
       return;
     }
     for (const a of agents) {
-      const caps = a.capabilities.length > 0 ? ` [${a.capabilities.join(", ")}]` : "";
+      const groupedCaps = formatCapabilityGroups(a.capabilities);
+      const caps = groupedCaps ? ` [${groupedCaps}]` : "";
       const projectChip = a.project ? ` {${a.project}}` : " {no-project}";
       const areaChip = a.area ? `/${a.area}` : "";
       const teamChip = a.team ? ` team=${a.team}` : "";
@@ -630,8 +654,9 @@ program
   .option("--thread <id>", "only inspect messages in this thread")
   .option("--since-id <id>", "only inspect messages with id > this")
   .option("-n, --last <count>", "maximum rows per section", "20")
+  .option("--preview-chars <count>", "max content preview chars per message", "240")
   .option("--json", "print raw JSON")
-  .action((opts: { agent: string; project?: string; area?: string; team?: string; thread?: string; sinceId?: string; last: string; json?: boolean }) => {
+  .action((opts: { agent: string; project?: string; area?: string; team?: string; thread?: string; sinceId?: string; last: string; previewChars: string; json?: boolean }) => {
     const scope = resolveScopeOptions(opts.project, opts.area, opts.team);
     const status = inboxStatus({
       agent: opts.agent,
@@ -644,13 +669,17 @@ program
       console.log(JSON.stringify(status, null, 2));
       return;
     }
+    const requestedPreview = Number(opts.previewChars);
+    const maxPreview = Number.isFinite(requestedPreview) && requestedPreview >= 0 ? requestedPreview : 240;
+    const oneLine = (message: { id: number; from_agent: string; content: string; status?: string }): string =>
+      `#${message.id} ${message.from_agent}: ${previewText(message.content, maxPreview)}`;
     console.log(status.summary);
     console.log(kleur.bold("Unread:"));
-    console.log(formatList(status.unread.map((message) => `#${message.id} ${message.from_agent}: ${message.content}`)));
+    console.log(formatList(status.unread.map(oneLine)));
     console.log(kleur.bold("In flight:"));
     console.log(formatList(status.in_flight.map((message) => `#${message.id} claimed_by=${message.claimed_by ?? "-"} until=${message.claim_deadline ?? "-"}`)));
     console.log(kleur.bold("Delivered recent:"));
-    console.log(formatList(status.delivered_recent.map((message) => `#${message.id} [${message.status}] ${message.from_agent}: ${message.content}`)));
+    console.log(formatList(status.delivered_recent.map((message) => `#${message.id} [${message.status}] ${message.from_agent}: ${previewText(message.content, maxPreview)}`)));
   });
 
 program
@@ -1391,10 +1420,11 @@ program
     const scoped = opts.project !== undefined || opts.area !== undefined || opts.team !== undefined
       ? resolveScopeOptions(opts.project, opts.area, opts.team)
       : {};
+    const includeContent = opts.content === false ? false : true;
     const result = getMessage({
       message_id: Number(messageId),
-      preview_chars: opts.previewChars ? Number(opts.previewChars) : undefined,
-      include_content: opts.content === false ? false : true,
+      preview_chars: includeContent ? undefined : opts.previewChars ? Number(opts.previewChars) : undefined,
+      include_content: includeContent,
       ...scoped,
     });
     if (opts.json === true) {
@@ -1403,7 +1433,7 @@ program
     }
     const message = result.message;
     if ("content" in message) {
-      console.log(formatMessage(message));
+      console.log(formatMessage(message, { maxContentChars: opts.previewChars ? Number(opts.previewChars) : null }));
     } else {
       console.log(`#${message.id} ${message.from_agent} → ${message.to_agent} ${message.kind} [${message.status}] len=${message.content_length}${message.truncated ? " truncated" : ""}`);
       console.log(message.content_preview);
@@ -1680,11 +1710,14 @@ program
   .option("-n, --last <count>", "maximum items per section", "10")
   .option("--project <name>", "project scope (use all for global)")
   .option("--area <name>", "area scope (use all for global)")
-  .action((opts: { agent?: string; last: string; project?: string; area?: string }) => {
+  .option("--team <name>", "team scope (use all for global)")
+  .option("--recent-days <days>", "recency window for recent messages/memories/decisions; pinned memories never age out", "7")
+  .action((opts: { agent?: string; last: string; project?: string; area?: string; team?: string; recentDays: string }) => {
     const brief = sessionBrief({
-      ...resolveScopeOptions(opts.project, opts.area),
+      ...resolveScopeOptions(opts.project, opts.area, opts.team),
       agent: opts.agent,
       limit: Number(opts.last),
+      recent_window_ms: Number(opts.recentDays) * 24 * 60 * 60 * 1000,
     });
     console.log(kleur.bold("Active agents:"));
     console.log(formatList(brief.active_agents.map((agent) => `${agent.name} ${agent.status}/${agent.presence}`)));
@@ -1779,6 +1812,7 @@ program
     console.log(`Tests passed:\n${formatList(report.tests_passed)}`);
     console.log(`Test evidence:\n${formatList(report.test_results.map((row) => `#${row.id} [${row.status}] ${row.command}${row.output_summary ? ` - ${row.output_summary}` : ""}${row.git_ref ? ` @${row.git_ref}` : ""}${row.cwd ? ` cwd=${row.cwd}` : ""}`))}`);
     console.log(`Manual tests needed:\n${formatList(report.manual_tests_needed)}`);
+    console.log(`Warnings:\n${formatList(report.warnings)}`);
     console.log(`Safe to commit: ${report.safe_to_commit ? "yes" : "no"}`);
     console.log(`Safe to push: ${report.safe_to_push ? "yes" : "no"}`);
     console.log("Safe to deploy: no unless user approves");
@@ -1848,6 +1882,14 @@ program
       bus_version: packageVersion(),
     });
     console.log(`${kleur.green("registered")} ${a.name}`);
+    if (a.scope_summary !== undefined) {
+      const s = a.scope_summary;
+      console.log(kleur.gray(`scope summary: handoffs=${s.pinned_handoffs} risks=${s.pinned_risks} open=${s.open_tasks} blocked=${s.blocked_tasks} recent_decisions=${s.recent_decisions_7d} recent_memories=${s.recent_memories_7d}`));
+    }
+    if (a.suggested_next_actions !== undefined && a.suggested_next_actions.length > 0) {
+      console.log(kleur.bold("Suggested next actions:"));
+      console.log(formatList(a.suggested_next_actions));
+    }
   });
 
 program

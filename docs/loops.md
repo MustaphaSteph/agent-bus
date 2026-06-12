@@ -37,7 +37,40 @@ later session can read it:
 - `remember(kind="handoff", pinned=true)` before a session exits or
   transfers work.
 
+Use event triggers instead of vague "remember important things" rules:
+
+| Event | Agent action |
+|---|---|
+| A debate settles or the PM chooses an approach | `record_decision` with the chosen path and why |
+| A task completes and reveals a reusable gotcha/lesson | `remember(kind="lesson", task_id=...)` in one transferable sentence |
+| A blocker/risk will outlive the current task | `remember(kind="risk", pinned=true)` |
+| A session is about to stop, hand off, or switch owner | `remember(kind="handoff", pinned=true)` with a `Next:` line |
+| Tests pass/fail or review is approved | Do not duplicate into memory; use `record_test_result`, task events, and reviews |
+
+The bus does not write memory for agents. It surfaces missing raw
+material as a warning in `review_gate` / `final_report` when real
+implementation work completed but no decisions or memories exist in the
+scope.
+
 Fresh sessions should call `session_brief` before taking work.
+
+## Capability pattern
+
+Agents should register the powers that matter for the current team:
+
+```text
+tool:websearch
+tool:shell
+mcp:supabase
+skill:ios-debugger
+subagent:Explore
+```
+
+Capability routing is exact-string matching. `ask_best` for
+`tool:websearch` will not match `websearch`, and `mcp:posthog` will not
+match `posthog`. Keep the list honest and short: advertise the ten or
+fewer most relevant tools, MCPs, skills, or subagent modes instead of
+every installed extension.
 
 ## Verifier gate
 

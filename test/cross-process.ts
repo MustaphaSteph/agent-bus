@@ -208,8 +208,20 @@ assert.ok(previewMessageId, `expected preview message id in output: ${previews.s
 const messagePreview = await run(["message", previewMessageId, "--no-content"]);
 assert.match(messagePreview.stdout, /len=22000/);
 assert.match(messagePreview.stdout, /Next:/);
-const messageFullAlias = await run(["message", previewMessageId, "--include-content", "--preview-chars", "24"]);
-assert.equal(messageFullAlias.code, 0, "message --include-content should be accepted");
+const messageSmallPreview = await run(["message", previewMessageId, "--include-content", "--preview-chars", "24"]);
+assert.equal(messageSmallPreview.code, 0, "message --include-content should be accepted");
+assert.match(messageSmallPreview.stdout, /large-body-large-body-/);
+assert.match(messageSmallPreview.stdout, /more chars/);
+const messageLargePreview = await run(["message", previewMessageId, "--preview-chars", "30000"]);
+assert.match(messageLargePreview.stdout, new RegExp(hugeBody));
+assert.doesNotMatch(messageLargePreview.stdout, /more chars/);
+const messageJson = await run(["message", previewMessageId, "--json"]);
+const parsedMessage = JSON.parse(messageJson.stdout) as { message: { content: string } };
+assert.equal(parsedMessage.message.content, hugeBody);
+const inboxStatusPreview = await run(["inbox-status", "--agent", "preview-worker", "--project", "preview-demo", "--team", "preview-demo", "--preview-chars", "24"]);
+assert.match(inboxStatusPreview.stdout, /large-body-large-body-/);
+assert.match(inboxStatusPreview.stdout, /more chars/);
+assert.ok(!inboxStatusPreview.stdout.includes(hugeBody), "inbox-status should not dump full message content");
 console.log("✓ inbox-previews and message avoid dumping large inbox bodies");
 
 await run(["register", "--name", "wait-pm", "--team", "wait-demo", "--project", "wait-demo", "--capabilities", "coordination", "--replace"]);

@@ -10,7 +10,7 @@ Claim a name + declare capabilities.
 ```ts
 register({
   name: string,                // 1-64 chars, [a-zA-Z0-9_.-]
-  capabilities?: string[],     // tags for ask_best routing
+  capabilities?: string[],     // exact-match tags for ask_best routing
   replace?: boolean,           // take over an actively-held name
   project?: string | null,      // MCP default is derived from cwd; null is global
   area?: string | null,         // MCP default from .agent-bus.json; null is no area
@@ -19,12 +19,32 @@ register({
   routing_weight?: number,      // higher wins when ask_best candidates tie
   status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
   session_id?: string | null,   // optional host/model session id
-}) → Agent
+}) → Agent & {
+  scope_summary?: {
+    pinned_handoffs: number,
+    pinned_risks: number,
+    open_tasks: number,
+    blocked_tasks: number,
+    recent_decisions_7d: number,
+    recent_memories_7d: number,
+    last_activity_at: number | null,
+  },
+  suggested_next_actions?: string[],
+}
 ```
 
 **Returns** the `Agent` row, including `bus_version` when the adapter
 knows it and `listening_until` when a blocking inbox wait or CLI waiter
-has marked the session as actively listening.
+has marked the session as actively listening. When the scope already has
+useful context, the return also includes a cheap `scope_summary` teaser
+and `suggested_next_actions`. This is not a full brief; call
+`session_brief` before taking work when the teaser mentions handoffs,
+risks, open tasks, or recent decisions.
+
+Capabilities are exact-match routing tags. Use plain tags for domain
+skills (`review`, `swiftui`) and namespaced tags for native session
+powers (`tool:websearch`, `mcp:posthog`, `skill:flowdeck`,
+`subagent:Explore`). `mcp:posthog` does not match `posthog`.
 
 **Errors**: `INVALID_INPUT` (bad name format), `NAME_TAKEN` (name active
 within last 60s and `replace` not passed).
@@ -1069,6 +1089,7 @@ session_brief({
   team?: string,
   agent?: string,
   limit?: number,
+  recent_window_ms?: number,
 }) -> {
   active_agents: AgentDirectoryEntry[],
   open_tasks: Task[],
@@ -1083,8 +1104,10 @@ session_brief({
 ```
 
 `remember` defaults project/area to the recording agent when not supplied.
-Pinned memories are surfaced near the top of `session_brief`; use pinned
-`handoff` memories for "next agent please read" context.
+Pinned handoffs and pinned risks are surfaced first in `session_brief`
+and never age out. Recent decisions, recent unpinned memories, and recent
+messages use `recent_window_ms` (default seven days), so old team chatter
+does not dominate a new session.
 
 ## record_task_event / list_task_events / task_result / cancel_task
 
@@ -1195,11 +1218,17 @@ final_report({ project?: string, area?: string, team?: string }) -> {
   tests_passed: string[],
   test_results: TestResult[],
   manual_tests_needed: string[],
+  warnings: string[],
   safe_to_commit: boolean,
   safe_to_push: boolean,
   safe_to_deploy: false,
 }
 ```
+
+`warnings` includes non-blocking process issues, such as completed
+implementation/proposal work with no decisions or memories in scope. Use
+that as a prompt to record durable lessons, risks, or handoffs when they
+are transferable.
 
 ## review_gate
 

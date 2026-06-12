@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: agent-bus
-  version: 0.31.0
+  version: 0.32.0
   summary: Local message bus for agent-to-agent communication via MCP
   description: |
     `agent-bus` exposes 65 tools over an MCP stdio server. This OpenAPI
@@ -1445,7 +1445,7 @@ components:
         capabilities:
           type: array
           items: { type: string }
-          description: Capability tags used by `ask_best` routing.
+          description: Exact-match capability tags used by `ask_best` routing. Namespaced tags such as `tool:websearch`, `mcp:posthog`, `skill:flowdeck`, and `subagent:Explore` can advertise native session powers.
         registered_at:
           type: integer
           format: int64
@@ -1485,6 +1485,13 @@ components:
           type: [integer, 'null']
           format: int64
           description: Timestamp through which the agent is known to be inside a blocking wait.
+        scope_summary:
+          type: object
+          description: Optional cheap context teaser returned by register when the scope already has useful context.
+        suggested_next_actions:
+          type: array
+          items: { type: string }
+          description: Optional register-time hints such as reading session_brief before taking work.
         removed_at:
           type: [integer, 'null']
           format: int64

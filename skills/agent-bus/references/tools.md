@@ -26,8 +26,22 @@ register({
   routing_weight?: number,
   status?: "idle" | "working" | "blocked" | "waiting_review" | "sleeping",
   session_id?: string | null,
-}) -> Agent
+}) -> Agent & {
+  scope_summary?: {
+    pinned_handoffs: number,
+    pinned_risks: number,
+    open_tasks: number,
+    blocked_tasks: number,
+    recent_decisions_7d: number,
+    recent_memories_7d: number,
+    last_activity_at: number | null,
+  },
+  suggested_next_actions?: string[],
+}
 ```
+Capabilities are exact-match tags. Use namespaced tags for native powers:
+`tool:websearch`, `tool:shell`, `mcp:posthog`, `skill:flowdeck`,
+`subagent:Explore`.
 
 ### whois / directory
 ```ts
@@ -625,8 +639,10 @@ unpin_memory({ memory_id: number }) -> Memory
 session_brief({
   project?: string | "*",
   area?: string | "*",
+  team?: string | "*",
   agent?: string,
   limit?: number,
+  recent_window_ms?: number,
 }) -> {
   active_agents: AgentDirectoryEntry[],
   open_tasks: Task[],
@@ -646,6 +662,7 @@ final_report({ project?: string | "*", area?: string | "*" }) -> {
   tests_passed: string[],
   test_results: TestResult[],
   manual_tests_needed: string[],
+  warnings: string[],
   safe_to_commit: boolean,
   safe_to_push: boolean,
   safe_to_deploy: boolean,

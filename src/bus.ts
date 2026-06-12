@@ -340,7 +340,114 @@ export interface RegisterOptions {
   bus_version?: string | null;
 }
 
-export function register(opts: RegisterOptions): Agent {
+export interface RegisterScopeSummary {
+  project: string | null;
+  area: string | null;
+  team: string | null;
+  pinned_handoffs: number;
+  pinned_risks: number;
+  open_tasks: number;
+  blocked_tasks: number;
+  recent_decisions_7d: number;
+  recent_memories_7d: number;
+  last_activity_at: number | null;
+}
+
+export interface RegisteredAgent extends Agent {
+  scope_summary?: RegisterScopeSummary;
+  suggested_next_actions?: string[];
+}
+
+function scopeWhere(
+  alias: string,
+  scope: { project?: string | null; area?: string | null; team?: string | null },
+  nullMatches = false,
+): { where: string[]; params: unknown[] } {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const col = (name: "project" | "area" | "team") => `${alias}.${name}`;
+  if (scope.project !== undefined && scope.project !== null && scope.project !== PROJECT_WILDCARD) {
+    where.push(nullMatches ? `(${col("project")} = ? OR ${col("project")} IS NULL)` : `${col("project")} = ?`);
+    params.push(scope.project);
+  }
+  if (scope.area !== undefined && scope.area !== null && scope.area !== AREA_WILDCARD) {
+    where.push(nullMatches ? `(${col("area")} = ? OR ${col("area")} IS NULL)` : `${col("area")} = ?`);
+    params.push(scope.area);
+  }
+  if (scope.team !== undefined && scope.team !== null && scope.team !== TEAM_WILDCARD) {
+    where.push(`${col("team")} = ?`);
+    params.push(scope.team);
+  }
+  return { where, params };
+}
+
+function countRows(table: "tasks" | "memories" | "decisions", scope: RegisterScopeSummary, extraWhere: string[], extraParams: unknown[], nullMatches = false): number {
+  const scoped = scopeWhere("r", scope, nullMatches);
+  const where = [...scoped.where, ...extraWhere];
+  const row = getDb()
+    .prepare(`SELECT COUNT(*) AS count FROM ${table} r${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`)
+    .get(...scoped.params, ...extraParams) as { count: number };
+  return row.count;
+}
+
+function lastActivityAt(scope: RegisterScopeSummary): number | null {
+  const scoped = scopeWhere("m", scope, true);
+  const where = scoped.where;
+  const row = getDb()
+    .prepare(`SELECT MAX(created_at) AS at FROM messages m${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`)
+    .get(...scoped.params) as { at: number | null };
+  return row.at ?? null;
+}
+
+function buildRegisterScopeSummary(scope: { project: string | null; area: string | null; team: string | null }): RegisterScopeSummary | undefined {
+  if (scope.project === null && scope.area === null && scope.team === null) return undefined;
+  // Keep register cheap: this teaser uses count/max queries only and never
+  // generates a full session brief.
+  const summary: RegisterScopeSummary = {
+    project: scope.project,
+    area: scope.area,
+    team: scope.team,
+    pinned_handoffs: 0,
+    pinned_risks: 0,
+    open_tasks: 0,
+    blocked_tasks: 0,
+    recent_decisions_7d: 0,
+    recent_memories_7d: 0,
+    last_activity_at: null,
+  };
+  const sevenDaysAgo = now() - 7 * 24 * 60 * 60 * 1000;
+  summary.pinned_handoffs = countRows("memories", summary, ["r.kind = 'handoff'", "r.pinned = 1"], [], true);
+  summary.pinned_risks = countRows("memories", summary, ["r.kind = 'risk'", "r.pinned = 1"], [], true);
+  summary.open_tasks = countRows("tasks", summary, ["r.state = 'open'"], [], false);
+  summary.blocked_tasks = countRows("tasks", summary, ["r.state = 'blocked'"], [], false);
+  summary.recent_decisions_7d = countRows("decisions", summary, ["r.created_at >= ?"], [sevenDaysAgo], true);
+  summary.recent_memories_7d = countRows("memories", summary, ["r.created_at >= ?"], [sevenDaysAgo], true);
+  summary.last_activity_at = lastActivityAt(summary);
+  const total =
+    summary.pinned_handoffs +
+    summary.pinned_risks +
+    summary.open_tasks +
+    summary.blocked_tasks +
+    summary.recent_decisions_7d +
+    summary.recent_memories_7d +
+    (summary.last_activity_at === null ? 0 : 1);
+  return total > 0 ? summary : undefined;
+}
+
+function registerSuggestedNextActions(summary: RegisterScopeSummary | undefined): string[] | undefined {
+  if (summary === undefined) return undefined;
+  const actions: string[] = [];
+  if (summary.pinned_handoffs > 0) actions.push(`Read session_brief before taking work; ${summary.pinned_handoffs} pinned handoff(s) exist.`);
+  if (summary.pinned_risks > 0) actions.push(`Review pinned risks before editing; ${summary.pinned_risks} risk memory item(s) exist.`);
+  if (summary.blocked_tasks > 0) actions.push(`Inspect blocked tasks before claiming new work; ${summary.blocked_tasks} blocked task(s) exist.`);
+  if (summary.open_tasks > 0) actions.push(`Use claim_best_task or ask the PM before starting; ${summary.open_tasks} open task(s) exist.`);
+  if (actions.length === 0 && (summary.recent_decisions_7d > 0 || summary.recent_memories_7d > 0)) {
+    actions.push("Read session_brief for recent decisions and memories before taking work.");
+  }
+  return actions.length > 0 ? actions : undefined;
+}
+
+export function register(opts: RegisterOptions): RegisteredAgent {
   validateName(opts.name);
   validateProject(opts.project);
   validateArea(opts.area);
@@ -399,8 +506,12 @@ export function register(opts: RegisterOptions): Agent {
        removed_at = NULL`,
   ).run({ name: opts.name, capabilities: JSON.stringify(caps), ts, project, area, team, role, routingWeight, status, sessionId, busVersion });
 
-  const agent = requireAgent(opts.name);
+  const agent = requireAgent(opts.name) as RegisteredAgent;
   notifyPendingAssignments(agent.name);
+  const summary = buildRegisterScopeSummary({ project, area, team });
+  const suggested = registerSuggestedNextActions(summary);
+  if (summary !== undefined) agent.scope_summary = summary;
+  if (suggested !== undefined) agent.suggested_next_actions = suggested;
   return agent;
 }
 
@@ -1731,6 +1842,7 @@ export interface RecentMessagesOptions {
   team?: string;
   thread_id?: string;
   since_id?: number;
+  since?: number;
 }
 
 export function recentMessages(arg: number | RecentMessagesOptions = 100): Message[] {
@@ -1743,6 +1855,10 @@ export function recentMessages(arg: number | RecentMessagesOptions = 100): Messa
   if (opts.since_id !== undefined) {
     where.push("id > ?");
     params.push(opts.since_id);
+  }
+  if (opts.since !== undefined) {
+    where.push("created_at >= ?");
+    params.push(opts.since);
   }
   if (opts.project !== undefined && opts.project !== PROJECT_WILDCARD) {
     validateProject(opts.project);
@@ -3786,6 +3902,7 @@ export interface ListDecisionsOptions {
   area?: string;
   team?: string;
   implemented?: boolean;
+  since?: number;
   limit?: number;
 }
 
@@ -3810,6 +3927,10 @@ export function listDecisions(opts: ListDecisionsOptions = {}): Decision[] {
   if (opts.implemented !== undefined) {
     where.push("implemented = ?");
     params.push(opts.implemented ? 1 : 0);
+  }
+  if (opts.since !== undefined) {
+    where.push("created_at >= ?");
+    params.push(opts.since);
   }
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 500);
   const rows = getDb()
@@ -4102,6 +4223,7 @@ export interface SessionBriefOptions {
   team?: string;
   agent?: string;
   limit?: number;
+  recent_window_ms?: number;
 }
 
 export interface SessionBrief {
@@ -4141,6 +4263,9 @@ export interface ProjectBoard {
 export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   if (opts.agent !== undefined) validateName(opts.agent);
   const limit = Math.min(Math.max(opts.limit ?? 10, 1), 50);
+  const recentWindowMs = Math.min(Math.max(opts.recent_window_ms ?? 7 * 24 * 60 * 60 * 1000, 0), 365 * 24 * 60 * 60 * 1000);
+  const ts = now();
+  const recentSince = recentWindowMs === 0 ? ts + 1 : ts - recentWindowMs;
   const scope = { project: opts.project, area: opts.area, team: opts.team };
   const activeAgents = directory(scope).filter((agent) => agent.presence !== "stale");
   const tasks = listTasks({ ...scope, include_terminal: false, limit: 500 });
@@ -4148,10 +4273,15 @@ export function sessionBrief(opts: SessionBriefOptions = {}): SessionBrief {
   const openTasks = tasks.filter((task) => task.state === "open").slice(0, limit);
   const blockedTasks = tasks.filter((task) => task.state === "blocked").slice(0, limit);
   const staleTasks = tasks.filter((task) => task.stale === true).slice(0, limit);
-  const recentDecisions = listDecisions({ ...scope, limit });
-  const pinnedMemories = listMemories({ ...scope, agent: opts.agent, pinned: true, limit: 10 });
-  const recentMemories = listMemories({ ...scope, agent: opts.agent, pinned: false, limit });
-  const recent = recentMessages({ ...scope, limit });
+  const recentDecisions = listDecisions({ ...scope, since: recentSince, limit });
+  const pinnedMemories = listMemories({ ...scope, agent: opts.agent, pinned: true, limit: 10 })
+    .slice()
+    .sort((a, b) => {
+      const rank = (m: Memory): number => m.kind === "handoff" ? 0 : m.kind === "risk" ? 1 : 2;
+      return rank(a) - rank(b) || b.created_at - a.created_at;
+    });
+  const recentMemories = listMemories({ ...scope, agent: opts.agent, pinned: false, since: recentSince, limit });
+  const recent = recentMessages({ ...scope, since: recentSince, limit });
   const suggested: string[] = [];
   if (blockedTasks.length > 0) suggested.push("Review blocked tasks and record the unblocker or release/reassign ownership.");
   if (staleTasks.length > 0) suggested.push("Check stale task holders before continuing or reassigning their work.");
@@ -4852,6 +4982,7 @@ export interface FinalReport {
   tests_passed: string[];
   test_results: TestResult[];
   manual_tests_needed: string[];
+  warnings: string[];
   safe_to_commit: boolean;
   safe_to_push: boolean;
   safe_to_deploy: false;
@@ -4867,7 +4998,7 @@ export interface ReviewGateReport {
 
 export function finalReport(opts: ListTasksOptions = {}): FinalReport {
   const tasks = listTasks({ ...opts, include_terminal: true, limit: opts.limit ?? 500 });
-  const testResults = listTestResults({ project: opts.project, area: opts.area, limit: 100 });
+  const testResults = listTestResults({ project: opts.project, area: opts.area, team: opts.team, limit: 100 });
   const implemented = tasks
     .filter((task) => task.state === "completed")
     .map((task) => task.title);
@@ -4886,6 +5017,7 @@ export function finalReport(opts: ListTasksOptions = {}): FinalReport {
   const manualTestsNeeded = tasks
     .filter((task) => task.state !== "backlog" && (task.state !== "completed" || task.manager_reviewed === false || (task.review_required && task.review_state !== "approved")))
     .map((task) => task.title);
+  const warnings = finalReportWarnings(opts, tasks);
   const safe = notImplemented.length === 0 && knownRisks.length === 0 && manualTestsNeeded.length === 0;
   return {
     implemented,
@@ -4894,10 +5026,25 @@ export function finalReport(opts: ListTasksOptions = {}): FinalReport {
     tests_passed: testsPassed,
     test_results: testResults,
     manual_tests_needed: manualTestsNeeded,
+    warnings,
     safe_to_commit: safe,
     safe_to_push: safe,
     safe_to_deploy: false,
   };
+}
+
+function finalReportWarnings(opts: ListTasksOptions, tasks: Task[]): string[] {
+  const implementationTasks = tasks.filter((task) =>
+    task.state === "completed" &&
+    (task.mode === "edit_files" || task.mode === "propose_patch")
+  );
+  if (implementationTasks.length < 2) return [];
+  const decisions = listDecisions({ project: opts.project, area: opts.area, team: opts.team, limit: 1 });
+  const memories = listMemories({ project: opts.project, area: opts.area, team: opts.team, limit: 1 });
+  if (decisions.length > 0 || memories.length > 0) return [];
+  return [
+    `${implementationTasks.length} completed implementation/proposal task(s), but no decisions or memories exist in this scope; briefs may lack reusable context. Record decisions, lessons, risks, or handoff notes when they are transferable.`,
+  ];
 }
 
 export function reviewGate(opts: ListTasksOptions = {}): ReviewGateReport {
@@ -4913,6 +5060,7 @@ export function reviewGate(opts: ListTasksOptions = {}): ReviewGateReport {
   if (board.checkin_due_tasks.length > 0) warnings.push(`${board.checkin_due_tasks.length} task(s) due for check-in`);
   if (board.stale_tasks.length > 0) warnings.push(`${board.stale_tasks.length} stale task holder(s)`);
   if (board.scope_conflicts.length > 0) blockers.push(`${board.scope_conflicts.length} edit scope conflict(s)`);
+  warnings.push(...report.warnings);
   if (!report.safe_to_commit) blockers.push("final_report says safe_to_commit=false");
   if (!report.safe_to_push) blockers.push("final_report says safe_to_push=false");
   return {
