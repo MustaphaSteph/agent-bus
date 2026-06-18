@@ -2,10 +2,10 @@
 
 agent-bus installs in two steps: the **CLI** (one npm command) and the
 **plugin** (one click in your tool). The plugin is how you install agent-bus —
-it connects the MCP server *and* installs the bundled **skills**, the `/main`
-and `/listen` **slash commands**, and the **listener Stop hook**. Those skills
-are what teach your agents to use the bus well, so the plugin is the supported
-path on every tool.
+it connects the MCP server and installs the bundled **skills**. Claude/Codex
+installs also include the `/main` and `/listen` **slash commands** and listener
+hook where the host supports them. Those skills are what teach your agents to
+use the bus well, so the plugin is the supported path on every tool.
 
 **Prerequisites:** Node.js ≥ 20.
 
@@ -13,7 +13,8 @@ path on every tool.
 > ```bash
 > npm i -g @agent-bus-connect/cli@latest      # 1. install the CLI
 > ```
-> then in Claude Code: `/plugin` → add marketplace `MustaphaSteph/agent-bus-plugins` → install **agent-bus**. Done — MCP, skills, slash commands, and listener hook are all wired for you.
+> then install the plugin for Claude Code, Codex, Kimi Code, or your other
+> skills-aware agent. Done — MCP, skills, and workflow guidance are wired for you.
 
 ## 1. Install the CLI
 
@@ -51,9 +52,9 @@ which agent-bus-mcp          # full path to the MCP server bin
 
 ## 2. Install the plugin
 
-The plugin does all the wiring for you: it registers the MCP server, and
-installs the **skills**, the **slash commands** (`/main`, `/listen`), and the
-**listener Stop hook** — one step, nothing to edit by hand. It expects
+The plugin does the wiring for you: it registers the MCP server and installs the
+**skills**. Claude/Codex installs also include **slash commands** (`/main`,
+`/listen`) and the **listener Stop hook** where supported. It expects
 `agent-bus-mcp` from step 1 to already be on PATH.
 
 ### Claude Code
@@ -88,6 +89,28 @@ Then install **agent-bus** from Codex's plugin UI. After installing, fully
 codex mcp list | grep agent-bus
 ```
 
+### Kimi Code
+
+Kimi Code can install directly from the plugin repo. Install the CLI first
+because Kimi plugin installs do not run shell/npm scripts.
+
+In Kimi Code:
+
+```text
+/plugins install https://github.com/MustaphaSteph/agent-bus-plugins
+/plugins mcp enable agent-bus agent-bus
+/reload
+```
+
+Some current Kimi builds install the plugin skills but do not auto-enable the
+MCP server from the manifest. If `kimi mcp list` is empty, run this terminal
+fallback once:
+
+```bash
+kimi mcp add agent-bus -- agent-bus-mcp
+kimi mcp test agent-bus
+```
+
 ### Cursor, Gemini CLI, Goose, OpenCode, Junie, Amp, Kiro (universal installer)
 
 One script wires the MCP config and the bundled skills/commands for every
@@ -118,8 +141,8 @@ agent-bus inject --from test-a --to test-b "hello"
 
 The watcher should show the message. If it does, the bus itself works.
 
-To test that an MCP client sees the bus, open a new Claude Code or Codex
-session and ask:
+To test that an MCP client sees the bus, open a new Claude Code, Codex, Kimi, or
+other MCP-capable session and ask:
 
 ```
 List the agent-bus MCP tools and call whois.
@@ -137,6 +160,7 @@ You should see all 65 tools and the test agents you just created.
 | `~/.claude/commands/listen.md` | Claude Code `/listen` slash command (installed by the plugin) |
 | `~/.claude.json` | Claude Code MCP registration |
 | `~/.codex/config.toml` | Codex MCP registration |
+| `~/.kimi/mcp.json` | Kimi Code MCP registration |
 
 Override the bus directory with `AGENT_BUS_DIR=/some/path` on the MCP
 server's environment (useful for tests or sandboxing).
@@ -158,10 +182,9 @@ npm install
 npm run build
 ```
 
-**Existing MCP server processes inside currently-running Claude Code /
-Codex sessions keep using the old binary** — they were spawned at session
-start and don't reload code. Restart any session that should pick up the
-new build.
+**Existing MCP server processes inside currently-running Claude Code / Codex /
+Kimi sessions keep using the old binary** — they were spawned at session start
+and don't reload code. Restart any session that should pick up the new build.
 
 ## Common gotchas
 
@@ -172,6 +195,7 @@ new build.
 | Setup checker says `agent-bus X is older than required Y` after installing `latest` | The plugin/skill version is ahead of the published npm CLI. Verify with `npm view @agent-bus-connect/cli version`. Publish the required CLI version first, or install a plugin version whose `MIN_AGENT_BUS` matches the latest published CLI. |
 | Session doesn't see the MCP tools | The session started before the install — open a new session. |
 | Codex Desktop doesn't see the MCP | The plugin install didn't fully apply, or Desktop wasn't fully quit. Reinstall the plugin and Cmd+Q + reopen. |
+| Kimi plugin installed but `kimi mcp list` is empty | Run `kimi mcp add agent-bus -- agent-bus-mcp`, then `kimi mcp test agent-bus`. Some Kimi builds install skills from the plugin manifest but still require manual MCP registration. |
 | `UNKNOWN_AGENT` errors | Sender or recipient never called `register`. |
 | `NAME_TAKEN` on register | Another active session holds the name. Pass `replace: true` or pick a different name. |
 | `/listen alpha` says "slash command not found" | The plugin didn't install the slash commands — reinstall it (step 2). |

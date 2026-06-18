@@ -7,7 +7,7 @@
   <a href="https://github.com/MustaphaSteph/agent-bus/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@agent-bus-connect/cli.svg" alt="license" /></a>
   <a href="https://www.npmjs.com/package/@agent-bus-connect/cli"><img src="https://img.shields.io/npm/dm/@agent-bus-connect/cli.svg" alt="downloads" /></a>
   <a href="https://agentskills.io"><img src="https://img.shields.io/badge/Agent_Skills-compatible-2563eb.svg" alt="Agent Skills compatible" /></a>
-  <a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="https://img.shields.io/badge/plugins-Claude_%2B_Codex-7c3aed.svg" alt="Plugin marketplaces" /></a>
+  <a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="https://img.shields.io/badge/plugins-Claude_%2B_Codex_%2B_Kimi_%2B_Cursor-7c3aed.svg" alt="Plugin marketplaces" /></a>
 </p>
 
 <p align="center">
@@ -36,7 +36,8 @@ visible in the shared bus.
 
 That's just one small use case. The same bus can coordinate reviewers,
 developers, QA agents, researchers, docs writers, or full teams across Claude
-Code, Codex, Cursor, and any other MCP-capable session on your machine.
+Code, Codex, Kimi Code, Cursor, and any other MCP-capable session on your
+machine.
 
 ## Quick start
 
@@ -53,8 +54,8 @@ npm i -g @agent-bus-connect/cli@latest
 > package provides. (Plugin before CLI = `ENOENT`.)
 
 **2. Install the plugin for your tool** — one step that wires the MCP server
-**and** drops in the skills, the `/main` + `/listen` slash commands, and the
-listener hook:
+and drops in the skills. Claude/Codex installs also include the `/main` +
+`/listen` shortcuts and listener hook where the host supports them:
 
 **Claude Code**
 
@@ -82,6 +83,24 @@ codex plugin marketplace add \
 
 Then install via Codex's plugin UI.
 
+**Kimi Code**
+
+In Kimi Code:
+
+```text
+/plugins install https://github.com/MustaphaSteph/agent-bus-plugins
+/plugins mcp enable agent-bus agent-bus
+/reload
+```
+
+If your Kimi build installs the plugin but does not enable the MCP server
+automatically, run once from a terminal:
+
+```bash
+kimi mcp add agent-bus -- agent-bus-mcp
+kimi mcp test agent-bus
+```
+
 **Cursor, Gemini CLI, Goose, OpenCode, Junie, Amp, Kiro**
 
 <a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/universal.png" alt="Every other tool" width="80" /></a>
@@ -95,7 +114,9 @@ Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
 agent-bus --version                # 0.32.0
-claude mcp list | grep agent-bus   # ✓ Connected   (Codex: codex mcp list)
+claude mcp list | grep agent-bus   # Claude Code
+codex mcp list | grep agent-bus    # Codex
+kimi mcp test agent-bus            # Kimi Code
 ```
 
 Full walkthrough + troubleshooting in [`docs/install.md`](docs/install.md);
@@ -168,9 +189,9 @@ Each session claims a name — and suddenly your agents can:
 - record durable decisions, handoffs, risks, todos, and session briefs,
 - and keep entire conversation threads addressable across restarts.
 
-All of it, across Claude Code, Codex CLI, Codex Desktop, Cursor — anything that
-speaks MCP. No daemon. No cloud. No auth. No internet. Just a file and a process,
-quietly turning a pile of lonely terminals into a crew.
+All of it, across Claude Code, Codex CLI, Codex Desktop, Kimi Code, Cursor —
+anything that speaks MCP. No daemon. No cloud. No auth. No internet. Just a file
+and a process, quietly turning a pile of lonely terminals into a crew.
 
 ### What this unlocks
 
@@ -428,7 +449,7 @@ playbooks in [`docs/clients/`](docs/clients/).
 Everything below ships in that one `npm install`. No add-ons, no tiers, no asterisks:
 
 - **65 MCP tools** — the full vocabulary: messaging, synchronous and async ask/reply, thread replies, capability and role routing, first-class tasks with at-least-once delivery, review gates, decisions, structured memory, test evidence, and session briefs. The complete list lives in [`docs/tools.md`](docs/tools.md).
-- **Truly cross-tool** — Claude Code, Codex CLI, Codex Desktop, and any MCP-speaking agent all share the same bus. Mix and match freely.
+- **Truly cross-tool** — Claude Code, Codex CLI, Codex Desktop, Kimi Code, Cursor, and any MCP-speaking agent all share the same bus. Mix and match freely.
 - **Never forgets** — agents, messages, channels, threads, tasks, task events, decisions, test results, and memories all survive restarts via SQLite WAL. Close everything, reopen tomorrow, pick up right where you left off.
 - **Scoped by default, global when you ask** — sessions derive a local project from cwd and optional area from `.agent-bus.json`; go wide explicitly with `project: "*"`, `area: "*"`, `team: "*"`, or CLI `--global` / `--project all --area all --team all`.
 - **A cockpit you'll actually keep open** — `agent-bus ui` is a dense command center: project/team sidebar, Slack-style bubble chat with paged history, a full Kanban board, activity timeline, a People roster grouped by presence + status, an Attention view, and an ops rail with real time-series sparklines, an agent×status heatmap, throughput, and decisions. Every widget is real bus data, with guarded roster cleanup for stale members and teams.
@@ -439,7 +460,7 @@ Everything below ships in that one `npm install`. No add-ons, no tiers, no aster
 
 | | |
 |---|---|
-| [`docs/install.md`](docs/install.md) | Install for Claude Code, Codex CLI, Codex Desktop |
+| [`docs/install.md`](docs/install.md) | Install for Claude Code, Codex CLI/Desktop, Kimi Code, Cursor, and other MCP-capable tools |
 | [`docs/agent-prompts.md`](docs/agent-prompts.md) | Copy-paste prompts for registering agents, listeners, and verifiers |
 | [`docs/concepts.md`](docs/concepts.md) | Mental model: agents, messages, threads, channels, claims, tasks, memories |
 | [`docs/tools.md`](docs/tools.md) | All MCP tools — signatures, errors, examples |

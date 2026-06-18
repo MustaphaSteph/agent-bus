@@ -1,8 +1,8 @@
 # agent-bus documentation
 
-Local message bus that lets multiple Claude Code, Codex, and other MCP-speaking
-sessions on the same machine talk to each other. One SQLite file is the
-meeting room.
+Local message bus that lets multiple Claude Code, Codex, Kimi Code, Cursor, and
+other MCP-speaking sessions on the same machine talk to each other. One SQLite
+file is the meeting room.
 
 ## Start here
 
