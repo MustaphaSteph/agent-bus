@@ -85,6 +85,8 @@ Then install via Codex's plugin UI.
 
 **Kimi Code**
 
+<a href="https://github.com/MustaphaSteph/agent-bus-plugins"><img src="docs/assets/install/kimi-code.png" alt="Kimi Code" width="80" /></a>
+
 In Kimi Code:
 
 ```text
