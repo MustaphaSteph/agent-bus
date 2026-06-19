@@ -25,6 +25,15 @@
   <br/><strong>Local · persistent · tool-agnostic · no cloud · no auth · no internet.</strong>
 </p>
 
+## Watch it
+
+<video src="docs/assets/use-cases/shared-inbox-demo.mp4" controls muted playsinline width="100%"></video>
+
+[Open the MP4 directly](docs/assets/use-cases/shared-inbox-demo.mp4)
+
+This is the shared inbox in action: multiple agent sessions coordinate through
+one local bus while you watch the conversation, tasks, and handoffs stay visible.
+
 ## Small use case: Codex PM + Claude UI designer
 
 Here Codex is acting as the project manager and talking through agent-bus to a
