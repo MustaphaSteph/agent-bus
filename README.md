@@ -27,7 +27,7 @@
 
 ## Watch it
 
-<video src="docs/assets/use-cases/shared-inbox-demo.mp4" controls muted playsinline width="100%"></video>
+![agent-bus shared inbox demo](docs/assets/use-cases/shared-inbox-demo.gif)
 
 [Open the MP4 directly](docs/assets/use-cases/shared-inbox-demo.mp4)
 
