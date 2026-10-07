@@ -134,6 +134,7 @@ try {
 
     const health = cloud("health");
     assert(health.includes("healthy"), "cloud health did not report a healthy host");
+    assert(health.includes("d1: ok"), "cloud health did not report D1 status");
     assert(health.includes("tools:"), "cloud health did not print tool status");
 
     const bootstrap = cloud("bootstrap", "boot-demo", "--name", "Boot Demo", "--token-name", "bootstrap-agent", "--role", "agent");

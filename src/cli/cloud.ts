@@ -18,6 +18,15 @@ interface CloudHealthBody {
   ok?: boolean;
   service?: string;
   env?: string;
+  d1?: {
+    ok?: boolean;
+    error?: string;
+  };
+  tools?: {
+    total?: number;
+    implemented?: number;
+    missing?: string[];
+  };
 }
 
 interface CloudToolStatus {
@@ -245,22 +254,26 @@ export function registerCloudCommands(program: Command): void {
       const toolsBody = await request(host, "/api/tools") as { tools?: CloudToolStatus[] };
       const tools = toolsBody.tools ?? [];
       const implemented = tools.filter((tool) => tool.implemented !== false).length;
-      const missing = tools.filter((tool) => tool.implemented === false).map((tool) => tool.name);
+      const missing = health.tools?.missing ?? tools.filter((tool) => tool.implemented === false).map((tool) => tool.name);
       const body = {
         host,
         health,
         tools: {
-          total: tools.length,
-          implemented,
+          total: health.tools?.total ?? tools.length,
+          implemented: health.tools?.implemented ?? implemented,
           missing,
         },
       };
       if (opts.json) return printJson(body);
-      const ok = health.ok === true && missing.length === 0 && tools.length > 0;
+      const total = body.tools.total;
+      const implementedCount = body.tools.implemented;
+      const ok = health.ok === true && health.d1?.ok !== false && missing.length === 0 && total > 0;
       console.log(`${ok ? kleur.green("healthy") : kleur.yellow("check")} ${host}`);
       console.log(`service: ${health.service ?? "unknown"}`);
       console.log(`env: ${health.env ?? "unknown"}`);
-      console.log(`tools: ${implemented}/${tools.length} implemented`);
+      console.log(`d1: ${health.d1?.ok === false ? kleur.yellow("failed") : "ok"}`);
+      if (health.d1?.ok === false && health.d1.error) console.log(`${kleur.yellow("d1 error:")} ${health.d1.error}`);
+      console.log(`tools: ${implementedCount}/${total} implemented`);
       if (missing.length > 0) console.log(`${kleur.yellow("missing:")} ${missing.join(", ")}`);
     });
 

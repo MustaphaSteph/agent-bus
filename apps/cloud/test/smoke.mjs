@@ -67,6 +67,12 @@ try {
     assert(landingHtml.includes("The shared inbox for AI agent teams"), "landing page did not render the hero copy");
     assert(landingHtml.includes("Hosted setup in four steps"), "landing page did not render hosted setup guide");
     assert(landingHtml.includes("agent-bus cloud --host https://your-worker.example bootstrap my-team"), "landing page did not show bootstrap command");
+    const health = await worker.fetch("/api/health");
+    await assertStatus(health, 200, "health");
+    const healthBody = await json(health);
+    assert(healthBody.ok === true, "health did not report ok");
+    assert(healthBody.d1?.ok === true, "health did not verify D1");
+    assert(healthBody.tools?.implemented >= 65, "health did not report implemented tools");
     const unauthenticatedApp = await worker.fetch("/app");
     await assertStatus(unauthenticatedApp, 200, "unauthenticated app page");
     assert((await unauthenticatedApp.text()).includes("Sign in"), "unauthenticated app page did not render login form");

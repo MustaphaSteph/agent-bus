@@ -40,7 +40,26 @@ function parseRole(role: unknown): "owner" | "manager" | "agent" | "viewer" {
 
 export async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   if (url.pathname === "/api/health") {
-    return json({ ok: true, service: "agent-bus-cloud", env: env.AGENT_BUS_CLOUD_ENV });
+    const tools = cloudToolStatus();
+    const implemented = tools.filter((tool) => tool.implemented).length;
+    let d1 = { ok: false, error: "not checked" };
+    try {
+      await env.AGENT_BUS_CLOUD_DB.prepare("SELECT 1").first();
+      d1 = { ok: true, error: "" };
+    } catch (error) {
+      d1 = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    return json({
+      ok: d1.ok && implemented === tools.length && tools.length > 0,
+      service: "agent-bus-cloud",
+      env: env.AGENT_BUS_CLOUD_ENV,
+      d1,
+      tools: {
+        total: tools.length,
+        implemented,
+        missing: tools.filter((tool) => !tool.implemented).map((tool) => tool.name),
+      },
+    });
   }
 
   if (url.pathname === "/api/tools") {
