@@ -50,6 +50,7 @@ function shell(title: string, body: string): Response {
     .message { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 12px; background: #0b121a; border: 1px solid #172636; border-radius: 12px; }
     .message strong { color: #f6fbff; }
     .message-body { white-space: pre-wrap; overflow-wrap: anywhere; color: #d8e3f1; }
+    .token { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #172636; }
     .auth { max-width: 460px; margin: 10vh auto; }
     @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
     @media (max-width: 980px) { .app-grid, .kanban { grid-template-columns: 1fr; } }
@@ -149,6 +150,7 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
             <label>Role<select id="token-role"><option>agent</option><option>manager</option><option>viewer</option><option>owner</option></select></label>
             <button id="create-token">Create agent token</button>
             <pre id="token-output" class="mono">Pick a workspace to generate setup commands.</pre>
+            <div id="token-list" class="stack"></div>
           </div>
           <div class="card stack">
             <h2>Open MCP</h2>
@@ -210,6 +212,7 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         const origin = location.origin;
         mcpOutput.textContent = slug ? origin + "/mcp/" + slug : "Create a workspace first.";
         mcpInfoLink.href = slug ? "/mcp/" + slug + "/info" : "#";
+        if (slug) refreshTokens().catch(() => {});
       }
 
       async function createWorkspace() {
@@ -233,6 +236,39 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         const body = await res.json();
         if (!res.ok) throw new Error(body.error?.message || "failed to create token");
         tokenOutput.textContent = "MCP URL: " + location.origin + "/mcp/" + slug + "\\nBearer token: " + body.token.token + "\\n\\nUse this token once in your agent MCP config. Store it like a password.";
+        await refreshTokens();
+      }
+
+      async function refreshTokens() {
+        const slug = currentSlug();
+        const target = document.getElementById("token-list");
+        if (!slug) {
+          target.innerHTML = "";
+          return;
+        }
+        const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/tokens");
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "failed to load tokens");
+        target.innerHTML = (body.tokens || []).length ? body.tokens.map((token) => {
+          const used = token.last_used_at ? "last used " + new Date(token.last_used_at).toLocaleString() : "never used";
+          return '<div class="token"><div><strong>' + escapeHtml(token.name) + '</strong><br><span class="muted">' + escapeHtml(token.role + " · " + used) + '</span></div><button data-token-id="' + escapeHtml(token.id) + '">Revoke</button></div>';
+        }).join("") : '<p class="muted">No agent tokens yet.</p>';
+        target.querySelectorAll("button[data-token-id]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            try {
+              const tokenId = button.getAttribute("data-token-id");
+              if (!tokenId) return;
+              const revoke = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/tokens/" + encodeURIComponent(tokenId), { method: "DELETE" });
+              if (!revoke.ok) {
+                const error = await revoke.json();
+                throw new Error(error.error?.message || "failed to revoke token");
+              }
+              await refreshTokens();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        });
       }
 
       async function refreshCockpit() {

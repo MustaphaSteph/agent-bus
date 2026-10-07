@@ -64,8 +64,8 @@ a workspace/token, verifies the real remote MCP initialize/tools/call path, and
 checks the hosted messages/cockpit APIs.
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
-create agent tokens, show the remote MCP URL, and load the workspace cockpit
-with Kanban, activity, and team-chat history.
+create/list/revoke agent tokens, show the remote MCP URL, and load the
+workspace cockpit with Kanban, activity, and team-chat history.
 
 Dashboard users log in with email/password. Agent sessions do not use the
 dashboard cookie; they use scoped workspace bearer tokens created from the
@@ -101,6 +101,8 @@ The dashboard uses these authenticated HTTP helpers on top of the same
 workspace Durable Object:
 
 - `GET /api/workspaces/:slug/cockpit` — board, activity, memories, decisions
+- `GET /api/workspaces/:slug/tokens` — list scoped agent tokens
+- `DELETE /api/workspaces/:slug/tokens/:id` — revoke an agent token
 - `GET /api/workspaces/:slug/messages?team=<team>` — paged chat history
 - `GET /api/workspaces/:slug/messages/:id/thread` — message thread context
 - `GET /api/workspaces/:slug/scopes` — projects and teams with counts

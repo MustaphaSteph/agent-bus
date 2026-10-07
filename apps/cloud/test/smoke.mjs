@@ -86,6 +86,21 @@ try {
     const tokenBody = await json(createToken);
     const token = tokenBody.token?.token;
     assert(typeof token === "string" && token.startsWith("ab_cloud_"), "agent token was not returned");
+    const extraToken = await worker.fetch("/api/workspaces/demo/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "revoked-agent", role: "agent" }),
+    });
+    await assertStatus(extraToken, 201, "extra token create");
+    const extraTokenId = (await json(extraToken)).token.id;
+    const tokenList = await worker.fetch("/api/workspaces/demo/tokens", { headers: { cookie } });
+    await assertStatus(tokenList, 200, "token list");
+    assert((await json(tokenList)).tokens.length === 2, "token list did not include created tokens");
+    const revoke = await worker.fetch(`/api/workspaces/demo/tokens/${extraTokenId}`, { method: "DELETE", headers: { cookie } });
+    await assertStatus(revoke, 200, "token revoke");
+    const tokenListAfterRevoke = await worker.fetch("/api/workspaces/demo/tokens", { headers: { cookie } });
+    await assertStatus(tokenListAfterRevoke, 200, "token list after revoke");
+    assert((await json(tokenListAfterRevoke)).tokens.length === 1, "token revoke did not remove the token");
 
     async function debugCall(tool, input) {
       const response = await worker.fetch("/mcp/demo?json=1", {

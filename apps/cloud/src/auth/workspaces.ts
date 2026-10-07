@@ -9,6 +9,14 @@ interface WorkspaceRow {
   role?: WorkspaceRole;
 }
 
+export interface AgentTokenRow {
+  id: string;
+  name: string;
+  role: WorkspaceRole;
+  created_at: number;
+  last_used_at: number | null;
+}
+
 export async function ensureDevUser(env: Env): Promise<string> {
   const id = "dev_user";
   const at = now();
@@ -96,6 +104,23 @@ export async function createAgentToken(env: Env, workspaceId: string, name: stri
     "INSERT INTO agent_tokens (id, workspace_id, name, token_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
   ).bind(id, workspaceId, name, hash, role, now()).run();
   return { token, id };
+}
+
+export async function listAgentTokens(env: Env, workspaceId: string): Promise<AgentTokenRow[]> {
+  const result = await env.AGENT_BUS_CLOUD_DB.prepare(
+    `SELECT id, name, role, created_at, last_used_at
+     FROM agent_tokens
+     WHERE workspace_id = ?
+     ORDER BY created_at DESC`,
+  ).bind(workspaceId).all<AgentTokenRow>();
+  return result.results ?? [];
+}
+
+export async function revokeAgentToken(env: Env, workspaceId: string, tokenId: string): Promise<{ revoked: boolean }> {
+  const result = await env.AGENT_BUS_CLOUD_DB.prepare(
+    "DELETE FROM agent_tokens WHERE workspace_id = ? AND id = ?",
+  ).bind(workspaceId, tokenId).run();
+  return { revoked: (result.meta?.changes ?? 0) > 0 };
 }
 
 export async function resolveWorkspaceContext(env: Env, request: Request, slug: string): Promise<WorkspaceContext> {

@@ -6,8 +6,10 @@ import {
   createUser,
   createWorkspace,
   listWorkspaces,
+  listAgentTokens,
   requireUser,
   resolveWorkspaceContext,
+  revokeAgentToken,
   verifyUserLogin,
 } from "../auth/workspaces";
 import { cloudToolStatus } from "../mcp/tool-registry";
@@ -62,6 +64,13 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
   }
 
   const tokenMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/tokens$/);
+  if (tokenMatch && request.method === "GET") {
+    const slug = requireSlug(tokenMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    if (context.role !== "owner" && context.role !== "manager" && context.role !== "viewer") throw new Error("not allowed");
+    return json({ tokens: await listAgentTokens(env, context.id) });
+  }
+
   if (tokenMatch && request.method === "POST") {
     const slug = requireSlug(tokenMatch);
     const context = await resolveWorkspaceContext(env, request, slug);
@@ -69,6 +78,16 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     const input = await readJson<{ name?: string; role?: "owner" | "manager" | "agent" | "viewer" }>(request);
     const token = await createAgentToken(env, context.id, input.name ?? "agent", input.role ?? "agent");
     return json({ token }, { status: 201 });
+  }
+
+  const tokenDeleteMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/tokens\/(?<tokenId>[^/]+)$/);
+  if (tokenDeleteMatch && request.method === "DELETE") {
+    const slug = requireSlug(tokenDeleteMatch);
+    const tokenId = tokenDeleteMatch.groups?.tokenId;
+    if (!tokenId) throw new Error("token id is required");
+    const context = await resolveWorkspaceContext(env, request, slug);
+    if (context.role !== "owner" && context.role !== "manager") throw new Error("not allowed");
+    return json(await revokeAgentToken(env, context.id, tokenId));
   }
 
   const rpcMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/rpc$/);
