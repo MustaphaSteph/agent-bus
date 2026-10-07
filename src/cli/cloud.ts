@@ -153,17 +153,47 @@ function printMcpConfig(host: string, workspace: string, token?: string): void {
 }
 
 async function tokenTest(host: string, workspaceSlug: string, token: string): Promise<unknown> {
+  return mcpJsonCall(host, workspaceSlug, token, "cloud_workspace", {});
+}
+
+async function mcpJsonCall(host: string, workspaceSlug: string, token: string, tool: string, input: unknown): Promise<unknown> {
   const response = await fetch(`${mcpUrl(host, workspaceSlug)}?json=1`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     },
-    body: JSON.stringify({ tool: "cloud_workspace", input: {} }),
+    body: JSON.stringify({ tool, input }),
   });
   const body = await parseResponse(response);
-  if (!response.ok) throw new Error(errorMessage(body, "token test failed"));
+  if (!response.ok) throw new Error(errorMessage(body, `${tool} failed`));
+  if (typeof body === "object" && body !== null) {
+    const content = (body as { content?: Array<{ text?: unknown }> }).content;
+    const text = content?.[0]?.text;
+    if (typeof text === "string") {
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return body;
+      }
+    }
+  }
   return body;
+}
+
+function rpcResult(body: unknown): unknown {
+  if (typeof body === "object" && body !== null && "result" in body) return (body as { result?: unknown }).result;
+  return body;
+}
+
+function asRows(body: unknown, key: string): unknown[] {
+  const result = rpcResult(body);
+  if (Array.isArray(result)) return result;
+  if (typeof result === "object" && result !== null) {
+    const rows = (result as Record<string, unknown>)[key];
+    if (Array.isArray(rows)) return rows;
+  }
+  return [];
 }
 
 function parseRole(value: string): WorkspaceRole {
@@ -508,5 +538,85 @@ export function registerCloudCommands(program: Command): void {
       const host = normalizeHost(cloud.opts<CloudOptions>().host);
       const body = await tokenTest(host, workspaceSlug, opts.token);
       printJson(body);
+    });
+
+  cloud
+    .command("smoke <workspace>")
+    .description("Run an end-to-end hosted MCP smoke test against a workspace token")
+    .requiredOption("--token <token>", "agent bearer token")
+    .option("--team <team>", "team name for the temporary smoke agents", "cloud-smoke")
+    .option("--json", "print raw JSON")
+    .action(async (workspaceSlug: string, opts: { token: string; team: string; json?: boolean }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const sender = `cloud-smoke-a-${suffix}`;
+      const receiver = `cloud-smoke-b-${suffix}`;
+      const taskTitle = `Cloud smoke task ${suffix}`;
+      const message = `cloud smoke ${suffix}`;
+
+      await tokenTest(host, workspaceSlug, opts.token);
+      const registerSender = await mcpJsonCall(host, workspaceSlug, opts.token, "register", {
+        name: sender,
+        team: opts.team,
+        capabilities: ["cloud-smoke"],
+        replace: true,
+      });
+      const registerReceiver = await mcpJsonCall(host, workspaceSlug, opts.token, "register", {
+        name: receiver,
+        team: opts.team,
+        capabilities: ["cloud-smoke"],
+        replace: true,
+      });
+      const sent = await mcpJsonCall(host, workspaceSlug, opts.token, "send", {
+        from: sender,
+        to: receiver,
+        message,
+        team: opts.team,
+      });
+      const inboxBody = await mcpJsonCall(host, workspaceSlug, opts.token, "inbox", {
+        agent: receiver,
+        team: opts.team,
+        wait_s: 1,
+      });
+      const inboxRows = asRows(inboxBody, "messages");
+      const delivered = inboxRows.some((row) => typeof row === "object" && row !== null && (row as { content?: unknown }).content === message);
+      if (!delivered) throw new Error("cloud smoke message was not delivered through remote MCP");
+
+      const taskBody = await mcpJsonCall(host, workspaceSlug, opts.token, "create_task", {
+        requested_by: sender,
+        title: taskTitle,
+        description: "Temporary cloud smoke task.",
+        team: opts.team,
+        mode: "investigate_only",
+      });
+      const tasksBody = await mcpJsonCall(host, workspaceSlug, opts.token, "list_tasks", {
+        team: opts.team,
+        all: true,
+      });
+      const taskRows = asRows(tasksBody, "tasks");
+      const taskVisible = taskRows.some((row) => typeof row === "object" && row !== null && (row as { title?: unknown }).title === taskTitle);
+      if (!taskVisible) throw new Error("cloud smoke task was not visible through remote MCP");
+
+      const result = {
+        ok: true,
+        host,
+        workspace: workspaceSlug,
+        team: opts.team,
+        agents: [sender, receiver],
+        message_delivered: delivered,
+        task_visible: taskVisible,
+        register_sender: rpcResult(registerSender),
+        register_receiver: rpcResult(registerReceiver),
+        sent: rpcResult(sent),
+        task: rpcResult(taskBody),
+      };
+
+      if (opts.json) return printJson(result);
+      console.log(`${kleur.green("cloud smoke: ok")} ${workspaceSlug}`);
+      console.log(`host: ${host}`);
+      console.log(`team: ${opts.team}`);
+      console.log(`agents: ${sender}, ${receiver}`);
+      console.log("message: delivered");
+      console.log("task: visible");
     });
 }

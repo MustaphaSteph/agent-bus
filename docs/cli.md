@@ -34,6 +34,7 @@ agent-bus cloud members remove my-team usr_...
 agent-bus cloud mcp-url my-team
 agent-bus cloud mcp-config my-team --token ab_cloud_...
 agent-bus cloud token-test my-team --token ab_cloud_...
+agent-bus cloud smoke my-team --token ab_cloud_... --team cloud-smoke
 ```
 
 For production:
@@ -73,6 +74,10 @@ workspace.
 
 Use `mcp-config` when you already have a token and need to regenerate the
 generic remote-MCP JSON snippet.
+
+Use `smoke` after `token-test` when you need real hosted proof: it registers two
+temporary agents through the remote MCP endpoint, sends a message, consumes it
+from the receiver inbox, creates a task, and verifies that the task is visible.
 
 ### `agent-bus watch`
 

@@ -159,6 +159,11 @@ try {
     const tokenTest = cloud("token-test", "cli-demo", "--token", token);
     assert(tokenTest.includes("cli-demo"), "cloud token-test did not reach remote MCP workspace");
 
+    const smoke = cloud("smoke", "cli-demo", "--token", token, "--team", "cli-smoke");
+    assert(smoke.includes("cloud smoke: ok"), "cloud smoke did not pass");
+    assert(smoke.includes("message: delivered"), "cloud smoke did not deliver a message");
+    assert(smoke.includes("task: visible"), "cloud smoke did not verify task visibility");
+
     const tokenList = cloud("tokens", "list", "cli-demo");
     assert(tokenList.includes("codex-cli"), "cloud tokens list did not include created token");
 

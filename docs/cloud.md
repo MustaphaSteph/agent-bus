@@ -57,6 +57,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run docs:lint
 
   cloud:
     runs-on: ubuntu-latest
@@ -66,10 +67,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: apps/cloud/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            apps/cloud/package-lock.json
       - run: npm ci
-      - run: npm ci
-        working-directory: apps/cloud
+      - run: npm ci --prefix apps/cloud
       - run: npm run check:cloud:deploy
 ```
 
@@ -257,15 +259,22 @@ agent-bus cloud members add my-team --email teammate@example.com --role viewer
 agent-bus cloud mcp-config my-team --token ab_cloud_...
 agent-bus cloud mcp-url my-team
 agent-bus cloud token-test my-team --token ab_cloud_...
+agent-bus cloud smoke my-team --token ab_cloud_... --team cloud-smoke
 ```
 
 `bootstrap` is the shortest path for a logged-in user: it creates or reuses the
 workspace, creates a token, prints a remote-MCP config, and verifies the token.
 The `members` commands cover the human dashboard roster from the same terminal
 setup flow.
+`smoke` verifies the actual hosted bus path by registering two temporary agents,
+sending and receiving a message, creating a task, and reading it back through
+the remote MCP endpoint.
 Do not make local commands silently use cloud. Require explicit `cloud`.
 
 ## Production Deploy
+
+The Cloudflare app has a step-by-step deploy runbook at
+[`apps/cloud/DEPLOY.md`](../apps/cloud/DEPLOY.md).
 
 Create a real D1 database, copy the returned `database_id` into
 `apps/cloud/wrangler.toml`, set `AGENT_BUS_CLOUD_ENV = "production"` in
@@ -288,6 +297,7 @@ Run the local preflight before deploying:
 ```bash
 npm run check:cloud:deploy
 agent-bus cloud deploy-check --dir apps/cloud
+agent-bus cloud --host https://<host> smoke <workspace> --token <agent-token>
 ```
 
 ## Non-Goals For The First Hosted Release

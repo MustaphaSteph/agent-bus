@@ -22,6 +22,8 @@ npm run dev
 
 ## Production Deploy
 
+For a complete operator checklist, see [`DEPLOY.md`](DEPLOY.md).
+
 Create a real D1 database, replace the placeholder `database_id` in
 `wrangler.toml`, set `AGENT_BUS_CLOUD_ENV = "production"` in `[vars]`, apply
 migrations to the remote database, and set a strong auth secret for signed
@@ -105,6 +107,7 @@ agent-bus cloud --host http://localhost:8787 tokens create demo --name claude-ui
 agent-bus cloud --host http://localhost:8787 members add demo --email teammate@example.com --role viewer
 agent-bus cloud --host http://localhost:8787 mcp-config demo --token ab_cloud_...
 agent-bus cloud --host http://localhost:8787 token-test demo --token ab_cloud_...
+agent-bus cloud --host http://localhost:8787 smoke demo --token ab_cloud_... --team cloud-smoke
 ```
 
 `health` is the first deploy smoke check. It does not require login; it
@@ -114,6 +117,10 @@ surface as implemented.
 `bootstrap` is the shortest path from a logged-in dashboard account to a usable
 agent connection: it creates or reuses a workspace, creates a scoped agent
 token, prints the remote MCP JSON config, and verifies the token.
+
+`smoke` verifies the real hosted bus path through remote MCP: two temporary
+agents register, one sends the other a message, the receiver consumes it, and a
+temporary task is created and listed.
 
 `members` manages the human dashboard roster from the CLI. A teammate must
 create an account first; then an owner can add their email and choose `viewer`,
