@@ -249,6 +249,7 @@ Add cloud commands under an explicit namespace:
 agent-bus cloud signup --email you@example.com --password 'change-me-please'
 agent-bus cloud login --email you@example.com --password 'change-me-please'
 agent-bus cloud health
+agent-bus cloud deploy-check --dir apps/cloud
 agent-bus cloud bootstrap my-team --token-name codex-pm --role manager
 agent-bus cloud workspace create my-team
 agent-bus cloud tokens create my-team --name claude-ui --role agent
@@ -286,6 +287,7 @@ Run the local preflight before deploying:
 
 ```bash
 npm run check:cloud:deploy
+agent-bus cloud deploy-check --dir apps/cloud
 ```
 
 ## Non-Goals For The First Hosted Release

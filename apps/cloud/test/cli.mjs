@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -93,6 +93,7 @@ async function waitForHttp(url) {
 
 const persistTo = mkdtempSync(join(tmpdir(), "agent-bus-cloud-cli-test-"));
 const agentBusDir = mkdtempSync(join(tmpdir(), "agent-bus-cloud-cli-home-"));
+const deployCheckDir = mkdtempSync(join(tmpdir(), "agent-bus-cloud-deploy-check-"));
 const port = 18_000 + Math.floor(Math.random() * 10_000);
 
 try {
@@ -112,6 +113,21 @@ try {
 
   try {
     const cloud = (...args) => agentBus(["cloud", "--host", host, ...args], env);
+
+    writeFileSync(join(deployCheckDir, "wrangler.toml"), [
+      'name = "agent-bus-cloud"',
+      "",
+      "[[d1_databases]]",
+      'binding = "AGENT_BUS_CLOUD_DB"',
+      'database_name = "agent-bus-cloud"',
+      'database_id = "11111111-2222-3333-4444-555555555555"',
+      "",
+      "[vars]",
+      'AGENT_BUS_CLOUD_ENV = "production"',
+      "",
+    ].join("\n"));
+    const deployCheck = cloud("deploy-check", "--dir", deployCheckDir);
+    assert(deployCheck.includes("deploy config: ok"), "cloud deploy-check did not accept valid production config");
 
     const signup = cloud("signup", "--email", "cli@example.com", "--password", "change-me-please", "--name", "CLI");
     assert(signup.includes("signed up"), "cloud signup did not report success");
@@ -177,4 +193,5 @@ try {
 } finally {
   rmSync(persistTo, { recursive: true, force: true });
   rmSync(agentBusDir, { recursive: true, force: true });
+  rmSync(deployCheckDir, { recursive: true, force: true });
 }

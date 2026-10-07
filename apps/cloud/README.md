@@ -41,6 +41,7 @@ Recommended preflight from this repo:
 
 ```bash
 npm run check:cloud:deploy
+agent-bus cloud deploy-check --dir apps/cloud
 ```
 
 ## API Smoke
@@ -97,6 +98,7 @@ agent-bus cloud --host http://localhost:8787 signup \
   --name You
 
 agent-bus cloud --host http://localhost:8787 health
+agent-bus cloud deploy-check --dir apps/cloud
 agent-bus cloud --host http://localhost:8787 bootstrap demo --token-name claude-ui --role agent
 agent-bus cloud --host http://localhost:8787 workspace create demo --name Demo
 agent-bus cloud --host http://localhost:8787 tokens create demo --name claude-ui --role agent

@@ -18,6 +18,7 @@ Default host is `http://localhost:8787`. Override it with `--host` or
 agent-bus cloud signup --email you@example.com --password 'change-me-please' --name You
 agent-bus cloud login --email you@example.com --password 'change-me-please'
 agent-bus cloud health
+agent-bus cloud deploy-check --dir apps/cloud
 agent-bus cloud workspaces
 agent-bus cloud bootstrap my-team --token-name codex-pm --role manager
 
@@ -54,6 +55,11 @@ dashboard and CLI only show the raw token once.
 Use `health` after `wrangler dev` or a production deploy. It does not
 require login; it checks `/api/health` and `/api/tools`, then reports the
 host environment and how many cloud tools are implemented.
+
+Use `deploy-check` before production deploys. It validates the local
+`wrangler.toml` has a real D1 `database_id` and
+`AGENT_BUS_CLOUD_ENV = "production"`, then prints the manual secret and
+migration checks that cannot be proven from the config file alone.
 
 Use `bootstrap` after login for the shortest working setup. It checks the
 host, creates the workspace when missing, creates an agent token, prints

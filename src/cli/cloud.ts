@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Command } from "commander";
 import kleur from "kleur";
 import { busDir } from "../util/paths.js";
@@ -40,6 +40,7 @@ interface CloudWorkspaceMember {
 }
 
 const DEFAULT_HOST = "http://localhost:8787";
+const PLACEHOLDER_DATABASE_ID = "00000000-0000-0000-0000-000000000000";
 
 function configPath(): string {
   return join(busDir(), "cloud.json");
@@ -161,6 +162,25 @@ function parseRole(value: string): WorkspaceRole {
   throw new Error("role must be owner, manager, agent, or viewer");
 }
 
+function defaultCloudDir(): string {
+  const appDir = resolve(process.cwd(), "apps/cloud");
+  if (existsSync(join(appDir, "wrangler.toml"))) return appDir;
+  return process.cwd();
+}
+
+function readCloudDeployConfig(cloudDir: string): { dir: string; databaseId?: string; envName?: string; wranglerPath: string } {
+  const dir = resolve(cloudDir);
+  const wranglerPath = join(dir, "wrangler.toml");
+  if (!existsSync(wranglerPath)) throw new Error(`wrangler.toml not found in ${dir}`);
+  const config = readFileSync(wranglerPath, "utf8");
+  return {
+    dir,
+    wranglerPath,
+    databaseId: config.match(/^\s*database_id\s*=\s*"([^"]+)"/m)?.[1],
+    envName: config.match(/^\s*AGENT_BUS_CLOUD_ENV\s*=\s*"([^"]+)"/m)?.[1],
+  };
+}
+
 export function registerCloudCommands(program: Command): void {
   const cloud = program
     .command("cloud")
@@ -242,6 +262,45 @@ export function registerCloudCommands(program: Command): void {
       console.log(`env: ${health.env ?? "unknown"}`);
       console.log(`tools: ${implemented}/${tools.length} implemented`);
       if (missing.length > 0) console.log(`${kleur.yellow("missing:")} ${missing.join(", ")}`);
+    });
+
+  cloud
+    .command("deploy-check")
+    .description("Validate local Agent Bus Cloud production deploy settings")
+    .option("--dir <path>", "cloud app directory; defaults to ./apps/cloud when present")
+    .option("--json", "print raw JSON")
+    .action((opts: { dir?: string; json?: boolean }) => {
+      const config = readCloudDeployConfig(opts.dir ?? defaultCloudDir());
+      const problems: string[] = [];
+      if (!config.databaseId || config.databaseId === PLACEHOLDER_DATABASE_ID) {
+        problems.push("replace the placeholder D1 database_id in wrangler.toml");
+      }
+      if (config.envName !== "production") {
+        problems.push('set AGENT_BUS_CLOUD_ENV = "production" in wrangler.toml');
+      }
+      const result = {
+        ok: problems.length === 0,
+        dir: config.dir,
+        wrangler_toml: config.wranglerPath,
+        database_id: config.databaseId ?? null,
+        env: config.envName ?? null,
+        problems,
+        manual_checks: [
+          "apply D1 migrations with wrangler d1 migrations apply agent-bus-cloud --remote",
+          "set AGENT_BUS_CLOUD_AUTH_SECRET with wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET",
+          "run npm --prefix apps/cloud run deploy from the repo root or npm run deploy inside apps/cloud",
+        ],
+      };
+      if (opts.json) return printJson(result);
+      if (result.ok) {
+        console.log(`${kleur.green("deploy config: ok")} ${config.dir}`);
+      } else {
+        console.log(`${kleur.yellow("deploy config: needs changes")} ${config.dir}`);
+        for (const problem of problems) console.log(`- ${problem}`);
+      }
+      console.log("manual checks:");
+      for (const check of result.manual_checks) console.log(`- ${check}`);
+      if (!result.ok) process.exitCode = 1;
     });
 
   cloud
