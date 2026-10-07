@@ -35,6 +35,47 @@ initialize/list/call requests, checks the hosted cockpit/message APIs, and
 exercises the `agent-bus cloud` CLI setup commands against a live local Worker.
 `check:cloud:deploy` runs the same suite and adds a Wrangler dry-run deploy.
 
+Recommended GitHub Actions coverage:
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  local:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/cloud/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: apps/cloud
+      - run: npm run check:cloud:deploy
+```
+
+Adding this file under `.github/workflows/ci.yml` requires a GitHub token or
+session with `workflow` permission.
+
 ## Cloudflare Architecture
 
 Use Cloudflare as the whole backend:
