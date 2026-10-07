@@ -145,6 +145,31 @@ try {
     const tokenList = cloud("tokens", "list", "cli-demo");
     assert(tokenList.includes("codex-cli"), "cloud tokens list did not include created token");
 
+    const teammateSignup = cloud("signup", "--email", "teammate@example.com", "--password", "change-me-please", "--name", "Team Mate");
+    assert(teammateSignup.includes("signed up"), "cloud signup did not create teammate account");
+
+    const ownerLogin = cloud("login", "--email", "cli@example.com", "--password", "change-me-please");
+    assert(ownerLogin.includes("logged in"), "cloud login did not restore owner session");
+
+    const addMember = cloud("members", "add", "cli-demo", "--email", "teammate@example.com", "--role", "viewer");
+    assert(addMember.includes("member saved teammate@example.com"), "cloud members add did not save teammate");
+    const userId = addMember.match(/user_id: (usr_[a-zA-Z0-9]+)/)?.[1];
+    assert(userId, "cloud members add did not print user id");
+
+    const membersList = cloud("members", "list", "cli-demo");
+    assert(membersList.includes("teammate@example.com"), "cloud members list did not include teammate");
+    assert(membersList.includes("viewer"), "cloud members list did not include role");
+
+    const roleUpdate = cloud("members", "role", "cli-demo", userId, "--role", "manager");
+    assert(roleUpdate.includes("updated"), "cloud members role did not update teammate");
+    const membersAfterRole = cloud("members", "list", "cli-demo");
+    assert(membersAfterRole.includes("manager"), "cloud members list did not include updated role");
+
+    const removeMember = cloud("members", "remove", "cli-demo", userId);
+    assert(removeMember.includes("removed"), "cloud members remove did not remove teammate");
+    const membersAfterRemove = cloud("members", "list", "cli-demo");
+    assert(!membersAfterRemove.includes("teammate@example.com"), "cloud members list still included removed teammate");
+
     console.log("agent-bus cloud CLI smoke passed");
   } finally {
     await stopWorker(worker);

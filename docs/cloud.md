@@ -252,6 +252,7 @@ agent-bus cloud health
 agent-bus cloud bootstrap my-team --token-name codex-pm --role manager
 agent-bus cloud workspace create my-team
 agent-bus cloud tokens create my-team --name claude-ui --role agent
+agent-bus cloud members add my-team --email teammate@example.com --role viewer
 agent-bus cloud mcp-config my-team --token ab_cloud_...
 agent-bus cloud mcp-url my-team
 agent-bus cloud token-test my-team --token ab_cloud_...
@@ -259,6 +260,8 @@ agent-bus cloud token-test my-team --token ab_cloud_...
 
 `bootstrap` is the shortest path for a logged-in user: it creates or reuses the
 workspace, creates a token, prints a remote-MCP config, and verifies the token.
+The `members` commands cover the human dashboard roster from the same terminal
+setup flow.
 Do not make local commands silently use cloud. Require explicit `cloud`.
 
 ## Production Deploy

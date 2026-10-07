@@ -25,6 +25,10 @@ agent-bus cloud workspace create my-team --name "My Team"
 agent-bus cloud tokens create my-team --name claude-ui --role agent
 agent-bus cloud tokens list my-team
 agent-bus cloud tokens revoke my-team tok_...
+agent-bus cloud members list my-team
+agent-bus cloud members add my-team --email teammate@example.com --role viewer
+agent-bus cloud members role my-team usr_... --role manager
+agent-bus cloud members remove my-team usr_...
 
 agent-bus cloud mcp-url my-team
 agent-bus cloud mcp-config my-team --token ab_cloud_...
@@ -55,6 +59,11 @@ Use `bootstrap` after login for the shortest working setup. It checks the
 host, creates the workspace when missing, creates an agent token, prints
 the remote MCP JSON config, and verifies the token against the workspace
 remote MCP endpoint.
+
+Use `members` when setting up the human dashboard side of a workspace.
+Only owners can add, change, or remove members. A teammate must create an
+Agent Bus Cloud account before an owner can add their email to a
+workspace.
 
 Use `mcp-config` when you already have a token and need to regenerate the
 generic remote-MCP JSON snippet.

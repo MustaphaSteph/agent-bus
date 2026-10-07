@@ -31,6 +31,14 @@ interface CloudWorkspaceSummary {
   role?: string;
 }
 
+interface CloudWorkspaceMember {
+  user_id: string;
+  email: string;
+  name: string | null;
+  role: WorkspaceRole;
+  created_at?: number;
+}
+
 const DEFAULT_HOST = "http://localhost:8787";
 
 function configPath(): string {
@@ -344,6 +352,63 @@ export function registerCloudCommands(program: Command): void {
         method: "DELETE",
       }, requireCookie(host));
       console.log(`${kleur.green("revoked")} ${tokenId}`);
+    });
+
+  const members = cloud.command("members").description("Manage dashboard users in a hosted workspace");
+  members
+    .command("list <workspace>")
+    .description("List dashboard members for a workspace")
+    .option("--json", "print raw JSON")
+    .action(async (workspaceSlug: string, opts: { json?: boolean }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const body = await request(host, `/api/workspaces/${encodeURIComponent(workspaceSlug)}/members`, {}, requireCookie(host)) as { members?: CloudWorkspaceMember[] };
+      if (opts.json) return printJson(body);
+      for (const member of body.members ?? []) {
+        const name = member.name ? ` ${kleur.gray(member.name)}` : "";
+        console.log(`${kleur.bold(member.email)} ${kleur.gray(member.role)} ${kleur.gray(member.user_id)}${name}`);
+      }
+      if ((body.members ?? []).length === 0) console.log(kleur.gray("(no members)"));
+    });
+
+  members
+    .command("add <workspace>")
+    .description("Add or update a dashboard member by email; the user must already have an Agent Bus Cloud account")
+    .requiredOption("--email <email>", "member email")
+    .option("--role <role>", "owner, manager, agent, or viewer", "viewer")
+    .action(async (workspaceSlug: string, opts: { email: string; role: string }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const role = parseRole(opts.role);
+      const body = await request(host, `/api/workspaces/${encodeURIComponent(workspaceSlug)}/members`, {
+        method: "POST",
+        body: JSON.stringify({ email: opts.email, role }),
+      }, requireCookie(host)) as { member?: CloudWorkspaceMember };
+      console.log(`${kleur.green("member saved")} ${body.member?.email ?? opts.email} ${kleur.gray(body.member?.role ?? role)}`);
+      if (body.member?.user_id) console.log(`user_id: ${body.member.user_id}`);
+    });
+
+  members
+    .command("role <workspace> <user-id>")
+    .description("Change a dashboard member role")
+    .requiredOption("--role <role>", "owner, manager, agent, or viewer")
+    .action(async (workspaceSlug: string, userId: string, opts: { role: string }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const role = parseRole(opts.role);
+      const body = await request(host, `/api/workspaces/${encodeURIComponent(workspaceSlug)}/members/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      }, requireCookie(host)) as { updated?: boolean };
+      console.log(`${body.updated ? kleur.green("updated") : kleur.yellow("not updated")} ${userId} ${kleur.gray(role)}`);
+    });
+
+  members
+    .command("remove <workspace> <user-id>")
+    .description("Remove a dashboard member from a workspace")
+    .action(async (workspaceSlug: string, userId: string) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const body = await request(host, `/api/workspaces/${encodeURIComponent(workspaceSlug)}/members/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      }, requireCookie(host)) as { removed?: boolean };
+      console.log(`${body.removed ? kleur.green("removed") : kleur.yellow("not removed")} ${userId}`);
     });
 
   cloud
