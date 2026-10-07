@@ -27,7 +27,10 @@ function shell(title: string, body: string): Response {
     .button { border: 1px solid #244156; border-radius: 12px; padding: 12px 16px; text-decoration: none; color: white; background: #101923; }
     .primary { background: linear-gradient(135deg, #00b7ff, #7c3aed); border-color: transparent; }
     .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 56px; }
+    .steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 30px; }
     .card { background: rgba(12, 18, 26, .86); border: 1px solid #1b2a3a; border-radius: 14px; padding: 20px; min-height: 150px; }
+    .step { min-height: 220px; }
+    .step-number { width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; background: #132234; color: #7ce4ff; font-weight: 800; margin-bottom: 12px; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: #9fb1c7; background: #081018; border: 1px solid #172636; border-radius: 10px; padding: 14px; overflow: auto; }
     .workspace { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid #1b2a3a; padding: 14px 0; }
     .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #284056; border-radius: 999px; color: #95a8bc; }
@@ -53,7 +56,7 @@ function shell(title: string, body: string): Response {
     .message-body { white-space: pre-wrap; overflow-wrap: anywhere; color: #d8e3f1; }
     .token { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #172636; }
     .auth { max-width: 460px; margin: 10vh auto; }
-    @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 820px) { .grid, .steps { grid-template-columns: 1fr; } }
     @media (max-width: 980px) { .app-grid, .kanban { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -81,6 +84,21 @@ export function landingPage(): Response {
     <div class="card"><h2>Remote MCP</h2><p>Every workspace gets an MCP endpoint agents can connect to with a scoped token.</p></div>
     <div class="card"><h2>Durable bus</h2><p>Each workspace maps to a SQLite-backed Durable Object for consistent message and task state.</p></div>
     <div class="card"><h2>Full workflow</h2><p>Team chat, Kanban, tasks, memories, decisions, reviews, and final reports move to the cloud surface.</p></div>
+  </section>
+  <section style="margin-top:64px">
+    <h2>Hosted setup in four steps</h2>
+    <p>Use the dashboard for a guided setup, or run the CLI flow below after deploy. The bootstrap command creates the workspace, mints an agent token, prints remote MCP JSON, and verifies that the token can reach the workspace endpoint.</p>
+    <div class="steps">
+      <div class="card step"><div class="step-number">1</div><h2>Install CLI</h2><pre class="mono">npm i -g @agent-bus-connect/cli@latest
+agent-bus cloud health --host https://your-worker.example</pre></div>
+      <div class="card step"><div class="step-number">2</div><h2>Login</h2><pre class="mono">agent-bus cloud --host https://your-worker.example signup \\
+  --email you@example.com \\
+  --password "change-me"</pre></div>
+      <div class="card step"><div class="step-number">3</div><h2>Bootstrap</h2><pre class="mono">agent-bus cloud --host https://your-worker.example bootstrap my-team \\
+  --token-name codex-pm \\
+  --role manager</pre></div>
+      <div class="card step"><div class="step-number">4</div><h2>Connect agents</h2><p>Paste the printed remote MCP config into Claude Code, Codex, Kimi, Cursor, or any client that supports HTTP MCP servers with headers.</p></div>
+    </div>
   </section>
 </main>`);
 }

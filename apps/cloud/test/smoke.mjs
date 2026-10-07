@@ -63,7 +63,10 @@ try {
   try {
     const landing = await worker.fetch("/");
     await assertStatus(landing, 200, "landing page");
-    assert((await landing.text()).includes("The shared inbox for AI agent teams"), "landing page did not render the hero copy");
+    const landingHtml = await landing.text();
+    assert(landingHtml.includes("The shared inbox for AI agent teams"), "landing page did not render the hero copy");
+    assert(landingHtml.includes("Hosted setup in four steps"), "landing page did not render hosted setup guide");
+    assert(landingHtml.includes("agent-bus cloud --host https://your-worker.example bootstrap my-team"), "landing page did not show bootstrap command");
     const unauthenticatedApp = await worker.fetch("/app");
     await assertStatus(unauthenticatedApp, 200, "unauthenticated app page");
     assert((await unauthenticatedApp.text()).includes("Sign in"), "unauthenticated app page did not render login form");
