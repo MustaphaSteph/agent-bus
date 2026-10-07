@@ -23,16 +23,18 @@ npm run dev
 ## Production Deploy
 
 Create a real D1 database, replace the placeholder `database_id` in
-`wrangler.toml`, apply migrations to the remote database, and set a strong auth
-secret for signed dashboard sessions. Production requests fail closed without
-this secret.
+`wrangler.toml`, set `AGENT_BUS_CLOUD_ENV = "production"` in `[vars]`, apply
+migrations to the remote database, and set a strong auth secret for signed
+dashboard sessions. `npm run deploy` refuses to deploy while the checked-in
+development defaults are still present.
 
 ```bash
 wrangler d1 create agent-bus-cloud
 # copy the returned database_id into wrangler.toml
+# set AGENT_BUS_CLOUD_ENV = "production" in wrangler.toml
 wrangler d1 migrations apply agent-bus-cloud --remote
 wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET
-wrangler deploy
+npm run deploy
 ```
 
 Recommended preflight from this repo:

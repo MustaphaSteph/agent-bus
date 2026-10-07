@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "node test/production-config.mjs && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "node test/tool-parity.mjs && node test/smoke.mjs && node test/cli.mjs",
     "check": "npm run typecheck && npm test",

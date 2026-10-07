@@ -218,16 +218,19 @@ Do not make local commands silently use cloud. Require explicit `cloud`.
 ## Production Deploy
 
 Create a real D1 database, copy the returned `database_id` into
-`apps/cloud/wrangler.toml`, apply D1 migrations remotely, set the dashboard
-auth secret, then deploy:
+`apps/cloud/wrangler.toml`, set `AGENT_BUS_CLOUD_ENV = "production"` in
+`[vars]`, apply D1 migrations remotely, set the dashboard auth secret, then
+deploy. The `npm run deploy` command runs a production-config guard and refuses
+to deploy with the checked-in development defaults.
 
 ```bash
 cd apps/cloud
 wrangler d1 create agent-bus-cloud
 # copy database_id into wrangler.toml
+# set AGENT_BUS_CLOUD_ENV = "production" in wrangler.toml
 wrangler d1 migrations apply agent-bus-cloud --remote
 wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET
-wrangler deploy
+npm run deploy
 ```
 
 Run the local preflight before deploying:
