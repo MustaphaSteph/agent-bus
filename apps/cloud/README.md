@@ -98,6 +98,7 @@ agent-bus cloud --host http://localhost:8787 signup \
 
 agent-bus cloud --host http://localhost:8787 workspace create demo --name Demo
 agent-bus cloud --host http://localhost:8787 tokens create demo --name claude-ui --role agent
+agent-bus cloud --host http://localhost:8787 mcp-config demo --token ab_cloud_...
 agent-bus cloud --host http://localhost:8787 token-test demo --token ab_cloud_...
 ```
 

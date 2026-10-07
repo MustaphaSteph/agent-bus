@@ -258,6 +258,15 @@ export function registerCloudCommands(program: Command): void {
     });
 
   cloud
+    .command("mcp-config <workspace>")
+    .description("Print a generic remote MCP config for a workspace token")
+    .requiredOption("--token <token>", "agent bearer token")
+    .action((workspaceSlug: string, opts: { token: string }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      printMcpConfig(host, workspaceSlug, opts.token);
+    });
+
+  cloud
     .command("token-test <workspace>")
     .description("Verify a bearer token can reach the workspace remote MCP endpoint")
     .requiredOption("--token <token>", "agent bearer token")

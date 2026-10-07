@@ -125,6 +125,9 @@ try {
     const tokenOutput = cloud("tokens", "create", "cli-demo", "--name", "codex-cli", "--role", "agent");
     const token = tokenOutput.match(/Bearer (ab_cloud_[^"]+)/)?.[1];
     assert(token, "cloud tokens create did not print a bearer token config");
+    const mcpConfig = cloud("mcp-config", "cli-demo", "--token", token);
+    assert(mcpConfig.includes('"agent-bus-cloud"'), "cloud mcp-config did not print server config");
+    assert(mcpConfig.includes(token), "cloud mcp-config did not include the token");
 
     const tokenTest = cloud("token-test", "cli-demo", "--token", token);
     assert(tokenTest.includes("cli-demo"), "cloud token-test did not reach remote MCP workspace");

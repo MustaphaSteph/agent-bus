@@ -25,6 +25,7 @@ agent-bus cloud tokens list my-team
 agent-bus cloud tokens revoke my-team tok_...
 
 agent-bus cloud mcp-url my-team
+agent-bus cloud mcp-config my-team --token ab_cloud_...
 agent-bus cloud token-test my-team --token ab_cloud_...
 ```
 
@@ -43,6 +44,9 @@ agent-bus cloud --host https://agentbus.example.com tokens create my-team \
 `tokens create` prints a copy-paste remote MCP config with the workspace
 URL and bearer token. Treat that token like a password; the cloud
 dashboard and CLI only show the raw token once.
+
+Use `mcp-config` when you already have a token and need to regenerate the
+generic remote-MCP JSON snippet.
 
 ### `agent-bus watch`
 
