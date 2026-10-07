@@ -16,6 +16,7 @@ This app is the hosted track for full Agent Bus parity:
 cd apps/cloud
 npm install
 npm run typecheck
+npm test
 npm run dev
 ```
 
@@ -50,6 +51,17 @@ curl -X POST http://localhost:8787/api/workspaces/demo/tokens \
 curl http://localhost:8787/mcp/demo/info \
   -b /tmp/agent-bus-cloud.cookies
 ```
+
+Automated smoke coverage is available from either repo root or `apps/cloud`:
+
+```bash
+npm run check:cloud      # from repo root
+npm run check            # from apps/cloud
+```
+
+The smoke test starts a local Worker with isolated D1 state, signs up, creates
+a workspace/token, verifies the real remote MCP initialize/tools/call path, and
+checks the hosted messages/cockpit APIs.
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
 create agent tokens, show the remote MCP URL, and load the workspace cockpit

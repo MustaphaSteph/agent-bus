@@ -19,6 +19,21 @@ workspace.
 The hosted version should preserve the existing 65-tool surface as much as
 possible so agents do not need to learn a different protocol.
 
+## Verification
+
+Run local and hosted checks before changing the cloud app:
+
+```bash
+npm run typecheck
+npm test
+npm run check:cloud
+cd apps/cloud && npx wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun
+```
+
+`check:cloud` starts the Worker locally with isolated D1 persistence, creates a
+dashboard user/workspace/token, verifies real remote MCP initialize/list/call
+requests, and checks the hosted cockpit/message APIs.
+
 ## Cloudflare Architecture
 
 Use Cloudflare as the whole backend:
