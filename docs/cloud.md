@@ -208,11 +208,12 @@ Keep local commands working exactly as they do now.
 Add cloud commands under an explicit namespace:
 
 ```bash
-agent-bus cloud login
+agent-bus cloud signup --email you@example.com --password 'change-me-please'
+agent-bus cloud login --email you@example.com --password 'change-me-please'
 agent-bus cloud workspace create my-team
-agent-bus cloud token create --workspace my-team --name claude-ui
-agent-bus cloud mcp-url --workspace my-team
-agent-bus cloud ui --workspace my-team
+agent-bus cloud tokens create my-team --name claude-ui --role agent
+agent-bus cloud mcp-url my-team
+agent-bus cloud token-test my-team --token ab_cloud_...
 ```
 
 Do not make local commands silently use cloud. Require explicit `cloud`.

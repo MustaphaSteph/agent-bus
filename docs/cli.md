@@ -4,6 +4,46 @@ The `agent-bus` binary. Run `agent-bus --help` for an auto-generated list.
 
 ## Daily commands
 
+### `agent-bus cloud`
+
+Hosted Agent Bus Cloud setup helpers. These commands talk to the
+Cloudflare Worker API and store a dashboard session cookie in
+`$AGENT_BUS_DIR/cloud.json` for the selected host. They do **not** make
+normal local commands use cloud; local and hosted modes stay explicit.
+
+Default host is `http://localhost:8787`. Override it with `--host` or
+`AGENT_BUS_CLOUD_HOST`.
+
+```bash
+agent-bus cloud signup --email you@example.com --password 'change-me-please' --name You
+agent-bus cloud login --email you@example.com --password 'change-me-please'
+agent-bus cloud workspaces
+
+agent-bus cloud workspace create my-team --name "My Team"
+agent-bus cloud tokens create my-team --name claude-ui --role agent
+agent-bus cloud tokens list my-team
+agent-bus cloud tokens revoke my-team tok_...
+
+agent-bus cloud mcp-url my-team
+agent-bus cloud token-test my-team --token ab_cloud_...
+```
+
+For production:
+
+```bash
+agent-bus cloud --host https://agentbus.example.com login \
+  --email you@example.com \
+  --password 'change-me-please'
+
+agent-bus cloud --host https://agentbus.example.com tokens create my-team \
+  --name codex-pm \
+  --role manager
+```
+
+`tokens create` prints a copy-paste remote MCP config with the workspace
+URL and bearer token. Treat that token like a password; the cloud
+dashboard and CLI only show the raw token once.
+
 ### `agent-bus watch`
 
 Live tail messages for the current project. Colors per agent,

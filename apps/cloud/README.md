@@ -72,6 +72,19 @@ Dashboard users log in with email/password. Agent sessions do not use the
 dashboard cookie; they use scoped workspace bearer tokens created from the
 dashboard or token API.
 
+You can also drive setup from the CLI:
+
+```bash
+agent-bus cloud --host http://localhost:8787 signup \
+  --email you@example.com \
+  --password 'change-me-please' \
+  --name You
+
+agent-bus cloud --host http://localhost:8787 workspace create demo --name Demo
+agent-bus cloud --host http://localhost:8787 tokens create demo --name claude-ui --role agent
+agent-bus cloud --host http://localhost:8787 token-test demo --token ab_cloud_...
+```
+
 Token roles are enforced before the Durable Object receives a tool call:
 
 - `owner` / `manager`: full workspace operations, including roster cleanup

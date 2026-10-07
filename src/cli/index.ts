@@ -72,6 +72,7 @@ import {
   writeScopeConfig,
 } from "../util/project.js";
 import { parseSince, printActivity, printCockpit, printNow } from "./coordination.js";
+import { registerCloudCommands } from "./cloud.js";
 import { formatMessage, previewText } from "./format.js";
 import { installHook, uninstallHook } from "./install-hook.js";
 import { doneTasks, kanban, taskDetail } from "./kanban.js";
@@ -89,6 +90,8 @@ program
   .name("agent-bus")
   .description("Local message bus for Claude Code, Codex and other MCP agents.")
   .version(packageVersion());
+
+registerCloudCommands(program);
 
 function normalizeTeamOption(value: string | undefined): string | undefined {
   return value === "all" ? TEAM_WILDCARD : value;
