@@ -69,6 +69,12 @@ try {
     await assertStatus(signup, 201, "signup");
     const cookie = signup.headers.get("set-cookie");
     assert(cookie, "signup did not set a session cookie");
+    const invalidSignup = await worker.fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "bad-email", password: "short", name: "Bad" }),
+    });
+    assert(invalidSignup.status === 400, `invalid signup returned ${invalidSignup.status}`);
 
     const createWorkspace = await worker.fetch("/api/workspaces", {
       method: "POST",
@@ -226,7 +232,7 @@ try {
       },
       body: JSON.stringify({ tool: "send", input: { from: "viewer", to: "claude", message: "should be denied" } }),
     });
-    assert(viewerSend.status >= 400, `viewer token was allowed to send a mutating bus message: ${viewerSend.status} ${await viewerSend.text()}`);
+    assert(viewerSend.status === 403, `viewer token was allowed to send a mutating bus message: ${viewerSend.status} ${await viewerSend.text()}`);
     const viewerCockpit = await worker.fetch("/mcp/demo?json=1", {
       method: "POST",
       headers: {

@@ -1,4 +1,5 @@
 import type { Env, RpcRequest, RpcResponse, WorkspaceContext } from "../shared/types";
+import { HttpError } from "../shared/http";
 
 const READ_ONLY_OPS = new Set([
   "cloud_workspace",
@@ -43,10 +44,10 @@ const MANAGER_ONLY_OPS = new Set([
 
 function assertWorkspacePermission(context: WorkspaceContext, op: string): void {
   if (context.role === "viewer" && !READ_ONLY_OPS.has(op)) {
-    throw new Error(`workspace role viewer cannot call mutating operation ${op}`);
+    throw new HttpError(403, "FORBIDDEN", `workspace role viewer cannot call mutating operation ${op}`);
   }
   if (context.role === "agent" && MANAGER_ONLY_OPS.has(op)) {
-    throw new Error(`workspace role agent cannot call manager operation ${op}`);
+    throw new HttpError(403, "FORBIDDEN", `workspace role agent cannot call manager operation ${op}`);
   }
 }
 
@@ -61,7 +62,7 @@ export async function callWorkspace(env: Env, context: WorkspaceContext, op: str
   });
   const body = (await response.json()) as RpcResponse;
   if (!body.ok) {
-    throw new Error(body.error?.message ?? "workspace rpc failed");
+    throw new HttpError(response.status >= 400 ? response.status : 400, body.error?.code ?? "BUS_ERROR", body.error?.message ?? "workspace rpc failed");
   }
   return body.result;
 }
