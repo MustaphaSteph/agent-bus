@@ -64,8 +64,9 @@ a workspace/token, verifies the real remote MCP initialize/tools/call path, and
 checks the hosted messages/cockpit APIs.
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
-create/list/revoke agent tokens, show the remote MCP URL, and load the
-workspace cockpit with Kanban, activity, and team-chat history.
+create/list/revoke agent tokens, add/update/remove workspace members, show the
+remote MCP URL, and load the workspace cockpit with Kanban, activity, and
+team-chat history.
 
 Dashboard users log in with email/password. Agent sessions do not use the
 dashboard cookie; they use scoped workspace bearer tokens created from the
@@ -77,6 +78,10 @@ Token roles are enforced before the Durable Object receives a tool call:
 - `agent`: normal agent work such as register, send, ask, inbox, tasks, memory,
   and reports
 - `viewer`: read-only board, chat, activity, report, and diagnostic operations
+
+Human workspace members are managed separately from agent tokens. A teammate
+must create an Agent Bus Cloud account first; then an owner can add their email
+to the workspace as `viewer`, `agent`, `manager`, or `owner`.
 
 ## Remote MCP
 
@@ -130,6 +135,10 @@ workspace Durable Object:
 - `GET /api/workspaces/:slug/cockpit` — board, activity, memories, decisions
 - `GET /api/workspaces/:slug/tokens` — list scoped agent tokens
 - `DELETE /api/workspaces/:slug/tokens/:id` — revoke an agent token
+- `GET /api/workspaces/:slug/members` — list workspace members
+- `POST /api/workspaces/:slug/members` — owner-only add/update member by email
+- `PATCH /api/workspaces/:slug/members/:userId` — owner-only change member role
+- `DELETE /api/workspaces/:slug/members/:userId` — owner-only remove member
 - `GET /api/workspaces/:slug/messages?team=<team>` — paged chat history
 - `GET /api/workspaces/:slug/messages/:id/thread` — message thread context
 - `GET /api/workspaces/:slug/scopes` — projects and teams with counts

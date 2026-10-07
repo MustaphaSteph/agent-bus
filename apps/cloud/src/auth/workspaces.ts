@@ -17,6 +17,14 @@ export interface AgentTokenRow {
   last_used_at: number | null;
 }
 
+export interface WorkspaceMemberRow {
+  user_id: string;
+  email: string;
+  name: string | null;
+  role: WorkspaceRole;
+  created_at: number;
+}
+
 export async function ensureDevUser(env: Env): Promise<string> {
   const id = "dev_user";
   const at = now();
@@ -114,6 +122,56 @@ export async function listAgentTokens(env: Env, workspaceId: string): Promise<Ag
      ORDER BY created_at DESC`,
   ).bind(workspaceId).all<AgentTokenRow>();
   return result.results ?? [];
+}
+
+export async function listWorkspaceMembers(env: Env, workspaceId: string): Promise<WorkspaceMemberRow[]> {
+  const result = await env.AGENT_BUS_CLOUD_DB.prepare(
+    `SELECT u.id AS user_id, u.email, u.name, m.role, m.created_at
+     FROM memberships m
+     JOIN users u ON u.id = m.user_id
+     WHERE m.workspace_id = ?
+     ORDER BY
+       CASE m.role WHEN 'owner' THEN 0 WHEN 'manager' THEN 1 WHEN 'agent' THEN 2 ELSE 3 END,
+       u.email ASC`,
+  ).bind(workspaceId).all<WorkspaceMemberRow>();
+  return result.results ?? [];
+}
+
+export async function addWorkspaceMember(env: Env, workspaceId: string, email: string, role: WorkspaceRole): Promise<WorkspaceMemberRow> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new Error("valid member email is required");
+  const user = await env.AGENT_BUS_CLOUD_DB.prepare(
+    "SELECT id, email, name FROM users WHERE email = ?",
+  ).bind(normalizedEmail).first<{ id: string; email: string; name: string | null }>();
+  if (!user) throw new Error("member must create an Agent Bus Cloud account before being added");
+  const at = now();
+  await env.AGENT_BUS_CLOUD_DB.prepare(
+    `INSERT INTO memberships (workspace_id, user_id, role, created_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role`,
+  ).bind(workspaceId, user.id, role, at).run();
+  return { user_id: user.id, email: user.email, name: user.name, role, created_at: at };
+}
+
+export async function updateWorkspaceMemberRole(env: Env, workspaceId: string, userId: string, role: WorkspaceRole): Promise<{ updated: boolean }> {
+  const result = await env.AGENT_BUS_CLOUD_DB.prepare(
+    "UPDATE memberships SET role = ? WHERE workspace_id = ? AND user_id = ?",
+  ).bind(role, workspaceId, userId).run();
+  return { updated: (result.meta?.changes ?? 0) > 0 };
+}
+
+export async function removeWorkspaceMember(env: Env, workspaceId: string, userId: string): Promise<{ removed: boolean }> {
+  const ownerCount = await env.AGENT_BUS_CLOUD_DB.prepare(
+    "SELECT COUNT(*) AS count FROM memberships WHERE workspace_id = ? AND role = 'owner'",
+  ).bind(workspaceId).first<{ count: number }>();
+  const target = await env.AGENT_BUS_CLOUD_DB.prepare(
+    "SELECT role FROM memberships WHERE workspace_id = ? AND user_id = ?",
+  ).bind(workspaceId, userId).first<{ role: WorkspaceRole }>();
+  if (target?.role === "owner" && (ownerCount?.count ?? 0) <= 1) throw new Error("cannot remove the last workspace owner");
+  const result = await env.AGENT_BUS_CLOUD_DB.prepare(
+    "DELETE FROM memberships WHERE workspace_id = ? AND user_id = ?",
+  ).bind(workspaceId, userId).run();
+  return { removed: (result.meta?.changes ?? 0) > 0 };
 }
 
 export async function revokeAgentToken(env: Env, workspaceId: string, tokenId: string): Promise<{ revoked: boolean }> {

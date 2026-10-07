@@ -2,14 +2,18 @@ import type { Env } from "../shared/types";
 import { json, readJson } from "../shared/http";
 import { callWorkspace } from "./rpc";
 import {
+  addWorkspaceMember,
   createAgentToken,
   createUser,
   createWorkspace,
   listWorkspaces,
   listAgentTokens,
+  listWorkspaceMembers,
+  removeWorkspaceMember,
   requireUser,
   resolveWorkspaceContext,
   revokeAgentToken,
+  updateWorkspaceMemberRole,
   verifyUserLogin,
 } from "../auth/workspaces";
 import { cloudToolStatus } from "../mcp/tool-registry";
@@ -19,6 +23,19 @@ function requireSlug(params: RegExpMatchArray): string {
   const slug = params.groups?.slug;
   if (!slug) throw new Error("workspace slug is required");
   return slug;
+}
+
+function isOwner(role: string): boolean {
+  return role === "owner";
+}
+
+function canViewWorkspaceAdmin(role: string): boolean {
+  return role === "owner" || role === "manager" || role === "viewer";
+}
+
+function parseRole(role: unknown): "owner" | "manager" | "agent" | "viewer" {
+  if (role === "owner" || role === "manager" || role === "agent" || role === "viewer") return role;
+  throw new Error("valid role is required");
 }
 
 export async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
@@ -67,7 +84,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
   if (tokenMatch && request.method === "GET") {
     const slug = requireSlug(tokenMatch);
     const context = await resolveWorkspaceContext(env, request, slug);
-    if (context.role !== "owner" && context.role !== "manager" && context.role !== "viewer") throw new Error("not allowed");
+    if (!canViewWorkspaceAdmin(context.role)) throw new Error("not allowed");
     return json({ tokens: await listAgentTokens(env, context.id) });
   }
 
@@ -76,7 +93,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     const context = await resolveWorkspaceContext(env, request, slug);
     if (context.role !== "owner" && context.role !== "manager") throw new Error("not allowed");
     const input = await readJson<{ name?: string; role?: "owner" | "manager" | "agent" | "viewer" }>(request);
-    const token = await createAgentToken(env, context.id, input.name ?? "agent", input.role ?? "agent");
+    const token = await createAgentToken(env, context.id, input.name ?? "agent", input.role ? parseRole(input.role) : "agent");
     return json({ token }, { status: 201 });
   }
 
@@ -88,6 +105,43 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     const context = await resolveWorkspaceContext(env, request, slug);
     if (context.role !== "owner" && context.role !== "manager") throw new Error("not allowed");
     return json(await revokeAgentToken(env, context.id, tokenId));
+  }
+
+  const membersMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/members$/);
+  if (membersMatch && request.method === "GET") {
+    const slug = requireSlug(membersMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    if (!canViewWorkspaceAdmin(context.role)) throw new Error("not allowed");
+    return json({ members: await listWorkspaceMembers(env, context.id) });
+  }
+
+  if (membersMatch && request.method === "POST") {
+    const slug = requireSlug(membersMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    if (!isOwner(context.role)) throw new Error("only workspace owners can add members");
+    const input = await readJson<{ email?: string; role?: "owner" | "manager" | "agent" | "viewer" }>(request);
+    const member = await addWorkspaceMember(env, context.id, input.email ?? "", parseRole(input.role ?? "viewer"));
+    return json({ member }, { status: 201 });
+  }
+
+  const memberMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/members\/(?<userId>[^/]+)$/);
+  if (memberMatch && request.method === "PATCH") {
+    const slug = requireSlug(memberMatch);
+    const userId = memberMatch.groups?.userId;
+    if (!userId) throw new Error("member user id is required");
+    const context = await resolveWorkspaceContext(env, request, slug);
+    if (!isOwner(context.role)) throw new Error("only workspace owners can update members");
+    const input = await readJson<{ role?: "owner" | "manager" | "agent" | "viewer" }>(request);
+    return json(await updateWorkspaceMemberRole(env, context.id, userId, parseRole(input.role)));
+  }
+
+  if (memberMatch && request.method === "DELETE") {
+    const slug = requireSlug(memberMatch);
+    const userId = memberMatch.groups?.userId;
+    if (!userId) throw new Error("member user id is required");
+    const context = await resolveWorkspaceContext(env, request, slug);
+    if (!isOwner(context.role)) throw new Error("only workspace owners can remove members");
+    return json(await removeWorkspaceMember(env, context.id, userId));
   }
 
   const rpcMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/rpc$/);

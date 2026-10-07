@@ -84,6 +84,7 @@ D1 should not store hot bus traffic. D1 stores account-level metadata:
 Dashboard login and agent access are separate:
 
 - humans use email/password login and an HttpOnly signed session cookie
+- owners can add teammates by email after the teammate has created an account
 - agents use workspace-scoped bearer tokens created by a manager/owner
 - the remote MCP endpoint accepts bearer tokens so Claude/Codex/Kimi sessions
   can connect without a browser session
@@ -186,6 +187,18 @@ Current enforcement:
 - `manager` and `owner` tokens can use all workspace MCP operations. Dashboard
   token creation/revocation is also limited to manager/owner sessions.
 
+Human membership management:
+
+- `GET /api/workspaces/:slug/members` lists workspace members for authenticated
+  workspace users.
+- `POST /api/workspaces/:slug/members` adds or updates a member by email; the
+  target user must already exist.
+- `PATCH /api/workspaces/:slug/members/:userId` changes a member role.
+- `DELETE /api/workspaces/:slug/members/:userId` removes a member but refuses
+  to remove the last owner.
+- Member add/update/remove is owner-only. Token create/revoke remains
+  owner/manager.
+
 ## CLI Changes
 
 Keep local commands working exactly as they do now.
@@ -255,6 +268,8 @@ The initial `apps/cloud` scaffold includes:
   and revocation, MCP setup, Kanban, team chat, activity, memory, and decision
   visibility
 - setup APIs for workspaces and agent tokens
+- membership APIs and dashboard controls for adding teammates, changing roles,
+  and removing members
 - `/mcp/:workspace` as the real stateless remote MCP endpoint using
   Cloudflare's `createMcpHandler`; `/mcp/:workspace/info` is the human
   diagnostic endpoint, and `/mcp/:workspace?json=1` remains for curl/debug

@@ -153,6 +153,13 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
             <div id="token-list" class="stack"></div>
           </div>
           <div class="card stack">
+            <h2>Members</h2>
+            <label>Email<input id="member-email" type="email" placeholder="teammate@example.com"></label>
+            <label>Role<select id="member-role"><option>viewer</option><option>agent</option><option>manager</option><option>owner</option></select></label>
+            <button id="add-member">Add member</button>
+            <div id="member-list" class="stack"></div>
+          </div>
+          <div class="card stack">
             <h2>Open MCP</h2>
             <pre id="mcp-output" class="mono">/mcp/&lt;workspace&gt;</pre>
             <a id="mcp-info-link" href="#">MCP diagnostics</a>
@@ -213,6 +220,7 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         mcpOutput.textContent = slug ? origin + "/mcp/" + slug : "Create a workspace first.";
         mcpInfoLink.href = slug ? "/mcp/" + slug + "/info" : "#";
         if (slug) refreshTokens().catch(() => {});
+        if (slug) refreshMembers().catch(() => {});
       }
 
       async function createWorkspace() {
@@ -297,6 +305,75 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         });
       }
 
+      async function refreshMembers() {
+        const slug = currentSlug();
+        const target = document.getElementById("member-list");
+        if (!slug) {
+          target.innerHTML = "";
+          return;
+        }
+        const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/members");
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "failed to load members");
+        target.innerHTML = (body.members || []).length ? body.members.map((member) => {
+          const label = member.name ? member.name + " · " + member.email : member.email;
+          return '<div class="token"><div><strong>' + escapeHtml(label) + '</strong><br><span class="muted">' + escapeHtml(member.role) + '</span></div><div class="row"><select data-member-role="' + escapeHtml(member.user_id) + '"><option' + (member.role === "viewer" ? " selected" : "") + '>viewer</option><option' + (member.role === "agent" ? " selected" : "") + '>agent</option><option' + (member.role === "manager" ? " selected" : "") + '>manager</option><option' + (member.role === "owner" ? " selected" : "") + '>owner</option></select><button data-member-remove="' + escapeHtml(member.user_id) + '">Remove</button></div></div>';
+        }).join("") : '<p class="muted">No members yet.</p>';
+        target.querySelectorAll("select[data-member-role]").forEach((select) => {
+          select.addEventListener("change", async () => {
+            try {
+              const userId = select.getAttribute("data-member-role");
+              if (!userId) return;
+              const update = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/members/" + encodeURIComponent(userId), {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ role: select.value }),
+              });
+              if (!update.ok) {
+                const error = await update.json();
+                throw new Error(error.error?.message || "failed to update member");
+              }
+              await refreshMembers();
+            } catch (error) {
+              alert(error.message);
+              await refreshMembers().catch(() => {});
+            }
+          });
+        });
+        target.querySelectorAll("button[data-member-remove]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            try {
+              const userId = button.getAttribute("data-member-remove");
+              if (!userId) return;
+              const remove = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/members/" + encodeURIComponent(userId), { method: "DELETE" });
+              if (!remove.ok) {
+                const error = await remove.json();
+                throw new Error(error.error?.message || "failed to remove member");
+              }
+              await refreshMembers();
+            } catch (error) {
+              alert(error.message);
+            }
+          });
+        });
+      }
+
+      async function addMember() {
+        const slug = currentSlug();
+        if (!slug) return;
+        const email = document.getElementById("member-email").value.trim();
+        const role = document.getElementById("member-role").value;
+        const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/members", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email, role }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "failed to add member");
+        document.getElementById("member-email").value = "";
+        await refreshMembers();
+      }
+
       async function refreshCockpit() {
         const slug = currentSlug();
         if (!slug) return;
@@ -350,6 +427,7 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
 
       document.getElementById("create-workspace").addEventListener("click", () => createWorkspace().catch((error) => alert(error.message)));
       document.getElementById("create-token").addEventListener("click", () => createToken().catch((error) => alert(error.message)));
+      document.getElementById("add-member").addEventListener("click", () => addMember().catch((error) => alert(error.message)));
       document.getElementById("refresh-cockpit").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
       document.getElementById("refresh-chat").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
       document.getElementById("logout").addEventListener("click", async () => { await fetch("/api/auth/logout", { method: "POST" }); location.href = "/app"; });

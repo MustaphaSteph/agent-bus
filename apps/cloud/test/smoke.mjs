@@ -77,6 +77,30 @@ try {
     });
     await assertStatus(createWorkspace, 201, "workspace create");
 
+    const memberSignup = await worker.fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "member@example.com", password: "change-me-please", name: "Member" }),
+    });
+    await assertStatus(memberSignup, 201, "member signup");
+    const memberCookie = memberSignup.headers.get("set-cookie");
+    assert(memberCookie, "member signup did not set a session cookie");
+
+    const addMember = await worker.fetch("/api/workspaces/demo/members", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ email: "member@example.com", role: "viewer" }),
+    });
+    await assertStatus(addMember, 201, "member add");
+    const memberBody = await json(addMember);
+    assert(memberBody.member.email === "member@example.com", "member add returned wrong email");
+    const memberList = await worker.fetch("/api/workspaces/demo/members", { headers: { cookie } });
+    await assertStatus(memberList, 200, "member list");
+    assert((await json(memberList)).members.length === 2, "member list did not include owner and invited member");
+    const memberWorkspaces = await worker.fetch("/api/workspaces", { headers: { cookie: memberCookie } });
+    await assertStatus(memberWorkspaces, 200, "member workspace list");
+    assert((await json(memberWorkspaces)).workspaces[0]?.slug === "demo", "member cannot see joined workspace");
+
     const createToken = await worker.fetch("/api/workspaces/demo/tokens", {
       method: "POST",
       headers: { "content-type": "application/json", cookie },
@@ -110,6 +134,26 @@ try {
     const tokenListAfterRevoke = await worker.fetch("/api/workspaces/demo/tokens", { headers: { cookie } });
     await assertStatus(tokenListAfterRevoke, 200, "token list after revoke");
     assert((await json(tokenListAfterRevoke)).tokens.length === 2, "token revoke did not remove the token");
+    const updateMember = await worker.fetch(`/api/workspaces/demo/members/${memberBody.member.user_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ role: "manager" }),
+    });
+    await assertStatus(updateMember, 200, "member role update");
+    const managerTokenByMember = await worker.fetch("/api/workspaces/demo/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: memberCookie },
+      body: JSON.stringify({ name: "member-manager-token", role: "agent" }),
+    });
+    await assertStatus(managerTokenByMember, 201, "manager member token create");
+    const removeMember = await worker.fetch(`/api/workspaces/demo/members/${memberBody.member.user_id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    });
+    await assertStatus(removeMember, 200, "member remove");
+    const memberWorkspacesAfterRemove = await worker.fetch("/api/workspaces", { headers: { cookie: memberCookie } });
+    await assertStatus(memberWorkspacesAfterRemove, 200, "member workspace list after remove");
+    assert((await json(memberWorkspacesAfterRemove)).workspaces.length === 0, "removed member can still see workspace");
 
     async function debugCall(tool, input) {
       const response = await worker.fetch("/mcp/demo?json=1", {
