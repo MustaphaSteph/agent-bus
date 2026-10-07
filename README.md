@@ -478,6 +478,7 @@ Everything below ships in that one `npm install`. No add-ons, no tiers, no aster
 | [`docs/cli.md`](docs/cli.md) | `agent-bus` CLI reference |
 | [`docs/patterns.md`](docs/patterns.md) | Listener mode, async chat, capability routing, broadcast, ack/retry, threading |
 | [`docs/loops.md`](docs/loops.md) | Loop engineering with memory, verifier gates, liveness, and cockpit attention |
+| [`docs/cloud.md`](docs/cloud.md) | Hosted Agent Bus Cloud architecture on Cloudflare Workers, Durable Objects, D1, and remote MCP |
 | [`docs/architecture.md`](docs/architecture.md) | Schema, internals, tuning, what it can and can't do |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common errors and fixes |
 | [`docs/openapi.yaml`](docs/openapi.yaml) | Core synthetic OpenAPI 3.1 mapping; [`docs/tools.md`](docs/tools.md) is authoritative for the full MCP surface |

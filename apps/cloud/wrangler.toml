@@ -1,0 +1,20 @@
+name = "agent-bus-cloud"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "WORKSPACE_BUS"
+class_name = "WorkspaceBusObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WorkspaceBusObject"]
+
+[[d1_databases]]
+binding = "AGENT_BUS_CLOUD_DB"
+database_name = "agent-bus-cloud"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[vars]
+AGENT_BUS_CLOUD_ENV = "development"
