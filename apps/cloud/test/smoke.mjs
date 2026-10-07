@@ -61,6 +61,13 @@ try {
   });
 
   try {
+    const landing = await worker.fetch("/");
+    await assertStatus(landing, 200, "landing page");
+    assert((await landing.text()).includes("The shared inbox for AI agent teams"), "landing page did not render the hero copy");
+    const unauthenticatedApp = await worker.fetch("/app");
+    await assertStatus(unauthenticatedApp, 200, "unauthenticated app page");
+    assert((await unauthenticatedApp.text()).includes("Sign in"), "unauthenticated app page did not render login form");
+
     const signup = await worker.fetch("/api/auth/signup", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -69,6 +76,11 @@ try {
     await assertStatus(signup, 201, "signup");
     const cookie = signup.headers.get("set-cookie");
     assert(cookie, "signup did not set a session cookie");
+    const authenticatedApp = await worker.fetch("/app", { headers: { cookie } });
+    await assertStatus(authenticatedApp, 200, "authenticated app page");
+    const authenticatedHtml = await authenticatedApp.text();
+    assert(authenticatedHtml.includes("Workspaces"), "authenticated app page did not render dashboard");
+    assert(authenticatedHtml.includes("Human actions"), "authenticated app page did not render dashboard action controls");
     const invalidSignup = await worker.fetch("/api/auth/signup", {
       method: "POST",
       headers: { "content-type": "application/json" },
