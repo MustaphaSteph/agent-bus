@@ -235,7 +235,33 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/tokens", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, role }) });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error?.message || "failed to create token");
-        tokenOutput.textContent = "MCP URL: " + location.origin + "/mcp/" + slug + "\\nBearer token: " + body.token.token + "\\n\\nUse this token once in your agent MCP config. Store it like a password.";
+        const mcpUrl = location.origin + "/mcp/" + slug;
+        const config = {
+          mcpServers: {
+            "agent-bus-cloud": {
+              type: "http",
+              url: mcpUrl,
+              headers: {
+                Authorization: "Bearer " + body.token.token,
+              },
+            },
+          },
+        };
+        tokenOutput.textContent = [
+          "MCP URL:",
+          mcpUrl,
+          "",
+          "Bearer token:",
+          body.token.token,
+          "",
+          "Generic remote MCP config:",
+          JSON.stringify(config, null, 2),
+          "",
+          "Debug check:",
+          "curl -H 'authorization: Bearer " + body.token.token + "' " + mcpUrl + "/info",
+          "",
+          "Store this token like a password. The dashboard can only show it once.",
+        ].join("\\n");
         await refreshTokens();
       }
 

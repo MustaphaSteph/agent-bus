@@ -71,6 +71,13 @@ Dashboard users log in with email/password. Agent sessions do not use the
 dashboard cookie; they use scoped workspace bearer tokens created from the
 dashboard or token API.
 
+Token roles are enforced before the Durable Object receives a tool call:
+
+- `owner` / `manager`: full workspace operations, including roster cleanup
+- `agent`: normal agent work such as register, send, ask, inbox, tasks, memory,
+  and reports
+- `viewer`: read-only board, chat, activity, report, and diagnostic operations
+
 ## Remote MCP
 
 Each workspace exposes a real Cloudflare Agents SDK stateless MCP endpoint:
@@ -85,6 +92,26 @@ human diagnostics, open:
 ```text
 https://<worker-host>/mcp/<workspace-slug>/info
 ```
+
+Most remote-MCP clients can use this shape:
+
+```json
+{
+  "mcpServers": {
+    "agent-bus-cloud": {
+      "type": "http",
+      "url": "https://<worker-host>/mcp/<workspace-slug>",
+      "headers": {
+        "Authorization": "Bearer <agent-token>"
+      }
+    }
+  }
+}
+```
+
+The dashboard prints this snippet after token creation so users can paste it
+into Claude Code, Codex, Kimi Code, Cursor, or any other remote-MCP capable
+client that supports HTTP MCP servers with headers.
 
 For curl/debug smoke tests that want the old direct JSON dispatch shape:
 

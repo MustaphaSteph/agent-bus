@@ -175,6 +175,17 @@ Suggested roles:
 - `agent`: normal agent tools
 - `viewer`: read-only cockpit/API
 
+Current enforcement:
+
+- `viewer` tokens can call read-only tools such as `cockpit`, `activity`,
+  `thread`, `recent`, `tasks`, `task_result`, `final_report`,
+  `review_gate`, `list_memories`, `session_brief`, and diagnostics. They cannot
+  consume inbox messages or mutate bus state.
+- `agent` tokens can perform normal agent work but cannot delete teams or
+  remove roster members.
+- `manager` and `owner` tokens can use all workspace MCP operations. Dashboard
+  token creation/revocation is also limited to manager/owner sessions.
+
 ## CLI Changes
 
 Keep local commands working exactly as they do now.
