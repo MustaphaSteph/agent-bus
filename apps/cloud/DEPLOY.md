@@ -21,6 +21,14 @@ tests, cloud CLI smoke, and a Wrangler dry-run deploy.
 
 ## 2. Create production Cloudflare state
 
+The checked-in deployment currently uses:
+
+```text
+https://agent-bus-cloud.mustapha-achtaou.workers.dev
+```
+
+For a new deployment or account, create fresh Cloudflare state:
+
 ```bash
 cd apps/cloud
 wrangler login

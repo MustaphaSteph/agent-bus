@@ -47,6 +47,7 @@ function wrangler(args, persistTo) {
 
 const root = new URL("..", import.meta.url);
 const persistTo = mkdtempSync(join(tmpdir(), "agent-bus-cloud-smoke-"));
+process.env.AGENT_BUS_CLOUD_AUTH_SECRET = "test-agent-bus-cloud-secret";
 
 try {
   wrangler(["d1", "execute", "agent-bus-cloud", "--file", "migrations/d1/0001_init.sql"], persistTo);
@@ -57,6 +58,9 @@ try {
     local: true,
     persistTo,
     logLevel: "error",
+    vars: {
+      AGENT_BUS_CLOUD_AUTH_SECRET: "test-agent-bus-cloud-secret",
+    },
     experimental: { disableExperimentalWarning: true },
   });
 

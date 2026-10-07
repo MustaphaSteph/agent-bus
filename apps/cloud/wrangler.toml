@@ -14,8 +14,9 @@ new_sqlite_classes = ["WorkspaceBusObject"]
 [[d1_databases]]
 binding = "AGENT_BUS_CLOUD_DB"
 database_name = "agent-bus-cloud"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "7a67bae1-f53e-4efa-a56f-fd0eb81acb97"
+migrations_dir = "migrations/d1"
 
 [vars]
-AGENT_BUS_CLOUD_ENV = "development"
+AGENT_BUS_CLOUD_ENV = "production"
 # Set AGENT_BUS_CLOUD_AUTH_SECRET with `wrangler secret put` in production.

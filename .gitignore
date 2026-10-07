@@ -4,6 +4,7 @@ dist/
 .DS_Store
 test/.tmp/
 apps/cloud/.wrangler/
+apps/cloud/.dev.vars
 
 # Local agent context files
 AGENTS.md

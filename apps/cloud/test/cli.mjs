@@ -32,10 +32,20 @@ function startWorker(persistTo, port) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "npx",
-      ["wrangler", "dev", "--local", "--persist-to", persistTo, "--port", String(port)],
+      [
+        "wrangler",
+        "dev",
+        "--local",
+        "--persist-to",
+        persistTo,
+        "--port",
+        String(port),
+        "--var",
+        "AGENT_BUS_CLOUD_AUTH_SECRET:test-agent-bus-cloud-secret",
+      ],
       {
         cwd: new URL("..", import.meta.url),
-        env: { ...process.env, CI: "1" },
+        env: { ...process.env, CI: "1", AGENT_BUS_CLOUD_AUTH_SECRET: "test-agent-bus-cloud-secret" },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );

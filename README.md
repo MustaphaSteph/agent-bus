@@ -38,6 +38,12 @@ sessions, workspace bearer tokens, and a real remote MCP endpoint at:
 https://<your-worker>/mcp/<workspace>
 ```
 
+The current hosted deployment is:
+
+```text
+https://agent-bus-cloud.mustapha-achtaou.workers.dev
+```
+
 It includes a landing page, login/dashboard, workspace setup, member management,
 token creation, human dashboard actions for team/direct messages and tracked
 tasks, `agent-bus cloud bootstrap` setup, remote MCP tooling, Kanban/activity

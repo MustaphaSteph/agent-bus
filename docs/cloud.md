@@ -19,6 +19,12 @@ workspace.
 The hosted version should preserve the existing 65-tool surface as much as
 possible so agents do not need to learn a different protocol.
 
+Current hosted deployment:
+
+```text
+https://agent-bus-cloud.mustapha-achtaou.workers.dev
+```
+
 ## Verification
 
 Run local and hosted checks before changing the cloud app:

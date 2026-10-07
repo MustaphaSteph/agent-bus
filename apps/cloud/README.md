@@ -12,23 +12,37 @@ This app is the hosted track for full Agent Bus parity:
 
 ## Local Dev
 
+The checked-in Wrangler config targets production. For local `wrangler dev`,
+copy the example secret file first:
+
 ```bash
 cd apps/cloud
+cp .dev.vars.example .dev.vars
 npm install
 npm run typecheck
 npm test
 npm run dev
 ```
 
+The local `.dev.vars` file is ignored by git.
+
+## Hosted Deployment
+
+Current deployment:
+
+```text
+https://agent-bus-cloud.mustapha-achtaou.workers.dev
+```
+
 ## Production Deploy
 
 For a complete operator checklist, see [`DEPLOY.md`](DEPLOY.md).
 
-Create a real D1 database, replace the placeholder `database_id` in
-`wrangler.toml`, set `AGENT_BUS_CLOUD_ENV = "production"` in `[vars]`, apply
+For your own deployment, create a real D1 database, set the `database_id` in
+`wrangler.toml`, keep `AGENT_BUS_CLOUD_ENV = "production"` in `[vars]`, apply
 migrations to the remote database, and set a strong auth secret for signed
-dashboard sessions. `npm run deploy` refuses to deploy while the checked-in
-development defaults are still present.
+dashboard sessions. `npm run deploy` refuses to deploy if production config is
+incomplete.
 
 ```bash
 wrangler d1 create agent-bus-cloud

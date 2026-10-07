@@ -8,7 +8,7 @@ export interface AuthUser {
 
 const COOKIE_NAME = "agent_bus_cloud_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const PASSWORD_ITERATIONS = 150_000;
+const PASSWORD_ITERATIONS = 100_000;
 
 function base64Url(bytes: Uint8Array): string {
   let binary = "";
