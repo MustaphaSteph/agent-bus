@@ -20,29 +20,43 @@ npm run dev
 ```
 
 Before deploying, create a real D1 database and replace the placeholder
-`database_id` in `wrangler.toml`.
+`database_id` in `wrangler.toml`. Also set a strong auth secret for signed
+dashboard sessions:
 
 ```bash
 wrangler d1 create agent-bus-cloud
 wrangler d1 migrations apply agent-bus-cloud --local
+wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET
 ```
 
 ## API Smoke
 
 ```bash
+curl -c /tmp/agent-bus-cloud.cookies \
+  -X POST http://localhost:8787/api/auth/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","password":"change-me-please","name":"You"}'
+
 curl -X POST http://localhost:8787/api/workspaces \
+  -b /tmp/agent-bus-cloud.cookies \
   -H 'content-type: application/json' \
   -d '{"slug":"demo","name":"Demo"}'
 
 curl -X POST http://localhost:8787/api/workspaces/demo/tokens \
+  -b /tmp/agent-bus-cloud.cookies \
   -H 'content-type: application/json' \
   -d '{"name":"claude-ui","role":"agent"}'
 
-curl http://localhost:8787/mcp/demo/info
+curl http://localhost:8787/mcp/demo/info \
+  -b /tmp/agent-bus-cloud.cookies
 ```
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
 create agent tokens, show the remote MCP URL, and load the workspace cockpit.
+
+Dashboard users log in with email/password. Agent sessions do not use the
+dashboard cookie; they use scoped workspace bearer tokens created from the
+dashboard or token API.
 
 ## Remote MCP
 

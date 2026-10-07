@@ -3,11 +3,15 @@ import { json, readJson } from "../shared/http";
 import { callWorkspace } from "./rpc";
 import {
   createAgentToken,
+  createUser,
   createWorkspace,
   listWorkspaces,
+  requireUser,
   resolveWorkspaceContext,
+  verifyUserLogin,
 } from "../auth/workspaces";
 import { cloudToolStatus } from "../mcp/tool-registry";
+import { clearSessionCookie, createSessionCookie, currentUser } from "../auth/session";
 
 function requireSlug(params: RegExpMatchArray): string {
   const slug = params.groups?.slug;
@@ -24,14 +28,36 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     return json({ tools: cloudToolStatus() });
   }
 
+  if (url.pathname === "/api/auth/me" && request.method === "GET") {
+    return json({ user: await currentUser(env, request) });
+  }
+
+  if (url.pathname === "/api/auth/signup" && request.method === "POST") {
+    const input = await readJson<{ email?: string; password?: string; name?: string }>(request);
+    const user = await createUser(env, input.email ?? "", input.password ?? "", input.name);
+    return json({ user }, { status: 201, headers: { "set-cookie": await createSessionCookie(env, user.id) } });
+  }
+
+  if (url.pathname === "/api/auth/login" && request.method === "POST") {
+    const input = await readJson<{ email?: string; password?: string }>(request);
+    const user = await verifyUserLogin(env, input.email ?? "", input.password ?? "");
+    return json({ user }, { headers: { "set-cookie": await createSessionCookie(env, user.id) } });
+  }
+
+  if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+    return json({ ok: true }, { headers: { "set-cookie": clearSessionCookie() } });
+  }
+
   if (url.pathname === "/api/workspaces" && request.method === "GET") {
-    return json({ workspaces: await listWorkspaces(env) });
+    const user = await requireUser(env, request);
+    return json({ workspaces: await listWorkspaces(env, user.id) });
   }
 
   if (url.pathname === "/api/workspaces" && request.method === "POST") {
+    const user = await requireUser(env, request);
     const input = await readJson<{ slug?: string; name?: string }>(request);
     if (!input.slug || !/^[a-zA-Z0-9_.-]+$/.test(input.slug)) throw new Error("valid slug is required");
-    const workspace = await createWorkspace(env, input.slug, input.name ?? input.slug);
+    const workspace = await createWorkspace(env, user.id, input.slug, input.name ?? input.slug);
     return json({ workspace }, { status: 201 });
   }
 

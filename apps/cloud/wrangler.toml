@@ -18,3 +18,4 @@ database_id = "00000000-0000-0000-0000-000000000000"
 
 [vars]
 AGENT_BUS_CLOUD_ENV = "development"
+# Set AGENT_BUS_CLOUD_AUTH_SECRET with `wrangler secret put` in production.

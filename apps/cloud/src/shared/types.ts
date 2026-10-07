@@ -2,6 +2,7 @@ export interface Env {
   WORKSPACE_BUS: DurableObjectNamespace;
   AGENT_BUS_CLOUD_DB: D1Database;
   AGENT_BUS_CLOUD_ENV: string;
+  AGENT_BUS_CLOUD_AUTH_SECRET?: string;
 }
 
 export type WorkspaceRole = "owner" | "manager" | "agent" | "viewer";

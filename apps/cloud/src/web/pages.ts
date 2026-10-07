@@ -2,6 +2,7 @@ import type { Env } from "../shared/types";
 import { html } from "../shared/http";
 import { listWorkspaces } from "../auth/workspaces";
 import { cloudToolStatus } from "../mcp/tool-registry";
+import { currentUser } from "../auth/session";
 
 function shell(title: string, body: string): Response {
   return html(`<!doctype html>
@@ -45,12 +46,17 @@ function shell(title: string, body: string): Response {
     .muted { color: #7f8da3; }
     .activity { max-height: 420px; overflow: auto; display: grid; gap: 10px; }
     .event { border-left: 2px solid #48d6c2; padding: 8px 10px; background: #0b121a; border-radius: 8px; }
+    .auth { max-width: 460px; margin: 10vh auto; }
     @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
     @media (max-width: 980px) { .app-grid, .kanban { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>${body}</body>
 </html>`);
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char] ?? char);
 }
 
 export function landingPage(): Response {
@@ -73,13 +79,48 @@ export function landingPage(): Response {
 </main>`);
 }
 
-export async function dashboardPage(env: Env): Promise<Response> {
-  const workspaces = await listWorkspaces(env);
+function authPage(): Response {
+  return shell("Agent Bus Cloud Login", `<main class="wrap">
+    <nav class="nav"><div class="brand"><div class="logo">AB</div>Agent Bus Cloud</div><a href="/">Landing</a></nav>
+    <section class="auth card stack">
+      <h1>Sign in</h1>
+      <p>Create an account for the hosted dashboard. Agent sessions use workspace tokens after you create a workspace.</p>
+      <label>Email<input id="email" type="email" autocomplete="email"></label>
+      <label>Password<input id="password" type="password" autocomplete="current-password"></label>
+      <label>Name <span class="muted">(signup only)</span><input id="name" autocomplete="name"></label>
+      <div class="row"><button id="login" class="primary">Log in</button><button id="signup">Create account</button></div>
+      <p id="auth-result" class="muted"></p>
+    </section>
+    <script>
+      async function auth(path) {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("email").value.trim(),
+            password: document.getElementById("password").value,
+            name: document.getElementById("name").value.trim(),
+          }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "authentication failed");
+        location.href = "/app";
+      }
+      document.getElementById("login").addEventListener("click", () => auth("/api/auth/login").catch((error) => document.getElementById("auth-result").textContent = error.message));
+      document.getElementById("signup").addEventListener("click", () => auth("/api/auth/signup").catch((error) => document.getElementById("auth-result").textContent = error.message));
+    </script>
+  </main>`);
+}
+
+export async function dashboardPage(request: Request, env: Env): Promise<Response> {
+  const user = await currentUser(env, request);
+  if (!user) return authPage();
+  const workspaces = await listWorkspaces(env, user.id);
   const tools = cloudToolStatus();
   const implemented = tools.filter((tool) => tool.implemented).length;
   const initialData = JSON.stringify({ workspaces, tools }).replaceAll("<", "\\u003c");
   return shell("Agent Bus Cloud Dashboard", `<main class="wrap">
-    <nav class="nav"><div class="brand"><div class="logo">AB</div>Agent Bus Cloud</div><a href="/">Landing</a></nav>
+    <nav class="nav"><div class="brand"><div class="logo">AB</div>Agent Bus Cloud</div><div class="row"><span>${escapeHtml(user.email)}</span><button id="logout">Log out</button><a href="/">Landing</a></div></nav>
     <section>
       <h1>Workspaces</h1>
       <p>Create a hosted bus, mint scoped agent tokens, connect MCP-capable sessions, then watch team chat, tasks, memories, decisions, and review state from one cockpit.</p>
@@ -224,6 +265,7 @@ export async function dashboardPage(env: Env): Promise<Response> {
       document.getElementById("create-workspace").addEventListener("click", () => createWorkspace().catch((error) => alert(error.message)));
       document.getElementById("create-token").addEventListener("click", () => createToken().catch((error) => alert(error.message)));
       document.getElementById("refresh-cockpit").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
+      document.getElementById("logout").addEventListener("click", async () => { await fetch("/api/auth/logout", { method: "POST" }); location.href = "/app"; });
       workspaceSelect.addEventListener("change", refreshCockpit);
       renderWorkspaceSelect();
       refreshCockpit().catch(() => {});

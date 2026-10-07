@@ -11,7 +11,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   const url = new URL(request.url);
   try {
     if (url.pathname === "/") return landingPage();
-    if (url.pathname === "/app") return dashboardPage(env);
+    if (url.pathname === "/app") return dashboardPage(request, env);
     if (url.pathname.startsWith("/api/")) return handleApi(request, env, url);
 
     const mcpInfoMatch = url.pathname.match(/^\/mcp\/(?<workspace>[^/]+)\/info$/);
@@ -27,7 +27,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     return notFound();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return json({ error: { code: "INTERNAL_ERROR", message } }, { status: 500 });
+    const status = message === "login required" || message.includes("not accessible") ? 401 : 500;
+    return json({ error: { code: status === 401 ? "UNAUTHORIZED" : "INTERNAL_ERROR", message } }, { status });
   }
 }
 

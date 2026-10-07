@@ -31,7 +31,7 @@ Use Cloudflare as the whole backend:
 | Bus state | Durable Objects with SQLite storage | One strongly-consistent bus per workspace |
 | Account state | D1 | Users, workspaces, memberships, agent credentials |
 | Files | R2 | Future attachments, exported reports, large artifacts |
-| Auth | Workers OAuth / OAuth provider integration | Login, consent, scoped agent access |
+| Auth | Signed dashboard sessions now; Workers OAuth/provider integration later | Login, consent, scoped agent access |
 
 Cloudflare currently recommends SQLite-backed Durable Objects for new Durable
 Object namespaces. That maps well to agent-bus because each workspace wants one
@@ -62,8 +62,16 @@ D1 should not store hot bus traffic. D1 stores account-level metadata:
 - users
 - workspaces
 - memberships
-- OAuth clients / agent credentials
+- password hashes and signed dashboard sessions
+- OAuth clients / agent credentials later
 - billing/subscription state later
+
+Dashboard login and agent access are separate:
+
+- humans use email/password login and an HttpOnly signed session cookie
+- agents use workspace-scoped bearer tokens created by a manager/owner
+- the remote MCP endpoint accepts bearer tokens so Claude/Codex/Kimi sessions
+  can connect without a browser session
 
 ## MCP Endpoint Shape
 
