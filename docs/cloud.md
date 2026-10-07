@@ -30,9 +30,10 @@ npm run check:cloud
 cd apps/cloud && npx wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun
 ```
 
-`check:cloud` starts the Worker locally with isolated D1 persistence, creates a
-dashboard user/workspace/token, verifies real remote MCP initialize/list/call
-requests, and checks the hosted cockpit/message APIs.
+`check:cloud` starts local Workers with isolated D1 persistence, creates
+dashboard users/workspaces/tokens, verifies real remote MCP
+initialize/list/call requests, checks the hosted cockpit/message APIs, and
+exercises the `agent-bus cloud` CLI setup commands against a live local Worker.
 
 ## Cloudflare Architecture
 

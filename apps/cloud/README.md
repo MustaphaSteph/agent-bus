@@ -59,9 +59,10 @@ npm run check:cloud      # from repo root
 npm run check            # from apps/cloud
 ```
 
-The smoke test starts a local Worker with isolated D1 state, signs up, creates
-a workspace/token, verifies the real remote MCP initialize/tools/call path, and
-checks the hosted messages/cockpit APIs.
+The smoke tests start local Workers with isolated D1 state. They sign up,
+create workspaces/tokens, verify the real remote MCP initialize/tools/call path,
+check the hosted messages/cockpit APIs, and exercise the `agent-bus cloud`
+CLI setup flow end to end.
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
 create/list/revoke agent tokens, add/update/remove workspace members, show the

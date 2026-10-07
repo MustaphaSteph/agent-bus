@@ -8,7 +8,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "node test/smoke.mjs",
+    "test": "node test/smoke.mjs && node test/cli.mjs",
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
