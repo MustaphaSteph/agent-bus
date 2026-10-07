@@ -25,6 +25,12 @@ interface CloudToolStatus {
   implemented?: boolean;
 }
 
+interface CloudWorkspaceSummary {
+  slug: string;
+  name: string;
+  role?: string;
+}
+
 const DEFAULT_HOST = "http://localhost:8787";
 
 function configPath(): string {
@@ -126,6 +132,20 @@ function printMcpConfig(host: string, workspace: string, token?: string): void {
       },
     });
   }
+}
+
+async function tokenTest(host: string, workspaceSlug: string, token: string): Promise<unknown> {
+  const response = await fetch(`${mcpUrl(host, workspaceSlug)}?json=1`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ tool: "cloud_workspace", input: {} }),
+  });
+  const body = await parseResponse(response);
+  if (!response.ok) throw new Error(errorMessage(body, "token test failed"));
+  return body;
 }
 
 function parseRole(value: string): WorkspaceRole {
@@ -230,6 +250,43 @@ export function registerCloudCommands(program: Command): void {
       if ((body.workspaces ?? []).length === 0) console.log(kleur.gray("(no workspaces)"));
     });
 
+  cloud
+    .command("bootstrap <workspace>")
+    .description("Create or reuse a workspace, create an agent token, print MCP config, and verify the token")
+    .option("--name <name>", "workspace display name")
+    .option("--token-name <name>", "agent token name", "agent")
+    .option("--role <role>", "owner, manager, agent, or viewer", "agent")
+    .option("--no-token-test", "skip remote MCP token verification")
+    .action(async (workspaceSlug: string, opts: { name?: string; tokenName: string; role: string; tokenTest?: boolean }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const cookie = requireCookie(host);
+      const role = parseRole(opts.role);
+      await request(host, "/api/health");
+      const workspacesBody = await request(host, "/api/workspaces", {}, cookie) as { workspaces?: CloudWorkspaceSummary[] };
+      const existing = (workspacesBody.workspaces ?? []).find((workspaceRow) => workspaceRow.slug === workspaceSlug);
+      if (existing) {
+        console.log(`${kleur.green("using workspace")} ${workspaceSlug}`);
+      } else {
+        await request(host, "/api/workspaces", {
+          method: "POST",
+          body: JSON.stringify({ slug: workspaceSlug, name: opts.name ?? workspaceSlug }),
+        }, cookie);
+        console.log(`${kleur.green("created workspace")} ${workspaceSlug}`);
+      }
+
+      const body = await request(host, `/api/workspaces/${encodeURIComponent(workspaceSlug)}/tokens`, {
+        method: "POST",
+        body: JSON.stringify({ name: opts.tokenName, role }),
+      }, cookie) as { token?: { id: string; token: string } };
+      if (!body.token?.token) throw new Error("cloud did not return a token");
+      console.log(`${kleur.green("created token")} ${body.token.id}`);
+      printMcpConfig(host, workspaceSlug, body.token.token);
+      if (opts.tokenTest !== false) {
+        await tokenTest(host, workspaceSlug, body.token.token);
+        console.log(`${kleur.green("token test: ok")} ${workspaceSlug}`);
+      }
+    });
+
   const workspace = cloud.command("workspace").description("Manage hosted workspaces");
   workspace
     .command("create <slug>")
@@ -312,16 +369,7 @@ export function registerCloudCommands(program: Command): void {
     .requiredOption("--token <token>", "agent bearer token")
     .action(async (workspaceSlug: string, opts: { token: string }) => {
       const host = normalizeHost(cloud.opts<CloudOptions>().host);
-      const response = await fetch(`${mcpUrl(host, workspaceSlug)}?json=1`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${opts.token}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ tool: "cloud_workspace", input: {} }),
-      });
-      const body = await parseResponse(response);
-      if (!response.ok) throw new Error(errorMessage(body, "token test failed"));
+      const body = await tokenTest(host, workspaceSlug, opts.token);
       printJson(body);
     });
 }

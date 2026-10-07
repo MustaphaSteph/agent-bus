@@ -97,6 +97,7 @@ agent-bus cloud --host http://localhost:8787 signup \
   --name You
 
 agent-bus cloud --host http://localhost:8787 health
+agent-bus cloud --host http://localhost:8787 bootstrap demo --token-name claude-ui --role agent
 agent-bus cloud --host http://localhost:8787 workspace create demo --name Demo
 agent-bus cloud --host http://localhost:8787 tokens create demo --name claude-ui --role agent
 agent-bus cloud --host http://localhost:8787 mcp-config demo --token ab_cloud_...
@@ -106,6 +107,10 @@ agent-bus cloud --host http://localhost:8787 token-test demo --token ab_cloud_..
 `health` is the first deploy smoke check. It does not require login; it
 verifies the Worker is reachable and that `/api/tools` reports the cloud tool
 surface as implemented.
+
+`bootstrap` is the shortest path from a logged-in dashboard account to a usable
+agent connection: it creates or reuses a workspace, creates a scoped agent
+token, prints the remote MCP JSON config, and verifies the token.
 
 Token roles are enforced before the Durable Object receives a tool call:
 

@@ -248,12 +248,17 @@ Add cloud commands under an explicit namespace:
 ```bash
 agent-bus cloud signup --email you@example.com --password 'change-me-please'
 agent-bus cloud login --email you@example.com --password 'change-me-please'
+agent-bus cloud health
+agent-bus cloud bootstrap my-team --token-name codex-pm --role manager
 agent-bus cloud workspace create my-team
 agent-bus cloud tokens create my-team --name claude-ui --role agent
+agent-bus cloud mcp-config my-team --token ab_cloud_...
 agent-bus cloud mcp-url my-team
 agent-bus cloud token-test my-team --token ab_cloud_...
 ```
 
+`bootstrap` is the shortest path for a logged-in user: it creates or reuses the
+workspace, creates a token, prints a remote-MCP config, and verifies the token.
 Do not make local commands silently use cloud. Require explicit `cloud`.
 
 ## Production Deploy

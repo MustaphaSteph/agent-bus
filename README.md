@@ -40,7 +40,7 @@ https://<your-worker>/mcp/<workspace>
 
 It includes a landing page, login/dashboard, workspace setup, member management,
 token creation, human dashboard actions for team/direct messages and tracked
-tasks, `agent-bus cloud` setup commands, remote MCP tooling, Kanban/activity
+tasks, `agent-bus cloud bootstrap` setup, remote MCP tooling, Kanban/activity
 cockpit APIs, and the full 65-tool agent-bus MCP surface. See
 [`docs/cloud.md`](docs/cloud.md) for the architecture and
 [`apps/cloud/README.md`](apps/cloud/README.md) for local dev/deploy steps.
@@ -144,7 +144,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.35.0
+agent-bus --version                # 0.36.0
 claude mcp list | grep agent-bus   # Claude Code
 codex mcp list | grep agent-bus    # Codex
 kimi mcp test agent-bus            # Kimi Code

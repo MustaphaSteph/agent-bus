@@ -120,6 +120,12 @@ try {
     assert(health.includes("healthy"), "cloud health did not report a healthy host");
     assert(health.includes("tools:"), "cloud health did not print tool status");
 
+    const bootstrap = cloud("bootstrap", "boot-demo", "--name", "Boot Demo", "--token-name", "bootstrap-agent", "--role", "agent");
+    assert(bootstrap.includes("created workspace boot-demo"), "cloud bootstrap did not create workspace");
+    assert(bootstrap.includes("created token"), "cloud bootstrap did not create a token");
+    assert(bootstrap.includes('"agent-bus-cloud"'), "cloud bootstrap did not print MCP config");
+    assert(bootstrap.includes("token test: ok"), "cloud bootstrap did not verify the token");
+
     const created = cloud("workspace", "create", "cli-demo", "--name", "CLI Demo");
     assert(created.includes("created cli-demo"), "cloud workspace create did not report success");
 
