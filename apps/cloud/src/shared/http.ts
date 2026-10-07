@@ -40,7 +40,9 @@ function classifyError(message: string): { status: number; code: string } {
     return { status: 403, code: "FORBIDDEN" };
   }
   if (message.includes("not found")) return { status: 404, code: "NOT_FOUND" };
-  if (message.includes("cannot remove the last workspace owner")) return { status: 409, code: "CONFLICT" };
+  if (message.includes("cannot remove the last workspace owner") || message.includes("cannot demote the last workspace owner")) {
+    return { status: 409, code: "CONFLICT" };
+  }
   if (
     message.includes("required") ||
     message.includes("valid ") ||

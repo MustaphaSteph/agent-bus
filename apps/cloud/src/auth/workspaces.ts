@@ -158,6 +158,15 @@ export async function addWorkspaceMember(env: Env, workspaceId: string, email: s
 }
 
 export async function updateWorkspaceMemberRole(env: Env, workspaceId: string, userId: string, role: WorkspaceRole): Promise<{ updated: boolean }> {
+  const target = await env.AGENT_BUS_CLOUD_DB.prepare(
+    "SELECT role FROM memberships WHERE workspace_id = ? AND user_id = ?",
+  ).bind(workspaceId, userId).first<{ role: WorkspaceRole }>();
+  if (target?.role === "owner" && role !== "owner") {
+    const ownerCount = await env.AGENT_BUS_CLOUD_DB.prepare(
+      "SELECT COUNT(*) AS count FROM memberships WHERE workspace_id = ? AND role = 'owner'",
+    ).bind(workspaceId).first<{ count: number }>();
+    if ((ownerCount?.count ?? 0) <= 1) throw new Error("cannot demote the last workspace owner");
+  }
   const result = await env.AGENT_BUS_CLOUD_DB.prepare(
     "UPDATE memberships SET role = ? WHERE workspace_id = ? AND user_id = ?",
   ).bind(role, workspaceId, userId).run();

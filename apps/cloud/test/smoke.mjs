@@ -152,6 +152,16 @@ try {
     const tokenListAfterRevoke = await worker.fetch("/api/workspaces/demo/tokens", { headers: { cookie } });
     await assertStatus(tokenListAfterRevoke, 200, "token list after revoke");
     assert((await json(tokenListAfterRevoke)).tokens.length === 2, "token revoke did not remove the token");
+    const ownerListBeforeDemotion = await worker.fetch("/api/workspaces/demo/members", { headers: { cookie } });
+    await assertStatus(ownerListBeforeDemotion, 200, "member list before owner demotion");
+    const ownerMember = (await json(ownerListBeforeDemotion)).members.find((member) => member.role === "owner");
+    assert(ownerMember?.user_id, "owner member was not returned");
+    const demoteOnlyOwner = await worker.fetch(`/api/workspaces/demo/members/${ownerMember.user_id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ role: "manager" }),
+    });
+    assert(demoteOnlyOwner.status === 409, `last owner demotion returned ${demoteOnlyOwner.status}`);
     const updateMember = await worker.fetch(`/api/workspaces/demo/members/${memberBody.member.user_id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json", cookie },
