@@ -9,7 +9,8 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "node test/tool-parity.mjs && node test/smoke.mjs && node test/cli.mjs",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "check:deploy": "npm run check && wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun"
   },
   "dependencies": {
     "agents": "^0.27.0",

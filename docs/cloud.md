@@ -26,14 +26,14 @@ Run local and hosted checks before changing the cloud app:
 ```bash
 npm run typecheck
 npm test
-npm run check:cloud
-cd apps/cloud && npx wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun
+npm run check:cloud:deploy
 ```
 
 `check:cloud` starts local Workers with isolated D1 persistence, creates
 dashboard users/workspaces/tokens, verifies real remote MCP
 initialize/list/call requests, checks the hosted cockpit/message APIs, and
 exercises the `agent-bus cloud` CLI setup commands against a live local Worker.
+`check:cloud:deploy` runs the same suite and adds a Wrangler dry-run deploy.
 
 ## Cloudflare Architecture
 
@@ -233,10 +233,7 @@ wrangler deploy
 Run the local preflight before deploying:
 
 ```bash
-npm run typecheck
-npm test
-npm run check:cloud
-cd apps/cloud && npx wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun
+npm run check:cloud:deploy
 ```
 
 ## Non-Goals For The First Hosted Release

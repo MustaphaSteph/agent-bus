@@ -38,10 +38,7 @@ wrangler deploy
 Recommended preflight from this repo:
 
 ```bash
-npm run typecheck
-npm test
-npm run check:cloud
-cd apps/cloud && npx wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun
+npm run check:cloud:deploy
 ```
 
 ## API Smoke
@@ -70,7 +67,9 @@ Automated smoke coverage is available from either repo root or `apps/cloud`:
 
 ```bash
 npm run check:cloud      # from repo root
+npm run check:cloud:deploy
 npm run check            # from apps/cloud
+npm run check:deploy
 ```
 
 The smoke tests start local Workers with isolated D1 state. They sign up,
@@ -229,5 +228,6 @@ Implemented cloud operations:
 - `record_decision` / `list_decisions`
 - `cloud_workspace`
 
-The tool registry includes every local MCP tool name so parity gaps remain
-visible while the remaining implementations are ported.
+The cloud test suite checks both registry parity and Durable Object dispatch
+parity against the local MCP server so future local tool additions cannot
+silently miss the hosted endpoint.

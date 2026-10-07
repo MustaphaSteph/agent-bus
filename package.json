@@ -46,6 +46,7 @@
     "test": "tsx test/smoke.ts",
     "test:cloud": "npm --prefix apps/cloud test",
     "check:cloud": "npm --prefix apps/cloud run check",
+    "check:cloud:deploy": "npm --prefix apps/cloud run check:deploy",
     "docs:preview": "npx --yes @redocly/cli@latest preview-docs docs/openapi.yaml",
     "docs:lint": "npx --yes @redocly/cli@latest lint docs/openapi.yaml",
     "docs:build": "npx --yes @redocly/cli@latest build-docs docs/openapi.yaml -o docs/api-static.html",
