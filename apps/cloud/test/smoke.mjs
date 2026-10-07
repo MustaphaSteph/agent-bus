@@ -153,6 +153,10 @@ try {
     assert(init.result?.serverInfo?.name === "agent-bus-cloud-demo", "MCP initialize did not return the workspace server");
     const tools = await mcp({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     assert(tools.result?.tools?.length >= 65, "MCP tools/list did not expose the agent-bus tool surface");
+    const registerTool = tools.result.tools.find((tool) => tool.name === "register");
+    assert(registerTool?.inputSchema?.properties?.name, "register tool schema did not expose the required name input");
+    const sendTool = tools.result.tools.find((tool) => tool.name === "send");
+    assert(sendTool?.inputSchema?.properties?.message, "send tool schema did not expose the message input");
 
     async function mcpCall(id, name, args) {
       const event = await mcp({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });

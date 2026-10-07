@@ -3,9 +3,9 @@ import { json, readJson } from "../shared/http";
 import { callWorkspace } from "../api/rpc";
 import { resolveWorkspaceContext } from "../auth/workspaces";
 import { AGENT_BUS_TOOL_NAMES, cloudToolStatus } from "./tool-registry";
+import { metadataForTool } from "./tool-metadata";
 import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
-import { z } from "zod";
 
 interface McpToolCallBody {
   tool?: string;
@@ -14,8 +14,6 @@ interface McpToolCallBody {
   input?: unknown;
 }
 
-const AnyToolInput = z.object({}).catchall(z.unknown());
-
 function createAgentBusMcpServer(env: Env, workspaceSlug: string) {
   const server = new McpServer({
     name: `agent-bus-cloud-${workspaceSlug}`,
@@ -23,12 +21,13 @@ function createAgentBusMcpServer(env: Env, workspaceSlug: string) {
   });
 
   for (const toolName of AGENT_BUS_TOOL_NAMES) {
+    const metadata = metadataForTool(toolName);
     server.registerTool(
       toolName,
       {
         title: toolName,
-        description: `Agent Bus Cloud ${toolName} operation for workspace ${workspaceSlug}.`,
-        inputSchema: AnyToolInput,
+        description: metadata.description,
+        inputSchema: metadata.inputSchema,
       },
       async (input, context) => {
         const request = context.http?.req;
@@ -47,8 +46,8 @@ function createAgentBusMcpServer(env: Env, workspaceSlug: string) {
     "cloud_workspace",
     {
       title: "cloud_workspace",
-      description: "Return the authenticated Agent Bus Cloud workspace and principal role.",
-      inputSchema: AnyToolInput,
+      description: metadataForTool("cloud_workspace").description,
+      inputSchema: metadataForTool("cloud_workspace").inputSchema,
     },
     async (_input, context) => {
       const request = context.http?.req;
