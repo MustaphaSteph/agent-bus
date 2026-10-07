@@ -125,21 +125,16 @@ Avoid forking the agent mental model unless the hosted product truly needs it.
 
 ## Code Strategy
 
-Do not copy-paste `src/bus.ts` into a Worker.
+The hosted app lives in `apps/cloud` and mirrors the local domain semantics
+inside a Cloudflare Durable Object. Local mode and cloud mode are explicit
+siblings:
 
-Instead, split the local code into three layers:
+- local mode keeps `better-sqlite3`, stdio MCP, local CLI, and local UI
+- cloud mode keeps Worker auth/API, remote HTTP MCP, dashboard UI, D1 account
+  metadata, and Durable Object SQLite workspace state
 
-1. **Core domain operations**
-   Pure TypeScript functions for message/task semantics.
-2. **Storage adapter**
-   Local adapter backed by `better-sqlite3`; Cloud adapter backed by Durable
-   Object SQLite.
-3. **Transport adapters**
-   Local stdio MCP, local CLI, Cloudflare remote MCP, Cloud API.
-
-The first cloud milestone can be smaller: implement a Cloudflare worker with a
-subset of tools, but design it around a storage adapter so it does not become a
-second product.
+Do not make local commands silently use cloud. Cloud setup and diagnostics stay
+under the explicit `agent-bus cloud` namespace.
 
 ## Parity Scope
 
@@ -156,9 +151,10 @@ parity with the local 65-tool MCP surface:
   reports, and review gates
 - roster cleanup and team deletion
 
-Implementation can land in slices, but every slice must move toward exact
-semantic parity with local agent-bus. The cloud app keeps a tool registry for
-all existing MCP tool names so gaps are visible and testable.
+The current cloud app exposes the full local 65-tool MCP surface through the
+remote endpoint and adds the explicit `cloud_workspace` diagnostic tool. The
+cloud app keeps a tool registry for all existing MCP tool names so parity stays
+visible and testable as local tools evolve.
 
 ## Security Rules
 
@@ -219,27 +215,29 @@ agent-bus cloud token-test my-team --token ab_cloud_...
 
 Do not make local commands silently use cloud. Require explicit `cloud`.
 
-## First Build Plan
+## Production Deploy
 
-1. Create a separate package/app for Cloudflare: `apps/cloud`.
-2. Add Wrangler config with:
-   - Worker entrypoint
-   - Durable Object binding
-   - D1 binding
-   - migrations
-3. Implement `WorkspaceBusObject` with SQLite schema migration.
-4. Implement remote MCP with `createMcpHandler`.
-5. Register all existing agent-bus tool names.
-6. Port tool implementations in parity groups:
-   - identity + messaging
-   - asks + threading
-   - team/channel routing
-   - tasks + delegation
-   - reviews + test evidence
-   - memory + reports
-   - cockpit/activity
-7. Add integration tests with Miniflare/Wrangler local dev.
-8. Add docs for connecting Claude/Codex/Kimi to the remote MCP URL.
+Create a real D1 database, copy the returned `database_id` into
+`apps/cloud/wrangler.toml`, apply D1 migrations remotely, set the dashboard
+auth secret, then deploy:
+
+```bash
+cd apps/cloud
+wrangler d1 create agent-bus-cloud
+# copy database_id into wrangler.toml
+wrangler d1 migrations apply agent-bus-cloud --remote
+wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET
+wrangler deploy
+```
+
+Run the local preflight before deploying:
+
+```bash
+npm run typecheck
+npm test
+npm run check:cloud
+cd apps/cloud && npx wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun
+```
 
 ## Non-Goals For The First Hosted Release
 
@@ -274,6 +272,8 @@ The initial `apps/cloud` scaffold includes:
 - setup APIs for workspaces and agent tokens
 - membership APIs and dashboard controls for adding teammates, changing roles,
   and removing members
+- dashboard human-action controls for sending team/direct messages and creating
+  tracked tasks through the same workspace RPC path used by agents
 - `/mcp/:workspace` as the real stateless remote MCP endpoint using
   Cloudflare's `createMcpHandler`; `/mcp/:workspace/info` is the human
   diagnostic endpoint, and `/mcp/:workspace?json=1` remains for curl/debug
@@ -281,12 +281,12 @@ The initial `apps/cloud` scaffold includes:
 - dashboard APIs for scope discovery, paged message history, message threads,
   and message/task time series
 
-## Open Decisions
+## Later Decisions
 
-- Whether Agent Bus Cloud lives in this repo or a new `agent-bus-cloud` repo.
-- Whether the first dashboard is the existing local cockpit adapted to HTTP or a
-  new hosted dashboard.
-- Whether remote MCP auth should start with simple workspace tokens or a full
-  OAuth consent flow from day one.
+- Whether to move Agent Bus Cloud to a separate repo after the hosted app
+  stabilizes.
+- Whether to add OAuth consent and third-party identity providers beyond the
+  current email/password dashboard login and workspace bearer tokens.
 - Whether to keep exactly one Durable Object per workspace forever or later
   split high-volume workspaces by team.
+- Whether to add R2 attachments for reports, diffs, and large artifacts.

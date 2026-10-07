@@ -20,14 +20,28 @@ npm test
 npm run dev
 ```
 
-Before deploying, create a real D1 database and replace the placeholder
-`database_id` in `wrangler.toml`. Also set a strong auth secret for signed
-dashboard sessions. Production requests fail closed without this secret:
+## Production Deploy
+
+Create a real D1 database, replace the placeholder `database_id` in
+`wrangler.toml`, apply migrations to the remote database, and set a strong auth
+secret for signed dashboard sessions. Production requests fail closed without
+this secret.
 
 ```bash
 wrangler d1 create agent-bus-cloud
-wrangler d1 migrations apply agent-bus-cloud --local
+# copy the returned database_id into wrangler.toml
+wrangler d1 migrations apply agent-bus-cloud --remote
 wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET
+wrangler deploy
+```
+
+Recommended preflight from this repo:
+
+```bash
+npm run typecheck
+npm test
+npm run check:cloud
+cd apps/cloud && npx wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun
 ```
 
 ## API Smoke
@@ -66,8 +80,8 @@ CLI setup flow end to end.
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
 create/list/revoke agent tokens, add/update/remove workspace members, show the
-remote MCP URL, and load the workspace cockpit with Kanban, activity, and
-team-chat history.
+remote MCP URL, send team/direct messages, create tracked tasks, and load the
+workspace cockpit with Kanban, activity, and team-chat history.
 
 Dashboard users log in with email/password. Agent sessions do not use the
 dashboard cookie; they use scoped workspace bearer tokens created from the
@@ -153,6 +167,8 @@ workspace Durable Object:
 - `POST /api/workspaces/:slug/members` — owner-only add/update member by email
 - `PATCH /api/workspaces/:slug/members/:userId` — owner-only change member role
 - `DELETE /api/workspaces/:slug/members/:userId` — owner-only remove member
+- `POST /api/workspaces/:slug/rpc` — authenticated dashboard bridge to workspace
+  bus operations such as `send_team`, `send`, and `create_task`
 - `GET /api/workspaces/:slug/messages?team=<team>` — paged chat history
 - `GET /api/workspaces/:slug/messages/:id/thread` — message thread context
 - `GET /api/workspaces/:slug/scopes` — projects and teams with counts

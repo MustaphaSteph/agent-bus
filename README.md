@@ -39,8 +39,9 @@ https://<your-worker>/mcp/<workspace>
 ```
 
 It includes a landing page, login/dashboard, workspace setup, member management,
-token creation, `agent-bus cloud` setup commands, remote MCP tooling,
-Kanban/activity cockpit APIs, and the full 65-tool agent-bus MCP surface. See
+token creation, human dashboard actions for team/direct messages and tracked
+tasks, `agent-bus cloud` setup commands, remote MCP tooling, Kanban/activity
+cockpit APIs, and the full 65-tool agent-bus MCP surface. See
 [`docs/cloud.md`](docs/cloud.md) for the architecture and
 [`apps/cloud/README.md`](apps/cloud/README.md) for local dev/deploy steps.
 
