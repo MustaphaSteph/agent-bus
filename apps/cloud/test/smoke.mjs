@@ -101,6 +101,20 @@ try {
       return JSON.parse(body.content[0].text);
     }
 
+    async function expectDebugFailure(tool, input, expected) {
+      const response = await worker.fetch("/mcp/demo?json=1", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ tool, input }),
+      });
+      assert(response.status >= 400, `${tool} unexpectedly succeeded`);
+      const body = await json(response);
+      assert(String(body.error?.message ?? body.message ?? "").includes(expected), `${tool} did not fail with ${expected}`);
+    }
+
     async function mcp(body) {
       const response = await worker.fetch("/mcp/demo", {
         method: "POST",
@@ -132,6 +146,8 @@ try {
 
     await mcpCall(3, "register", { name: "codex", team: "cloud-smoke", capabilities: ["pm"], replace: true });
     await mcpCall(4, "register", { name: "claude", team: "cloud-smoke", capabilities: ["ui"], replace: true });
+    await mcpCall(41, "ask_async", { from: "claude", to: "codex", question: "pending cycle check" });
+    await expectDebugFailure("ask", { from: "codex", to: "claude", question: "should detect cycle", timeout_s: 1 }, "ASK_CYCLE");
     const sent = await mcpCall(5, "send", { from: "codex", to: "claude", message: "hello from cloud smoke" });
     assert(sent.thread_id, "send did not return a thread_id");
     const inbox = await debugCall("inbox", { agent: "claude", team: "cloud-smoke", mark_delivered: false });
@@ -167,7 +183,6 @@ try {
     const waitedTask = await waitForTask;
     assert(waitedTask.timed_out === false, "wait_for_task timed out despite delayed task activity");
     assert(waitedTask.latest_event?.message === "task moved during wait", "wait_for_task did not return latest task event");
-
     const messages = await worker.fetch("/api/workspaces/demo/messages?team=cloud-smoke", { headers: { cookie } });
     await assertStatus(messages, 200, "messages api");
     const messagesBody = await json(messages);

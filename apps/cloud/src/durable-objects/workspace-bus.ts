@@ -4,6 +4,8 @@ import { json } from "../shared/http";
 import { now } from "../shared/ids";
 
 type SqlDatabase = DurableObjectStorage["sql"];
+const ACTIVE_ASK_CYCLE_WINDOW_MS = 110_000;
+const STALE_AGENT_MS = 300_000;
 
 interface AgentRow {
   name: string;
@@ -690,6 +692,25 @@ export class WorkspaceBusObject implements DurableObject {
     if (!sender) throw new Error(`unknown sender ${from}`);
     const recipient = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ? AND removed_at IS NULL", to));
     if (!recipient) throw new Error(`unknown recipient ${to}`);
+    if (recipient.paused === 1 || now() - recipient.last_seen > STALE_AGENT_MS) {
+      throw new Error(`ASK_RECIPIENT_UNAVAILABLE: ${to} is ${recipient.paused === 1 ? "paused" : "stale"}`);
+    }
+    const oppositeAsk = one<MessageRow>(
+      this.sql.exec(
+        `SELECT * FROM messages
+         WHERE from_agent = ? AND to_agent = ? AND kind = 'ask' AND status = 'pending'
+           AND created_at >= ?
+           AND (claim_deadline IS NULL OR claim_deadline >= ?)
+         ORDER BY id DESC LIMIT 1`,
+        to,
+        from,
+        now() - ACTIVE_ASK_CYCLE_WINDOW_MS,
+        now(),
+      ),
+    );
+    if (oppositeAsk) {
+      throw new Error(`ASK_CYCLE: ${to} already has pending ask #${oppositeAsk.id} to ${from}; reply or use async send`);
+    }
     const at = now();
     this.sql.exec(
       `INSERT INTO messages (
@@ -731,6 +752,7 @@ export class WorkspaceBusObject implements DurableObject {
         ...scope.params,
       ),
     ).filter((agent) => {
+      if (now() - agent.last_seen > STALE_AGENT_MS) return false;
       const capabilities = JSON.parse(agent.capabilities) as string[];
       return capabilities.includes(capability) && (!role || agent.role === role);
     });
@@ -751,6 +773,7 @@ export class WorkspaceBusObject implements DurableObject {
         ...scope.params,
       ),
     ).filter((agent) => {
+      if (now() - agent.last_seen > STALE_AGENT_MS) return false;
       if (!capability) return true;
       return (JSON.parse(agent.capabilities) as string[]).includes(capability);
     });
