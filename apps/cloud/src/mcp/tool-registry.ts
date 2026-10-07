@@ -4,6 +4,7 @@ export const CLOUD_IMPLEMENTED_TOOLS = new Set([
   "delete_team",
   "whois",
   "directory",
+  "wait_for_agents",
   "send",
   "send_team",
   "subscribe",

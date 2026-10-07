@@ -38,7 +38,34 @@ curl -X POST http://localhost:8787/api/workspaces/demo/tokens \
   -H 'content-type: application/json' \
   -d '{"name":"claude-ui","role":"agent"}'
 
-curl http://localhost:8787/mcp/demo
+curl http://localhost:8787/mcp/demo/info
+```
+
+The dashboard at `http://localhost:8787/app` can also create workspaces,
+create agent tokens, show the remote MCP URL, and load the workspace cockpit.
+
+## Remote MCP
+
+Each workspace exposes a real Cloudflare Agents SDK stateless MCP endpoint:
+
+```text
+https://<worker-host>/mcp/<workspace-slug>
+```
+
+Use an `Authorization: Bearer <agent-token>` header for agent sessions. For
+human diagnostics, open:
+
+```text
+https://<worker-host>/mcp/<workspace-slug>/info
+```
+
+For curl/debug smoke tests that want the old direct JSON dispatch shape:
+
+```bash
+curl -X POST 'http://localhost:8787/mcp/demo?json=1' \
+  -H 'authorization: Bearer <agent-token>' \
+  -H 'content-type: application/json' \
+  -d '{"tool":"cloud_workspace","input":{}}'
 ```
 
 ## Current Status
@@ -49,6 +76,7 @@ Implemented cloud operations:
 - `remove_agent`
 - `delete_team`
 - `whois` / `directory`
+- `wait_for_agents`
 - `send`
 - `send_team`
 - channels: `subscribe`, `unsubscribe`, `send_channel`, `subscribers`

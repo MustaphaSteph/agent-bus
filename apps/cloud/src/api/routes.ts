@@ -55,5 +55,36 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     return json({ ok: true, result });
   }
 
+  const cockpitMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/cockpit$/);
+  if (cockpitMatch && request.method === "GET") {
+    const slug = requireSlug(cockpitMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    const team = url.searchParams.get("team") ?? undefined;
+    const project = url.searchParams.get("project") ?? undefined;
+    const area = url.searchParams.get("area") ?? undefined;
+    const result = await callWorkspace(env, context, "cockpit", { team, project, area });
+    return json({ ok: true, result });
+  }
+
+  const activityMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/activity$/);
+  if (activityMatch && request.method === "GET") {
+    const slug = requireSlug(activityMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    const team = url.searchParams.get("team") ?? undefined;
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    const result = await callWorkspace(env, context, "activity", { team, limit });
+    return json({ ok: true, result });
+  }
+
+  const threadMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/threads\/(?<threadId>[^/]+)$/);
+  if (threadMatch && request.method === "GET") {
+    const slug = requireSlug(threadMatch);
+    const threadId = threadMatch.groups?.threadId;
+    if (!threadId) throw new Error("thread id is required");
+    const context = await resolveWorkspaceContext(env, request, slug);
+    const result = await callWorkspace(env, context, "thread", { thread_id: threadId });
+    return json({ ok: true, result });
+  }
+
   return json({ error: { code: "NOT_FOUND", message: "api route not found" } }, { status: 404 });
 }

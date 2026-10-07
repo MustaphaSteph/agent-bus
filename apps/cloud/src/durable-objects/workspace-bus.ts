@@ -149,6 +149,8 @@ export class WorkspaceBusObject implements DurableObject {
       case "whois":
       case "directory":
         return this.directory(input);
+      case "wait_for_agents":
+        return this.waitForAgents(input);
       case "send":
         return this.send(input);
       case "send_team":
@@ -333,6 +335,66 @@ export class WorkspaceBusObject implements DurableObject {
       this.sql.exec(`SELECT * FROM agents WHERE removed_at IS NULL${scope.sql} ORDER BY last_seen DESC`, ...scope.params),
     ).map(toAgent);
     return { agents };
+  }
+
+  private async waitForAgents(input: Record<string, unknown>): Promise<unknown> {
+    const names = Array.isArray(input.names) ? input.names.map((name) => validateName("agent name", name)) : [];
+    if (names.length === 0) throw new Error("names must be a non-empty array");
+    const timeoutMs = Math.min(Math.max(Number(input.timeout_s ?? 60), 0), 110) * 1000;
+    const deadline = now() + timeoutMs;
+    let result = this.inspectAgents(names, input);
+    while ((result.missing.length > 0 || result.stale.length > 0 || result.wrong_scope.length > 0) && now() < deadline) {
+      await sleep(100);
+      result = this.inspectAgents(names, input);
+    }
+    return result;
+  }
+
+  private inspectAgents(names: string[], input: Record<string, unknown>): {
+    ready: Array<Record<string, unknown>>;
+    missing: string[];
+    stale: Array<Record<string, unknown>>;
+    wrong_scope: Array<Record<string, unknown>>;
+  } {
+    const placeholders = names.map(() => "?").join(",");
+    const agents = rows<AgentRow>(
+      this.sql.exec(`SELECT * FROM agents WHERE removed_at IS NULL AND name IN (${placeholders})`, ...names),
+    );
+    const byName = new Map(agents.map((agent) => [agent.name, agent]));
+    const expectedProject = optionalString(input.project);
+    const expectedArea = optionalString(input.area);
+    const expectedTeam = optionalString(input.team);
+    const ready: Array<Record<string, unknown>> = [];
+    const stale: Array<Record<string, unknown>> = [];
+    const wrong_scope: Array<Record<string, unknown>> = [];
+    for (const agent of agents) {
+      const view = toAgent(agent);
+      const scopeMismatch =
+        (expectedProject !== null && expectedProject !== "*" && agent.project !== expectedProject) ||
+        (expectedArea !== null && expectedArea !== "*" && agent.area !== expectedArea) ||
+        (expectedTeam !== null && expectedTeam !== "*" && agent.team !== expectedTeam);
+      if (scopeMismatch) {
+        wrong_scope.push({
+          name: agent.name,
+          project: agent.project,
+          area: agent.area,
+          team: agent.team,
+          expected_project: expectedProject === "*" ? null : expectedProject,
+          expected_area: expectedArea === "*" ? null : expectedArea,
+          expected_team: expectedTeam === "*" ? null : expectedTeam,
+        });
+      } else if (agent.paused === 1 || now() - agent.last_seen > 300_000) {
+        stale.push(view);
+      } else {
+        ready.push(view);
+      }
+    }
+    return {
+      ready,
+      missing: names.filter((name) => !byName.has(name)),
+      stale,
+      wrong_scope,
+    };
   }
 
   private send(input: Record<string, unknown>): unknown {

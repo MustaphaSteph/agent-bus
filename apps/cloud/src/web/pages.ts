@@ -30,7 +30,23 @@ function shell(title: string, body: string): Response {
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: #9fb1c7; background: #081018; border: 1px solid #172636; border-radius: 10px; padding: 14px; overflow: auto; }
     .workspace { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid #1b2a3a; padding: 14px 0; }
     .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #284056; border-radius: 999px; color: #95a8bc; }
+    .app-grid { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 18px; align-items: start; }
+    .stack { display: grid; gap: 14px; }
+    label { display: grid; gap: 8px; color: #9fb1c7; font-size: 13px; }
+    input, select, button { font: inherit; }
+    input, select { width: 100%; box-sizing: border-box; color: #e7edf7; background: #081018; border: 1px solid #22364a; border-radius: 10px; padding: 11px 12px; }
+    button { border: 1px solid #244156; border-radius: 10px; padding: 11px 13px; color: white; background: #101923; cursor: pointer; }
+    button.primary { background: linear-gradient(135deg, #00b7ff, #7c3aed); border-color: transparent; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .metric { background: #0c121a; border: 1px solid #1b2a3a; border-radius: 12px; padding: 14px; }
+    .kanban { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .column { min-height: 160px; background: #0a1118; border: 1px solid #182737; border-radius: 12px; padding: 12px; }
+    .task { margin-top: 10px; padding: 10px; border-radius: 10px; background: #111b25; border: 1px solid #213345; }
+    .muted { color: #7f8da3; }
+    .activity { max-height: 420px; overflow: auto; display: grid; gap: 10px; }
+    .event { border-left: 2px solid #48d6c2; padding: 8px 10px; background: #0b121a; border-radius: 8px; }
     @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+    @media (max-width: 980px) { .app-grid, .kanban { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>${body}</body>
@@ -61,31 +77,156 @@ export async function dashboardPage(env: Env): Promise<Response> {
   const workspaces = await listWorkspaces(env);
   const tools = cloudToolStatus();
   const implemented = tools.filter((tool) => tool.implemented).length;
+  const initialData = JSON.stringify({ workspaces, tools }).replaceAll("<", "\\u003c");
   return shell("Agent Bus Cloud Dashboard", `<main class="wrap">
     <nav class="nav"><div class="brand"><div class="logo">AB</div>Agent Bus Cloud</div><a href="/">Landing</a></nav>
     <section>
       <h1>Workspaces</h1>
-      <p>Create a workspace through <span class="mono">POST /api/workspaces</span>, create an agent token, then connect agents to <span class="mono">/mcp/&lt;workspace&gt;</span>.</p>
+      <p>Create a hosted bus, mint scoped agent tokens, connect MCP-capable sessions, then watch team chat, tasks, memories, decisions, and review state from one cockpit.</p>
       <div class="grid">
         <div class="card"><h2>${workspaces.length}</h2><p>workspaces</p></div>
         <div class="card"><h2>${implemented} / ${tools.length}</h2><p>cloud tools wired</p></div>
         <div class="card"><h2>Cloudflare</h2><p>Workers + Durable Objects SQLite + D1</p></div>
       </div>
-      <div class="card" style="margin-top:24px">
-        ${workspaces.length === 0 ? "<p>No workspaces yet. Use the API to create one while the full UI form is being built.</p>" : workspaces.map((workspace) => `
-          <div class="workspace">
-            <div><strong>${workspace.name}</strong><br><span class="mono">/mcp/${workspace.slug}</span></div>
-            <span class="pill">${workspace.role ?? "owner"}</span>
-          </div>`).join("")}
+      <div class="app-grid" style="margin-top:24px">
+        <aside class="stack">
+          <div class="card stack">
+            <h2>Create workspace</h2>
+            <label>Slug<input id="workspace-slug" placeholder="my-agent-team"></label>
+            <label>Name<input id="workspace-name" placeholder="My Agent Team"></label>
+            <button id="create-workspace" class="primary">Create workspace</button>
+            <p id="workspace-result" class="muted"></p>
+          </div>
+          <div class="card stack">
+            <h2>Connect agents</h2>
+            <label>Workspace<select id="workspace-select"></select></label>
+            <label>Token name<input id="token-name" placeholder="claude-ui-designer"></label>
+            <label>Role<select id="token-role"><option>agent</option><option>manager</option><option>viewer</option><option>owner</option></select></label>
+            <button id="create-token">Create agent token</button>
+            <pre id="token-output" class="mono">Pick a workspace to generate setup commands.</pre>
+          </div>
+          <div class="card stack">
+            <h2>Open MCP</h2>
+            <pre id="mcp-output" class="mono">/mcp/&lt;workspace&gt;</pre>
+            <a id="mcp-info-link" href="#">MCP diagnostics</a>
+          </div>
+        </aside>
+        <section class="stack">
+          <div class="card">
+            <div class="row" style="justify-content:space-between">
+              <h2>Workspace cockpit</h2>
+              <div class="row"><input id="team-filter" placeholder="team, optional"><button id="refresh-cockpit">Refresh</button></div>
+            </div>
+            <div id="cockpit-metrics" class="grid" style="margin-top:18px"></div>
+          </div>
+          <div class="card">
+            <h2>Kanban</h2>
+            <div id="kanban" class="kanban"></div>
+          </div>
+          <div class="card">
+            <h2>Activity</h2>
+            <div id="activity" class="activity"></div>
+          </div>
+        </section>
       </div>
-      <h2 style="margin-top:32px">Setup</h2>
-      <pre class="mono">curl -X POST /api/workspaces \\
-  -H 'content-type: application/json' \\
-  -d '{"slug":"my-team","name":"My Team"}'
-
-curl -X POST /api/workspaces/my-team/tokens \\
-  -H 'content-type: application/json' \\
-  -d '{"name":"claude-ui","role":"agent"}'</pre>
     </section>
+    <script id="initial-data" type="application/json">${initialData}</script>
+    <script>
+      const state = JSON.parse(document.getElementById("initial-data").textContent);
+      const workspaceSelect = document.getElementById("workspace-select");
+      const tokenOutput = document.getElementById("token-output");
+      const mcpOutput = document.getElementById("mcp-output");
+      const mcpInfoLink = document.getElementById("mcp-info-link");
+
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[char]));
+      }
+
+      function renderWorkspaceSelect() {
+        workspaceSelect.innerHTML = state.workspaces.length
+          ? state.workspaces.map((workspace) => '<option value="' + escapeHtml(workspace.slug) + '">' + escapeHtml(workspace.name) + ' / ' + escapeHtml(workspace.slug) + '</option>').join("")
+          : '<option value="">No workspaces</option>';
+        updateMcpOutput();
+      }
+
+      function currentSlug() {
+        return workspaceSelect.value || state.workspaces[0]?.slug || "";
+      }
+
+      function updateMcpOutput() {
+        const slug = currentSlug();
+        const origin = location.origin;
+        mcpOutput.textContent = slug ? origin + "/mcp/" + slug : "Create a workspace first.";
+        mcpInfoLink.href = slug ? "/mcp/" + slug + "/info" : "#";
+      }
+
+      async function createWorkspace() {
+        const slug = document.getElementById("workspace-slug").value.trim();
+        const name = document.getElementById("workspace-name").value.trim() || slug;
+        const res = await fetch("/api/workspaces", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ slug, name }) });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "failed to create workspace");
+        state.workspaces.unshift(body.workspace);
+        renderWorkspaceSelect();
+        document.getElementById("workspace-result").textContent = "Created " + body.workspace.slug;
+        await refreshCockpit();
+      }
+
+      async function createToken() {
+        const slug = currentSlug();
+        if (!slug) return;
+        const name = document.getElementById("token-name").value.trim() || "agent";
+        const role = document.getElementById("token-role").value;
+        const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/tokens", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, role }) });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "failed to create token");
+        tokenOutput.textContent = "MCP URL: " + location.origin + "/mcp/" + slug + "\\nBearer token: " + body.token.token + "\\n\\nUse this token once in your agent MCP config. Store it like a password.";
+      }
+
+      async function refreshCockpit() {
+        const slug = currentSlug();
+        if (!slug) return;
+        updateMcpOutput();
+        const team = document.getElementById("team-filter").value.trim();
+        const params = team ? "?team=" + encodeURIComponent(team) : "";
+        const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/cockpit" + params);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "failed to load cockpit");
+        renderCockpit(body.result);
+      }
+
+      function renderCockpit(result) {
+        const board = result?.board || {};
+        const agents = board.agents || [];
+        const tasks = board.tasks || [];
+        const memories = result?.memories?.memories || [];
+        const decisions = result?.decisions?.decisions || [];
+        document.getElementById("cockpit-metrics").innerHTML = [
+          ["Agents", agents.length],
+          ["Tasks", tasks.length],
+          ["Memories", memories.length],
+          ["Decisions", decisions.length],
+        ].map(([label, value]) => '<div class="metric"><h2>' + value + '</h2><p>' + label + '</p></div>').join("");
+        const states = ["backlog", "open", "working", "blocked", "completed", "failed", "canceled"];
+        document.getElementById("kanban").innerHTML = states.map((stateName) => {
+          const items = tasks.filter((task) => task.state === stateName);
+          return '<div class="column"><strong>' + stateName.toUpperCase() + ' · ' + items.length + '</strong>' +
+            (items.length ? items.map((task) => '<div class="task"><strong>#' + task.id + '</strong> ' + escapeHtml(task.title) + '<br><span class="muted">' + escapeHtml(task.claimed_by || task.pending_assignee || "unassigned") + '</span></div>').join("") : '<p class="muted">empty</p>') +
+            '</div>';
+        }).join("");
+        document.getElementById("activity").innerHTML = (result?.activity?.activity || []).map((event) => {
+          const item = event.item || {};
+          const text = item.content_preview || item.message || item.title || JSON.stringify(item);
+          return '<div class="event"><span class="muted">' + escapeHtml(event.type) + '</span><br>' + escapeHtml(text) + '</div>';
+        }).join("") || '<p class="muted">No activity yet.</p>';
+      }
+
+      document.getElementById("create-workspace").addEventListener("click", () => createWorkspace().catch((error) => alert(error.message)));
+      document.getElementById("create-token").addEventListener("click", () => createToken().catch((error) => alert(error.message)));
+      document.getElementById("refresh-cockpit").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
+      workspaceSelect.addEventListener("change", refreshCockpit);
+      renderWorkspaceSelect();
+      refreshCockpit().catch(() => {});
+    </script>
   </main>`);
 }
