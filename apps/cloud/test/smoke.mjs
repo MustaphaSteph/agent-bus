@@ -136,6 +136,37 @@ try {
     assert(sent.thread_id, "send did not return a thread_id");
     const inbox = await debugCall("inbox", { agent: "claude", team: "cloud-smoke", mark_delivered: false });
     assert(inbox.messages?.length === 1, "inbox did not return the sent message");
+    const lastMessageId = inbox.messages[0].id;
+    const inboxWait = debugCall("inbox", { agent: "claude", team: "cloud-smoke", since_id: lastMessageId, wait_s: 2, mark_delivered: false });
+    setTimeout(() => {
+      void mcpCall(6, "send", { from: "codex", to: "claude", message: "delayed cloud message" });
+    }, 150);
+    const waitedInbox = await inboxWait;
+    assert(waitedInbox.messages?.[0]?.content === "delayed cloud message", "inbox wait_s did not return delayed message");
+
+    const createdTask = await mcpCall(7, "create_task", {
+      requested_by: "codex",
+      claimed_by: "claude",
+      title: "Cloud smoke task",
+      team: "cloud-smoke",
+    });
+    const waitForTask = debugCall("wait_for_task", {
+      task_id: createdTask.task.id,
+      since_updated_at: createdTask.task.updated_at,
+      wait_s: 2,
+    });
+    setTimeout(() => {
+      void mcpCall(8, "record_task_event", {
+        task_id: createdTask.task.id,
+        by_agent: "claude",
+        event_type: "progress",
+        message: "task moved during wait",
+        team: "cloud-smoke",
+      });
+    }, 150);
+    const waitedTask = await waitForTask;
+    assert(waitedTask.timed_out === false, "wait_for_task timed out despite delayed task activity");
+    assert(waitedTask.latest_event?.message === "task moved during wait", "wait_for_task did not return latest task event");
 
     const messages = await worker.fetch("/api/workspaces/demo/messages?team=cloud-smoke", { headers: { cookie } });
     await assertStatus(messages, 200, "messages api");

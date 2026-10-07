@@ -66,10 +66,16 @@ function optionalString(value: unknown): string | null {
 }
 
 function toAgent(row: AgentRow): Record<string, unknown> {
+  const ageS = Math.max(0, Math.round((now() - row.last_seen) / 1000));
+  const listening = row.listening_until !== null && row.listening_until > now() && row.paused !== 1;
+  const presence = row.paused === 1 ? "paused" : ageS < 60 ? "online" : ageS < 300 ? "idle" : "stale";
   return {
     ...row,
     capabilities: JSON.parse(row.capabilities) as string[],
     paused: row.paused === 1,
+    age_s: ageS,
+    listening,
+    presence,
   };
 }
 
@@ -235,7 +241,7 @@ export class WorkspaceBusObject implements DurableObject {
       case "cancel_task":
         return this.cancelTask(input);
       case "wait_for_task":
-        return this.taskResult(input);
+        return this.waitForTask(input);
       case "record_task_event":
         return this.recordTaskEvent(input);
       case "list_task_events":
@@ -522,29 +528,69 @@ export class WorkspaceBusObject implements DurableObject {
     return { channel, thread_id: threadId, recipients: subscribers.map((row) => row.agent) };
   }
 
-  private inbox(input: Record<string, unknown>): unknown {
+  private markAgentListening(agent: string, deadline: number | null): void {
+    this.sql.exec("UPDATE agents SET last_seen = ?, listening_until = ? WHERE name = ? AND removed_at IS NULL", now(), deadline, agent);
+  }
+
+  private readInboxRows(input: Record<string, unknown>): MessageRow[] {
     const agent = validateName("agent", input.agent);
     const limit = Math.min(Math.max(Number(input.limit ?? 20), 1), 500);
-    const claimSeconds = Number(input.claim_s ?? 0);
-    const markDelivered = input.mark_delivered !== false && claimSeconds <= 0;
+    const sinceId = Math.max(Number(input.since_id ?? 0), 0);
     const scope = scopeClause(input);
-    const rowsFound = rows<MessageRow>(
+    const threadId = optionalString(input.thread_id);
+    const threadSql = threadId ? " AND thread_id = ?" : "";
+    const threadParams = threadId ? [threadId] : [];
+    return rows<MessageRow>(
       this.sql.exec(
         `SELECT * FROM messages
-         WHERE to_agent = ? AND status = 'pending'
+         WHERE to_agent = ? AND id > ? AND status = 'pending'
            AND (claim_deadline IS NULL OR claim_deadline < ?)
            ${scope.sql}
-         ORDER BY id ASC LIMIT ?`,
+           ${threadSql}
+         ORDER BY CASE priority
+           WHEN 'urgent' THEN 3
+           WHEN 'high' THEN 2
+           WHEN 'normal' THEN 1
+           ELSE 0
+         END DESC, id ASC LIMIT ?`,
         agent,
+        sinceId,
         now(),
         ...scope.params,
+        ...threadParams,
         limit,
       ),
     );
+  }
+
+  private async inbox(input: Record<string, unknown>): Promise<unknown> {
+    const agent = validateName("agent", input.agent);
+    const row = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ? AND removed_at IS NULL", agent));
+    if (!row) throw new Error(`unknown agent ${agent}`);
+    this.markAgentListening(agent, null);
+    if (row.paused === 1) return { messages: [] };
+
+    let rowsFound = this.readInboxRows(input);
+    const waitSeconds = Math.min(Math.max(Number(input.wait_s ?? 0), 0), 110);
+    if (rowsFound.length === 0 && waitSeconds > 0) {
+      const deadline = now() + waitSeconds * 1000;
+      this.markAgentListening(agent, deadline);
+      while (rowsFound.length === 0 && now() < deadline) {
+        await sleep(100);
+        this.markAgentListening(agent, deadline);
+        rowsFound = this.readInboxRows(input);
+      }
+      this.markAgentListening(agent, null);
+    }
+
+    const claimSeconds = Number(input.claim_s ?? 0);
+    const markDelivered = input.mark_delivered !== false && claimSeconds <= 0;
     if (claimSeconds > 0 && rowsFound.length > 0) {
       const deadline = now() + Math.min(Math.max(claimSeconds, 1), 3600) * 1000;
       for (const message of rowsFound) {
         this.sql.exec("UPDATE messages SET claim_deadline = ?, claimed_by = ? WHERE id = ?", deadline, agent, message.id);
+        message.claim_deadline = deadline;
+        message.claimed_by = agent;
       }
     }
     if (markDelivered && rowsFound.length > 0) {
@@ -556,24 +602,25 @@ export class WorkspaceBusObject implements DurableObject {
     return { messages: rowsFound.map(toMessage) };
   }
 
-  private inboxPreviews(input: Record<string, unknown>): unknown {
+  private async inboxPreviews(input: Record<string, unknown>): Promise<unknown> {
     const agent = validateName("agent", input.agent);
-    const limit = Math.min(Math.max(Number(input.limit ?? 20), 1), 100);
     const previewChars = Math.min(Math.max(Number(input.preview_chars ?? 300), 0), 4000);
-    const scope = scopeClause(input);
-    const found = rows<MessageRow>(
-      this.sql.exec(
-        `SELECT * FROM messages
-         WHERE to_agent = ? AND status = 'pending'
-           AND (claim_deadline IS NULL OR claim_deadline < ?)
-           ${scope.sql}
-         ORDER BY id ASC LIMIT ?`,
-        agent,
-        now(),
-        ...scope.params,
-        limit,
-      ),
-    );
+    const row = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ? AND removed_at IS NULL", agent));
+    if (!row) throw new Error(`unknown agent ${agent}`);
+    this.markAgentListening(agent, null);
+    if (row.paused === 1) return { messages: [] };
+    let found = this.readInboxRows({ ...input, limit: Math.min(Math.max(Number(input.limit ?? 20), 1), 100) });
+    const waitSeconds = Math.min(Math.max(Number(input.wait_s ?? 0), 0), 110);
+    if (found.length === 0 && waitSeconds > 0) {
+      const deadline = now() + waitSeconds * 1000;
+      this.markAgentListening(agent, deadline);
+      while (found.length === 0 && now() < deadline) {
+        await sleep(100);
+        this.markAgentListening(agent, deadline);
+        found = this.readInboxRows({ ...input, limit: Math.min(Math.max(Number(input.limit ?? 20), 1), 100) });
+      }
+      this.markAgentListening(agent, null);
+    }
     return { messages: found.map((row) => previewMessage(row, previewChars)) };
   }
 
@@ -1126,6 +1173,55 @@ export class WorkspaceBusObject implements DurableObject {
     const taskId = Number(input.task_id ?? input.id);
     const tests = this.listTestResults({ task_id: taskId });
     return { ...task, ...(tests as Record<string, unknown>) };
+  }
+
+  private async waitForTask(input: Record<string, unknown>): Promise<unknown> {
+    const taskId = Number(input.task_id ?? input.id);
+    if (!Number.isInteger(taskId) || taskId <= 0) throw new Error("task_id is required");
+    const start = this.getTask({ task_id: taskId }) as { task: Record<string, unknown> };
+    const since = Number(input.since_updated_at ?? start.task.updated_at ?? 0);
+    const waitMs = Math.min(Math.max(Number(input.wait_s ?? 110), 0), 110) * 1000;
+    const deadline = now() + waitMs;
+    while (true) {
+      const result = this.taskResult({ task_id: taskId }) as {
+        task: Record<string, unknown>;
+        events: Array<Record<string, unknown>>;
+        test_results: Array<Record<string, unknown>>;
+      };
+      const threadId = String(result.task.thread_id ?? "");
+      const latestMessage = threadId
+        ? one<MessageRow>(this.sql.exec("SELECT * FROM messages WHERE thread_id = ? ORDER BY id DESC LIMIT 1", threadId))
+        : undefined;
+      const latestEvent = result.events.at(-1) ?? null;
+      const latestTestResult = result.test_results[0] ?? null;
+      const terminal = ["completed", "failed", "canceled"].includes(String(result.task.state));
+      const hasActivity =
+        Number(result.task.updated_at ?? 0) > since ||
+        Number(latestEvent?.created_at ?? 0) > since ||
+        Number(latestMessage?.created_at ?? 0) > since ||
+        Number(latestTestResult?.created_at ?? 0) > since ||
+        terminal;
+      if (hasActivity || waitMs === 0 || now() >= deadline) {
+        const timedOut = !hasActivity && waitMs > 0 && now() >= deadline;
+        return {
+          ...result,
+          timed_out: timedOut,
+          holder: result.task.claimed_by
+            ? (() => {
+              const holder = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ?", result.task.claimed_by));
+              return holder ? toAgent(holder) : null;
+            })()
+            : null,
+          latest_event: latestEvent,
+          latest_message: latestMessage ? toMessage(latestMessage) : null,
+          latest_test_result: latestTestResult,
+          suggested_next_actions: timedOut
+            ? ["check cockpit or activity later", "message the task holder if the task is stale"]
+            : ["review latest task activity", terminal ? "run final_report or review_gate" : "continue waiting or coordinate next step"],
+        };
+      }
+      await sleep(100);
+    }
   }
 
   private finalReport(input: Record<string, unknown>): unknown {
