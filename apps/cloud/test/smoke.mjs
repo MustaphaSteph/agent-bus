@@ -23,6 +23,16 @@ async function assertStatus(response, status, label) {
   }
 }
 
+function parseMcpEvent(text) {
+  const data = text
+    .split("\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => line.slice("data: ".length))
+    .join("\n");
+  if (!data) throw new Error(`missing MCP event data: ${text}`);
+  return JSON.parse(data);
+}
+
 function wrangler(args, persistTo) {
   execFileSync(
     "npx",
@@ -77,7 +87,7 @@ try {
     const token = tokenBody.token?.token;
     assert(typeof token === "string" && token.startsWith("ab_cloud_"), "agent token was not returned");
 
-    async function call(tool, input) {
+    async function debugCall(tool, input) {
       const response = await worker.fetch("/mcp/demo?json=1", {
         method: "POST",
         headers: {
@@ -91,11 +101,40 @@ try {
       return JSON.parse(body.content[0].text);
     }
 
-    await call("register", { name: "codex", team: "cloud-smoke", capabilities: ["pm"], replace: true });
-    await call("register", { name: "claude", team: "cloud-smoke", capabilities: ["ui"], replace: true });
-    const sent = await call("send", { from: "codex", to: "claude", message: "hello from cloud smoke" });
+    async function mcp(body) {
+      const response = await worker.fetch("/mcp/demo", {
+        method: "POST",
+        headers: {
+          accept: "application/json, text/event-stream",
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      await assertStatus(response, 200, body.method);
+      return parseMcpEvent(await response.text());
+    }
+
+    const init = await mcp({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "smoke", version: "0.0.0" } },
+    });
+    assert(init.result?.serverInfo?.name === "agent-bus-cloud-demo", "MCP initialize did not return the workspace server");
+    const tools = await mcp({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    assert(tools.result?.tools?.length >= 65, "MCP tools/list did not expose the agent-bus tool surface");
+
+    async function mcpCall(id, name, args) {
+      const event = await mcp({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } });
+      return event.result?.structuredContent?.result ?? JSON.parse(event.result.content[0].text);
+    }
+
+    await mcpCall(3, "register", { name: "codex", team: "cloud-smoke", capabilities: ["pm"], replace: true });
+    await mcpCall(4, "register", { name: "claude", team: "cloud-smoke", capabilities: ["ui"], replace: true });
+    const sent = await mcpCall(5, "send", { from: "codex", to: "claude", message: "hello from cloud smoke" });
     assert(sent.thread_id, "send did not return a thread_id");
-    const inbox = await call("inbox", { agent: "claude", team: "cloud-smoke", mark_delivered: false });
+    const inbox = await debugCall("inbox", { agent: "claude", team: "cloud-smoke", mark_delivered: false });
     assert(inbox.messages?.length === 1, "inbox did not return the sent message");
 
     const messages = await worker.fetch("/api/workspaces/demo/messages?team=cloud-smoke", { headers: { cookie } });
