@@ -226,12 +226,14 @@ The initial `apps/cloud` scaffold includes:
   activity/cockpit/now views, session briefs, tasks, boards, memories, and
   decisions
 - landing page and a dashboard cockpit for workspace creation, token creation,
-  MCP setup, Kanban, activity, memory, and decision visibility
+  MCP setup, Kanban, team chat, activity, memory, and decision visibility
 - setup APIs for workspaces and agent tokens
 - `/mcp/:workspace` as the real stateless remote MCP endpoint using
   Cloudflare's `createMcpHandler`; `/mcp/:workspace/info` is the human
   diagnostic endpoint, and `/mcp/:workspace?json=1` remains for curl/debug
   JSON dispatch
+- dashboard APIs for scope discovery, paged message history, message threads,
+  and message/task time series
 
 ## Open Decisions
 

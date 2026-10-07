@@ -46,6 +46,10 @@ function shell(title: string, body: string): Response {
     .muted { color: #7f8da3; }
     .activity { max-height: 420px; overflow: auto; display: grid; gap: 10px; }
     .event { border-left: 2px solid #48d6c2; padding: 8px 10px; background: #0b121a; border-radius: 8px; }
+    .chat { max-height: 520px; overflow: auto; display: grid; gap: 12px; }
+    .message { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 12px; background: #0b121a; border: 1px solid #172636; border-radius: 12px; }
+    .message strong { color: #f6fbff; }
+    .message-body { white-space: pre-wrap; overflow-wrap: anywhere; color: #d8e3f1; }
     .auth { max-width: 460px; margin: 10vh auto; }
     @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
     @media (max-width: 980px) { .app-grid, .kanban { grid-template-columns: 1fr; } }
@@ -165,6 +169,13 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
             <div id="kanban" class="kanban"></div>
           </div>
           <div class="card">
+            <div class="row" style="justify-content:space-between">
+              <h2>Team chat</h2>
+              <button id="refresh-chat">Refresh chat</button>
+            </div>
+            <div id="team-chat" class="chat"></div>
+          </div>
+          <div class="card">
             <h2>Activity</h2>
             <div id="activity" class="activity"></div>
           </div>
@@ -231,9 +242,13 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         const team = document.getElementById("team-filter").value.trim();
         const params = team ? "?team=" + encodeURIComponent(team) : "";
         const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/cockpit" + params);
+        const messagesRes = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/messages" + params);
         const body = await res.json();
+        const messagesBody = await messagesRes.json();
         if (!res.ok) throw new Error(body.error?.message || "failed to load cockpit");
+        if (!messagesRes.ok) throw new Error(messagesBody.error?.message || "failed to load messages");
         renderCockpit(body.result);
+        renderChat(messagesBody.result);
       }
 
       function renderCockpit(result) {
@@ -262,9 +277,19 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         }).join("") || '<p class="muted">No activity yet.</p>';
       }
 
+      function renderChat(page) {
+        const messages = page?.messages || [];
+        document.getElementById("team-chat").innerHTML = messages.length ? messages.map((message) => {
+          const body = message.content_preview || "";
+          const meta = "#" + message.id + " · " + (message.kind || "msg") + " · " + new Date(message.created_at).toLocaleTimeString();
+          return '<div class="message"><div><strong>' + escapeHtml(message.from_agent) + '</strong><br><span class="muted">' + escapeHtml(meta) + '</span><br><span class="pill">' + escapeHtml(message.to_agent) + '</span></div><div class="message-body">' + escapeHtml(body) + '</div></div>';
+        }).join("") : '<p class="muted">No messages yet.</p>';
+      }
+
       document.getElementById("create-workspace").addEventListener("click", () => createWorkspace().catch((error) => alert(error.message)));
       document.getElementById("create-token").addEventListener("click", () => createToken().catch((error) => alert(error.message)));
       document.getElementById("refresh-cockpit").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
+      document.getElementById("refresh-chat").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
       document.getElementById("logout").addEventListener("click", async () => { await fetch("/api/auth/logout", { method: "POST" }); location.href = "/app"; });
       workspaceSelect.addEventListener("change", refreshCockpit);
       renderWorkspaceSelect();

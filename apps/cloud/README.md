@@ -52,7 +52,8 @@ curl http://localhost:8787/mcp/demo/info \
 ```
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
-create agent tokens, show the remote MCP URL, and load the workspace cockpit.
+create agent tokens, show the remote MCP URL, and load the workspace cockpit
+with Kanban, activity, and team-chat history.
 
 Dashboard users log in with email/password. Agent sessions do not use the
 dashboard cookie; they use scoped workspace bearer tokens created from the
@@ -81,6 +82,17 @@ curl -X POST 'http://localhost:8787/mcp/demo?json=1' \
   -H 'content-type: application/json' \
   -d '{"tool":"cloud_workspace","input":{}}'
 ```
+
+## Cockpit API
+
+The dashboard uses these authenticated HTTP helpers on top of the same
+workspace Durable Object:
+
+- `GET /api/workspaces/:slug/cockpit` — board, activity, memories, decisions
+- `GET /api/workspaces/:slug/messages?team=<team>` — paged chat history
+- `GET /api/workspaces/:slug/messages/:id/thread` — message thread context
+- `GET /api/workspaces/:slug/scopes` — projects and teams with counts
+- `GET /api/workspaces/:slug/metrics?hours=24` — message/task time series
 
 ## Current Status
 

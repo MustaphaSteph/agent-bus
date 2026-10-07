@@ -250,6 +250,14 @@ export class WorkspaceBusObject implements DurableObject {
         return this.finalReport(input);
       case "review_gate":
         return this.reviewGate(input);
+      case "scopes":
+        return this.scopes();
+      case "message_page":
+        return this.messagePage(input);
+      case "message_thread":
+        return this.messageThread(input);
+      case "timeseries":
+        return this.timeseries(input);
       case "activity":
         return this.activity(input);
       case "cockpit":
@@ -1150,6 +1158,114 @@ export class WorkspaceBusObject implements DurableObject {
     const agents = this.directory(input);
     const tasks = this.listTasks({ ...input, include_terminal: false });
     return { agents: (agents as { agents: unknown[] }).agents, tasks: (tasks as { tasks: unknown[] }).tasks };
+  }
+
+  private scopes(): unknown {
+    const projects = rows<{ name: string | null; agents: number; messages: number; tasks: number }>(
+      this.sql.exec(
+        `WITH names(name) AS (
+           SELECT project FROM agents WHERE removed_at IS NULL AND project IS NOT NULL
+           UNION SELECT project FROM messages WHERE project IS NOT NULL
+           UNION SELECT project FROM tasks WHERE project IS NOT NULL
+         )
+         SELECT
+           names.name,
+           (SELECT COUNT(*) FROM agents WHERE removed_at IS NULL AND project = names.name) AS agents,
+           (SELECT COUNT(*) FROM messages WHERE project = names.name) AS messages,
+           (SELECT COUNT(*) FROM tasks WHERE project = names.name) AS tasks
+         FROM names ORDER BY names.name ASC`,
+      ),
+    );
+    const teams = rows<{ name: string | null; agents: number; messages: number; tasks: number }>(
+      this.sql.exec(
+        `WITH names(name) AS (
+           SELECT team FROM agents WHERE removed_at IS NULL AND team IS NOT NULL
+           UNION SELECT team FROM messages WHERE team IS NOT NULL
+           UNION SELECT team FROM tasks WHERE team IS NOT NULL
+         )
+         SELECT
+           names.name,
+           (SELECT COUNT(*) FROM agents WHERE removed_at IS NULL AND team = names.name) AS agents,
+           (SELECT COUNT(*) FROM messages WHERE team = names.name) AS messages,
+           (SELECT COUNT(*) FROM tasks WHERE team = names.name) AS tasks
+         FROM names ORDER BY names.name ASC`,
+      ),
+    );
+    return { projects, teams };
+  }
+
+  private messagePage(input: Record<string, unknown>): unknown {
+    const limit = Math.min(Math.max(Number(input.limit ?? 50), 1), 200);
+    const previewChars = Math.min(Math.max(Number(input.preview_chars ?? 4000), 1), 4000);
+    const beforeId = Number(input.before_id ?? 0);
+    const scope = scopeClause(input);
+    const cursorClause = Number.isInteger(beforeId) && beforeId > 0 ? " AND id < ?" : "";
+    const params = Number.isInteger(beforeId) && beforeId > 0 ? [beforeId, ...scope.params, limit + 1] : [...scope.params, limit + 1];
+    const page = rows<MessageRow>(
+      this.sql.exec(
+        `SELECT * FROM messages WHERE 1 = 1${cursorClause}${scope.sql} ORDER BY id DESC LIMIT ?`,
+        ...params,
+      ),
+    );
+    const hasMore = page.length > limit;
+    const visible = page.slice(0, limit).reverse();
+    return {
+      messages: visible.map((message) => ({
+        ...previewMessage(message, previewChars),
+        replies_count: one<{ count: number }>(this.sql.exec("SELECT COUNT(*) AS count FROM messages WHERE reply_to = ?", message.id))?.count ?? 0,
+      })),
+      next_cursor: hasMore ? page[limit]?.id ?? null : null,
+      has_more: hasMore,
+    };
+  }
+
+  private messageThread(input: Record<string, unknown>): unknown {
+    const id = Number(input.message_id ?? input.id);
+    if (!Number.isInteger(id) || id <= 0) throw new Error("message_id is required");
+    const root = one<MessageRow>(this.sql.exec("SELECT * FROM messages WHERE id = ?", id));
+    if (!root) throw new Error(`message ${id} not found`);
+    const threadId = root.thread_id;
+    const messages = threadId
+      ? rows<MessageRow>(this.sql.exec("SELECT * FROM messages WHERE thread_id = ? ORDER BY id ASC", threadId))
+      : rows<MessageRow>(this.sql.exec("SELECT * FROM messages WHERE id = ? OR reply_to = ? ORDER BY id ASC", id, id));
+    return { root: toMessage(root), thread_id: threadId ?? "", messages: messages.map(toMessage) };
+  }
+
+  private timeseries(input: Record<string, unknown>): unknown {
+    const hours = Math.min(Math.max(Number(input.hours ?? 24), 1), 24 * 14);
+    const bucketMs = Math.min(Math.max(Number(input.bucket_ms ?? 60 * 60 * 1000), 60_000), 24 * 60 * 60 * 1000);
+    const start = now() - hours * 60 * 60 * 1000;
+    const scope = scopeClause(input);
+    const messageRows = rows<{ bucket: number; count: number }>(
+      this.sql.exec(
+        `SELECT CAST((created_at - ?) / ? AS INTEGER) AS bucket, COUNT(*) AS count
+         FROM messages WHERE created_at >= ?${scope.sql}
+         GROUP BY bucket ORDER BY bucket ASC`,
+        start,
+        bucketMs,
+        start,
+        ...scope.params,
+      ),
+    );
+    const taskRows = rows<{ bucket: number; count: number }>(
+      this.sql.exec(
+        `SELECT CAST((created_at - ?) / ? AS INTEGER) AS bucket, COUNT(*) AS count
+         FROM tasks WHERE created_at >= ?${scope.sql}
+         GROUP BY bucket ORDER BY bucket ASC`,
+        start,
+        bucketMs,
+        start,
+        ...scope.params,
+      ),
+    );
+    const buckets = new Map<number, { at: number; messages: number; tasks: number }>();
+    for (const row of messageRows) buckets.set(row.bucket, { at: start + row.bucket * bucketMs, messages: row.count, tasks: 0 });
+    for (const row of taskRows) {
+      const bucket = buckets.get(row.bucket) ?? { at: start + row.bucket * bucketMs, messages: 0, tasks: 0 };
+      bucket.tasks = row.count;
+      buckets.set(row.bucket, bucket);
+    }
+    return { start, bucket_ms: bucketMs, buckets: [...buckets.values()].sort((a, b) => a.at - b.at) };
   }
 
   private activity(input: Record<string, unknown>): unknown {

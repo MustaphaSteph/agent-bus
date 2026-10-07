@@ -102,6 +102,37 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     return json({ ok: true, result });
   }
 
+  const scopesMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/scopes$/);
+  if (scopesMatch && request.method === "GET") {
+    const slug = requireSlug(scopesMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    const result = await callWorkspace(env, context, "scopes", {});
+    return json({ ok: true, result });
+  }
+
+  const messagesMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/messages$/);
+  if (messagesMatch && request.method === "GET") {
+    const slug = requireSlug(messagesMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    const team = url.searchParams.get("team") ?? undefined;
+    const project = url.searchParams.get("project") ?? undefined;
+    const area = url.searchParams.get("area") ?? undefined;
+    const before_id = url.searchParams.get("before_id") ? Number(url.searchParams.get("before_id")) : undefined;
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    const result = await callWorkspace(env, context, "message_page", { team, project, area, before_id, limit });
+    return json({ ok: true, result });
+  }
+
+  const metricsMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/metrics$/);
+  if (metricsMatch && request.method === "GET") {
+    const slug = requireSlug(metricsMatch);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    const team = url.searchParams.get("team") ?? undefined;
+    const hours = Number(url.searchParams.get("hours") ?? 24);
+    const result = await callWorkspace(env, context, "timeseries", { team, hours });
+    return json({ ok: true, result });
+  }
+
   const threadMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/threads\/(?<threadId>[^/]+)$/);
   if (threadMatch && request.method === "GET") {
     const slug = requireSlug(threadMatch);
@@ -109,6 +140,15 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     if (!threadId) throw new Error("thread id is required");
     const context = await resolveWorkspaceContext(env, request, slug);
     const result = await callWorkspace(env, context, "thread", { thread_id: threadId });
+    return json({ ok: true, result });
+  }
+
+  const messageThreadMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/messages\/(?<messageId>\\d+)\/thread$/);
+  if (messageThreadMatch && request.method === "GET") {
+    const slug = requireSlug(messageThreadMatch);
+    const messageId = Number(messageThreadMatch.groups?.messageId);
+    const context = await resolveWorkspaceContext(env, request, slug);
+    const result = await callWorkspace(env, context, "message_thread", { message_id: messageId });
     return json({ ok: true, result });
   }
 
