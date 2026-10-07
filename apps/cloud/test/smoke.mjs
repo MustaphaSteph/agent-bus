@@ -93,14 +93,23 @@ try {
     });
     await assertStatus(extraToken, 201, "extra token create");
     const extraTokenId = (await json(extraToken)).token.id;
+    const viewerTokenResponse = await worker.fetch("/api/workspaces/demo/tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "viewer", role: "viewer" }),
+    });
+    await assertStatus(viewerTokenResponse, 201, "viewer token create");
+    const viewerTokenBody = await json(viewerTokenResponse);
+    const viewerToken = viewerTokenBody.token?.token;
+    assert(typeof viewerToken === "string" && viewerToken.startsWith("ab_cloud_"), "viewer token was not returned");
     const tokenList = await worker.fetch("/api/workspaces/demo/tokens", { headers: { cookie } });
     await assertStatus(tokenList, 200, "token list");
-    assert((await json(tokenList)).tokens.length === 2, "token list did not include created tokens");
+    assert((await json(tokenList)).tokens.length === 3, "token list did not include created tokens");
     const revoke = await worker.fetch(`/api/workspaces/demo/tokens/${extraTokenId}`, { method: "DELETE", headers: { cookie } });
     await assertStatus(revoke, 200, "token revoke");
     const tokenListAfterRevoke = await worker.fetch("/api/workspaces/demo/tokens", { headers: { cookie } });
     await assertStatus(tokenListAfterRevoke, 200, "token list after revoke");
-    assert((await json(tokenListAfterRevoke)).tokens.length === 1, "token revoke did not remove the token");
+    assert((await json(tokenListAfterRevoke)).tokens.length === 2, "token revoke did not remove the token");
 
     async function debugCall(tool, input) {
       const response = await worker.fetch("/mcp/demo?json=1", {
@@ -165,6 +174,24 @@ try {
 
     await mcpCall(3, "register", { name: "codex", team: "cloud-smoke", capabilities: ["pm"], replace: true });
     await mcpCall(4, "register", { name: "claude", team: "cloud-smoke", capabilities: ["ui"], replace: true });
+    const viewerSend = await worker.fetch("/mcp/demo?json=1", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${viewerToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ tool: "send", input: { from: "viewer", to: "claude", message: "should be denied" } }),
+    });
+    assert(viewerSend.status >= 400, `viewer token was allowed to send a mutating bus message: ${viewerSend.status} ${await viewerSend.text()}`);
+    const viewerCockpit = await worker.fetch("/mcp/demo?json=1", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${viewerToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ tool: "cockpit", input: { team: "cloud-smoke" } }),
+    });
+    await assertStatus(viewerCockpit, 200, "viewer cockpit read");
     await mcpCall(41, "ask_async", { from: "claude", to: "codex", question: "pending cycle check" });
     await expectDebugFailure("ask", { from: "codex", to: "claude", question: "should detect cycle", timeout_s: 1 }, "ASK_CYCLE");
     const sent = await mcpCall(5, "send", { from: "codex", to: "claude", message: "hello from cloud smoke" });
