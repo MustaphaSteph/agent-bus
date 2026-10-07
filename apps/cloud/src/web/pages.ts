@@ -35,7 +35,8 @@ function shell(title: string, body: string): Response {
     .stack { display: grid; gap: 14px; }
     label { display: grid; gap: 8px; color: #9fb1c7; font-size: 13px; }
     input, select, button { font: inherit; }
-    input, select { width: 100%; box-sizing: border-box; color: #e7edf7; background: #081018; border: 1px solid #22364a; border-radius: 10px; padding: 11px 12px; }
+    input, select, textarea { width: 100%; box-sizing: border-box; color: #e7edf7; background: #081018; border: 1px solid #22364a; border-radius: 10px; padding: 11px 12px; }
+    textarea { min-height: 110px; resize: vertical; }
     button { border: 1px solid #244156; border-radius: 10px; padding: 11px 13px; color: white; background: #101923; cursor: pointer; }
     button.primary { background: linear-gradient(135deg, #00b7ff, #7c3aed); border-color: transparent; }
     .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -163,6 +164,21 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
             <h2>Open MCP</h2>
             <pre id="mcp-output" class="mono">/mcp/&lt;workspace&gt;</pre>
             <a id="mcp-info-link" href="#">MCP diagnostics</a>
+          </div>
+          <div class="card stack">
+            <h2>Human actions</h2>
+            <p class="muted">Send through the same team-scoped bus agents use. The sender must be a registered agent in this workspace.</p>
+            <label>From agent<input id="action-from" placeholder="codex-pm"></label>
+            <label>Team<input id="action-team" placeholder="ios-ui"></label>
+            <label>Direct target<input id="action-to" placeholder="claude-designer"></label>
+            <label>Message<textarea id="action-message" placeholder="Ask for a quick UI review or send a team update."></textarea></label>
+            <div class="row"><button id="send-team-message">Send to team</button><button id="send-direct-message">Send direct</button></div>
+            <label>Task title<input id="task-title" placeholder="Design the empty state"></label>
+            <label>Task description<textarea id="task-description" placeholder="Expected output, scope, and constraints."></textarea></label>
+            <label>Assign to <span class="muted">(optional)</span><input id="task-assignee" placeholder="claude-designer"></label>
+            <label>State<select id="task-state"><option>open</option><option>backlog</option></select></label>
+            <button id="create-task-action" class="primary">Create tracked task</button>
+            <p id="action-result" class="muted"></p>
           </div>
         </aside>
         <section class="stack">
@@ -374,6 +390,66 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         await refreshMembers();
       }
 
+      async function workspaceRpc(op, input) {
+        const slug = currentSlug();
+        if (!slug) throw new Error("Create or select a workspace first.");
+        const res = await fetch("/api/workspaces/" + encodeURIComponent(slug) + "/rpc", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ op, input }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error?.message || "workspace action failed");
+        return body.result;
+      }
+
+      function actionScope() {
+        const team = document.getElementById("action-team").value.trim() || document.getElementById("team-filter").value.trim();
+        return team ? { team } : {};
+      }
+
+      async function sendTeamMessage() {
+        const from = document.getElementById("action-from").value.trim();
+        const team = document.getElementById("action-team").value.trim() || document.getElementById("team-filter").value.trim();
+        const message = document.getElementById("action-message").value;
+        if (!from || !team || !message.trim()) throw new Error("from agent, team, and message are required");
+        const result = await workspaceRpc("send_team", { from, team, message });
+        document.getElementById("action-result").textContent = "Sent to " + (result.recipients?.length ?? 0) + " team member(s).";
+        document.getElementById("team-filter").value = team;
+        await refreshCockpit();
+      }
+
+      async function sendDirectMessage() {
+        const from = document.getElementById("action-from").value.trim();
+        const to = document.getElementById("action-to").value.trim();
+        const message = document.getElementById("action-message").value;
+        if (!from || !to || !message.trim()) throw new Error("from agent, direct target, and message are required");
+        const result = await workspaceRpc("send", { from, to, message });
+        document.getElementById("action-result").textContent = "Sent message #" + result.id + ".";
+        await refreshCockpit();
+      }
+
+      async function createTrackedTask() {
+        const requested_by = document.getElementById("action-from").value.trim();
+        const title = document.getElementById("task-title").value.trim();
+        const description = document.getElementById("task-description").value;
+        const claimed_by = document.getElementById("task-assignee").value.trim();
+        const state = document.getElementById("task-state").value;
+        if (!requested_by || !title) throw new Error("from agent and task title are required");
+        const result = await workspaceRpc("create_task", {
+          requested_by,
+          title,
+          description,
+          claimed_by: claimed_by || undefined,
+          state,
+          ...actionScope(),
+        });
+        document.getElementById("action-result").textContent = "Created task #" + result.task.id + ".";
+        document.getElementById("task-title").value = "";
+        document.getElementById("task-description").value = "";
+        await refreshCockpit();
+      }
+
       async function refreshCockpit() {
         const slug = currentSlug();
         if (!slug) return;
@@ -428,6 +504,9 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
       document.getElementById("create-workspace").addEventListener("click", () => createWorkspace().catch((error) => alert(error.message)));
       document.getElementById("create-token").addEventListener("click", () => createToken().catch((error) => alert(error.message)));
       document.getElementById("add-member").addEventListener("click", () => addMember().catch((error) => alert(error.message)));
+      document.getElementById("send-team-message").addEventListener("click", () => sendTeamMessage().catch((error) => alert(error.message)));
+      document.getElementById("send-direct-message").addEventListener("click", () => sendDirectMessage().catch((error) => alert(error.message)));
+      document.getElementById("create-task-action").addEventListener("click", () => createTrackedTask().catch((error) => alert(error.message)));
       document.getElementById("refresh-cockpit").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
       document.getElementById("refresh-chat").addEventListener("click", () => refreshCockpit().catch((error) => alert(error.message)));
       document.getElementById("logout").addEventListener("click", async () => { await fetch("/api/auth/logout", { method: "POST" }); location.href = "/app"; });

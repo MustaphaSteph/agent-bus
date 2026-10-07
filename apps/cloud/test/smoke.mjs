@@ -236,6 +236,36 @@ try {
 
     await mcpCall(3, "register", { name: "codex", team: "cloud-smoke", capabilities: ["pm"], replace: true });
     await mcpCall(4, "register", { name: "claude", team: "cloud-smoke", capabilities: ["ui"], replace: true });
+    const dashboardTeamSend = await worker.fetch("/api/workspaces/demo/rpc", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        op: "send_team",
+        input: { from: "codex", team: "cloud-smoke", message: "dashboard team dispatch" },
+      }),
+    });
+    await assertStatus(dashboardTeamSend, 200, "dashboard team send");
+    assert((await json(dashboardTeamSend)).result.recipients.includes("claude"), "dashboard team send did not target team member");
+    const dashboardDirectSend = await worker.fetch("/api/workspaces/demo/rpc", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        op: "send",
+        input: { from: "codex", to: "claude", message: "dashboard direct dispatch" },
+      }),
+    });
+    await assertStatus(dashboardDirectSend, 200, "dashboard direct send");
+    assert((await json(dashboardDirectSend)).result.delivered_to === "claude", "dashboard direct send did not deliver to claude");
+    const dashboardTask = await worker.fetch("/api/workspaces/demo/rpc", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        op: "create_task",
+        input: { requested_by: "codex", title: "Dashboard-created task", team: "cloud-smoke", state: "backlog" },
+      }),
+    });
+    await assertStatus(dashboardTask, 200, "dashboard task create");
+    assert((await json(dashboardTask)).result.task.title === "Dashboard-created task", "dashboard task create returned wrong task");
     const viewerSend = await worker.fetch("/mcp/demo?json=1", {
       method: "POST",
       headers: {
@@ -259,8 +289,9 @@ try {
     const sent = await mcpCall(5, "send", { from: "codex", to: "claude", message: "hello from cloud smoke" });
     assert(sent.thread_id, "send did not return a thread_id");
     const inbox = await debugCall("inbox", { agent: "claude", team: "cloud-smoke", mark_delivered: false });
-    assert(inbox.messages?.length === 1, "inbox did not return the sent message");
-    const lastMessageId = inbox.messages[0].id;
+    const smokeMessage = inbox.messages?.find((message) => message.content === "hello from cloud smoke");
+    assert(smokeMessage, "inbox did not return the sent message");
+    const lastMessageId = Math.max(...inbox.messages.map((message) => message.id));
     const inboxWait = debugCall("inbox", { agent: "claude", team: "cloud-smoke", since_id: lastMessageId, wait_s: 2, mark_delivered: false });
     setTimeout(() => {
       void mcpCall(6, "send", { from: "codex", to: "claude", message: "delayed cloud message" });
