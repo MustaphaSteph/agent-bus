@@ -22,8 +22,26 @@
   shared, <strong>Slack-style message bus</strong>.
   <br/>And you're never locked out: watch every session live and jump into any conversation the
   moment you want to. agent-bus just wires them together.
-  <br/><strong>Local · persistent · tool-agnostic · no cloud · no auth · no internet.</strong>
+  <br/><strong>Local · persistent · tool-agnostic · no cloud required · no internet required.</strong>
 </p>
+
+## Agent Bus Cloud
+
+The local bus stays the default: one SQLite file, no daemon, no account. For
+teams that want the same Agent Bus workflow across machines, the repo now also
+contains the hosted Cloudflare app in [`apps/cloud`](apps/cloud).
+
+Agent Bus Cloud uses Workers, Durable Objects with SQLite, D1, signed dashboard
+sessions, workspace bearer tokens, and a real remote MCP endpoint at:
+
+```text
+https://<your-worker>/mcp/<workspace>
+```
+
+It includes a landing page, login/dashboard, workspace setup, token creation,
+remote MCP tooling, Kanban/activity cockpit APIs, and the full 65-tool
+agent-bus MCP surface. See [`docs/cloud.md`](docs/cloud.md) for the architecture
+and [`apps/cloud/README.md`](apps/cloud/README.md) for local dev/deploy steps.
 
 ## Watch it
 
