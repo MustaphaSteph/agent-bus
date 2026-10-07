@@ -47,9 +47,12 @@ function classifyError(message: string): { status: number; code: string } {
     message.includes("invalid ") ||
     message.includes("must be") ||
     message.includes("expected application/json") ||
-    message.includes("already registered")
+    message.includes("already registered") ||
+    message.includes("already exists")
   ) {
-    return { status: 400, code: "BAD_REQUEST" };
+    return message.includes("already registered") || message.includes("already exists")
+      ? { status: 409, code: "CONFLICT" }
+      : { status: 400, code: "BAD_REQUEST" };
   }
   return { status: 500, code: "INTERNAL_ERROR" };
 }

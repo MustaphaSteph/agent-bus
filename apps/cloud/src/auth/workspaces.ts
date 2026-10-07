@@ -39,6 +39,8 @@ export async function ensureDevUser(env: Env): Promise<string> {
 export async function createUser(env: Env, email: string, password: string, name?: string): Promise<AuthUser> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) throw new Error("valid email is required");
+  const existing = await env.AGENT_BUS_CLOUD_DB.prepare("SELECT id FROM users WHERE email = ?").bind(normalizedEmail).first<{ id: string }>();
+  if (existing) throw new Error("email is already registered");
   const id = newId("usr");
   const at = now();
   const passwordHash = await hashPassword(password);
@@ -64,6 +66,8 @@ export async function requireUser(env: Env, request: Request): Promise<AuthUser>
 }
 
 export async function createWorkspace(env: Env, userId: string, slug: string, name: string): Promise<WorkspaceRow> {
+  const existing = await getWorkspaceBySlug(env, slug);
+  if (existing) throw new Error(`workspace ${slug} already exists`);
   const id = newId("ws");
   const at = now();
   await env.AGENT_BUS_CLOUD_DB.batch([

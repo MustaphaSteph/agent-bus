@@ -75,6 +75,12 @@ try {
       body: JSON.stringify({ email: "bad-email", password: "short", name: "Bad" }),
     });
     assert(invalidSignup.status === 400, `invalid signup returned ${invalidSignup.status}`);
+    const duplicateSignup = await worker.fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "smoke@example.com", password: "change-me-please", name: "Smoke 2" }),
+    });
+    assert(duplicateSignup.status === 409, `duplicate signup returned ${duplicateSignup.status}`);
 
     const createWorkspace = await worker.fetch("/api/workspaces", {
       method: "POST",
@@ -82,6 +88,12 @@ try {
       body: JSON.stringify({ slug: "demo", name: "Demo" }),
     });
     await assertStatus(createWorkspace, 201, "workspace create");
+    const duplicateWorkspace = await worker.fetch("/api/workspaces", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ slug: "demo", name: "Duplicate Demo" }),
+    });
+    assert(duplicateWorkspace.status === 409, `duplicate workspace returned ${duplicateWorkspace.status}`);
 
     const memberSignup = await worker.fetch("/api/auth/signup", {
       method: "POST",
