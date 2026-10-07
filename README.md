@@ -143,7 +143,7 @@ curl -fsSL \
 Then run `agent-bus ui` to open the cockpit. Verify anytime:
 
 ```bash
-agent-bus --version                # 0.32.0
+agent-bus --version                # 0.33.0
 claude mcp list | grep agent-bus   # Claude Code
 codex mcp list | grep agent-bus    # Codex
 kimi mcp test agent-bus            # Kimi Code
