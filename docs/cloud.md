@@ -209,7 +209,13 @@ The initial `apps/cloud` scaffold includes:
   Object SQLite
 - a cloud tool registry containing all 65 local MCP tool names
 - implemented cloud operations for registration, directory/whois, direct send,
-  team send, inbox, reply, thread reads, tasks, boards, memories, and decisions
+  team send, inbox/previews/status, claim/ack, ask/ask_async, replies,
+  reply-thread, capability/team ask routing, message diagnostics, channel
+  pub/sub, recent messages, roster cleanup, agent status, task claim/assign/
+  release/delegate/review/cancel/handoff flows, scope conflict checks, task
+  events, test evidence, task result bundles, final reports, review gates,
+  activity/cockpit/now views, session briefs, tasks, boards, memories, and
+  decisions
 - landing page and dashboard shell
 - setup APIs for workspaces and agent tokens
 - `/mcp/:workspace` endpoint with direct JSON dispatch while the

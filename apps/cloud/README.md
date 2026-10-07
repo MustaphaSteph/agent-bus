@@ -46,18 +46,52 @@ curl http://localhost:8787/mcp/demo
 Implemented cloud operations:
 
 - `register`
+- `remove_agent`
+- `delete_team`
 - `whois` / `directory`
 - `send`
 - `send_team`
+- channels: `subscribe`, `unsubscribe`, `send_channel`, `subscribers`
 - `inbox`
+- `inbox_status`
+- `inbox_previews`
+- `get_message`
+- `ack`
+- `ask` / `ask_async`
+- `ask_best` / `ask_team`
 - `reply`
+- `reply_thread`
+- `message_status`
+- `why_no_reply`
 - `thread`
+- `recent`
 - `create_task`
+- `delegate` / `delegate_team`
+- `claim_task`
+- `assign_task`
+- `claim_best_task`
 - `list_tasks`
 - `get_task`
 - `update_task`
+- `release_task`
+- `acknowledge_task`
+- `submit_review`
+- `handoff_task`
+- `check_scope_conflicts`
+- `cancel_task`
+- `wait_for_task`
+- agent status: `set_agent_status`, `sleep_agent`, `wake_agent`
+- task events and evidence: `record_task_event`, `list_task_events`,
+  `record_test_result`, `list_test_results`, `task_result`
+- `final_report`
+- `review_gate`
+- `activity`
+- `cockpit`
+- `now`
 - `project_board` / `team_board`
 - `remember` / `list_memories`
+- `pin_memory` / `unpin_memory`
+- `session_brief`
 - `record_decision` / `list_decisions`
 - `cloud_workspace`
 
