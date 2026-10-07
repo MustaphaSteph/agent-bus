@@ -88,6 +88,8 @@ Dashboard login and agent access are separate:
 - agents use workspace-scoped bearer tokens created by a manager/owner
 - the remote MCP endpoint accepts bearer tokens so Claude/Codex/Kimi sessions
   can connect without a browser session
+- production deployments must set `AGENT_BUS_CLOUD_AUTH_SECRET`; only
+  `development`/`test` environments use a deterministic local fallback
 
 ## MCP Endpoint Shape
 

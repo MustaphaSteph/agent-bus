@@ -29,7 +29,11 @@ function bufferSource(bytes: Uint8Array): ArrayBuffer {
 }
 
 function sessionSecret(env: Env): string {
-  return env.AGENT_BUS_CLOUD_AUTH_SECRET ?? `development:${env.AGENT_BUS_CLOUD_ENV}:agent-bus-cloud`;
+  if (env.AGENT_BUS_CLOUD_AUTH_SECRET) return env.AGENT_BUS_CLOUD_AUTH_SECRET;
+  if (env.AGENT_BUS_CLOUD_ENV === "development" || env.AGENT_BUS_CLOUD_ENV === "test") {
+    return `development:${env.AGENT_BUS_CLOUD_ENV}:agent-bus-cloud`;
+  }
+  throw new Error("AGENT_BUS_CLOUD_AUTH_SECRET is required outside development");
 }
 
 async function hmac(env: Env, payload: string): Promise<string> {

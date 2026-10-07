@@ -22,7 +22,7 @@ npm run dev
 
 Before deploying, create a real D1 database and replace the placeholder
 `database_id` in `wrangler.toml`. Also set a strong auth secret for signed
-dashboard sessions:
+dashboard sessions. Production requests fail closed without this secret:
 
 ```bash
 wrangler d1 create agent-bus-cloud
