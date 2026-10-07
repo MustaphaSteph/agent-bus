@@ -116,6 +116,10 @@ try {
     const signup = cloud("signup", "--email", "cli@example.com", "--password", "change-me-please", "--name", "CLI");
     assert(signup.includes("signed up"), "cloud signup did not report success");
 
+    const health = cloud("health");
+    assert(health.includes("healthy"), "cloud health did not report a healthy host");
+    assert(health.includes("tools:"), "cloud health did not print tool status");
+
     const created = cloud("workspace", "create", "cli-demo", "--name", "CLI Demo");
     assert(created.includes("created cli-demo"), "cloud workspace create did not report success");
 

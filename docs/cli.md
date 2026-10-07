@@ -17,6 +17,7 @@ Default host is `http://localhost:8787`. Override it with `--host` or
 ```bash
 agent-bus cloud signup --email you@example.com --password 'change-me-please' --name You
 agent-bus cloud login --email you@example.com --password 'change-me-please'
+agent-bus cloud health
 agent-bus cloud workspaces
 
 agent-bus cloud workspace create my-team --name "My Team"
@@ -44,6 +45,10 @@ agent-bus cloud --host https://agentbus.example.com tokens create my-team \
 `tokens create` prints a copy-paste remote MCP config with the workspace
 URL and bearer token. Treat that token like a password; the cloud
 dashboard and CLI only show the raw token once.
+
+Use `health` after `wrangler dev` or a production deploy. It does not
+require login; it checks `/api/health` and `/api/tools`, then reports the
+host environment and how many cloud tools are implemented.
 
 Use `mcp-config` when you already have a token and need to regenerate the
 generic remote-MCP JSON snippet.

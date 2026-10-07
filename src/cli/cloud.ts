@@ -14,6 +14,17 @@ interface CloudOptions {
   host?: string;
 }
 
+interface CloudHealthBody {
+  ok?: boolean;
+  service?: string;
+  env?: string;
+}
+
+interface CloudToolStatus {
+  name: string;
+  implemented?: boolean;
+}
+
 const DEFAULT_HOST = "http://localhost:8787";
 
 function configPath(): string {
@@ -174,6 +185,35 @@ export function registerCloudCommands(program: Command): void {
       const host = normalizeHost(cloud.opts<CloudOptions>().host);
       clearCookie(host);
       console.log(`${kleur.green("logged out")} ${host}`);
+    });
+
+  cloud
+    .command("health")
+    .description("Check an Agent Bus Cloud host and its published cloud tool surface")
+    .option("--json", "print raw JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const health = await request(host, "/api/health") as CloudHealthBody;
+      const toolsBody = await request(host, "/api/tools") as { tools?: CloudToolStatus[] };
+      const tools = toolsBody.tools ?? [];
+      const implemented = tools.filter((tool) => tool.implemented !== false).length;
+      const missing = tools.filter((tool) => tool.implemented === false).map((tool) => tool.name);
+      const body = {
+        host,
+        health,
+        tools: {
+          total: tools.length,
+          implemented,
+          missing,
+        },
+      };
+      if (opts.json) return printJson(body);
+      const ok = health.ok === true && missing.length === 0 && tools.length > 0;
+      console.log(`${ok ? kleur.green("healthy") : kleur.yellow("check")} ${host}`);
+      console.log(`service: ${health.service ?? "unknown"}`);
+      console.log(`env: ${health.env ?? "unknown"}`);
+      console.log(`tools: ${implemented}/${tools.length} implemented`);
+      if (missing.length > 0) console.log(`${kleur.yellow("missing:")} ${missing.join(", ")}`);
     });
 
   cloud
