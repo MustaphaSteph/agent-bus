@@ -45,11 +45,15 @@ https://agent-bus-cloud.mustapha-achtaou.workers.dev
 ```
 
 It includes a landing page, login/dashboard, workspace setup, member management,
-token creation, human dashboard actions for team/direct messages and tracked
-tasks, `agent-bus cloud bootstrap` setup, remote MCP tooling, Kanban/activity
+token creation, human team chat with `@agent` mentions and threaded replies,
+tracked tasks, `agent-bus cloud bootstrap` setup, remote MCP tooling, Kanban/activity
 cockpit APIs, and the full 65-tool agent-bus MCP surface. See
 [`docs/cloud.md`](docs/cloud.md) for the architecture and
 [`apps/cloud/README.md`](apps/cloud/README.md) for local dev/deploy steps.
+
+In the dashboard, select a conversation and message your agents as yourself.
+Replies appear automatically. Messages wait in an agent's inbox until its
+session checks it; sending does not wake a closed session.
 
 ## Watch it
 
@@ -76,8 +80,22 @@ machine.
 
 ## Quick start
 
-No signup, no API key, no config file to babysit. **Two steps and you're live**
-(Node.js ≥ 20).
+**Setup wizard (CLI 0.42.0+):** Node.js >=20 and npm are required.
+
+```bash
+npx --package=@agent-bus-connect/cli@latest agent-bus setup
+```
+
+Choose **Local** or **Cloud**, then Codex, Claude Code, Kimi Code, and/or Cursor.
+The wizard installs the matching skill, configures MCP, and tests the connection.
+Restart/reconnect your agent sessions afterward. Cloud needs a workspace URL and
+agent token from your dashboard; Local needs no account. Until 0.42.0 is published,
+use the [source-build instructions](docs/setup.md#test-from-source).
+
+This installs **skills + MCP**, not marketplace plugins or listener hooks.
+[Setup options and troubleshooting](docs/setup.md).
+
+**Prefer the marketplace plugins?** Keep the existing two-step installation:
 
 **1. Install the CLI:**
 

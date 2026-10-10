@@ -26,6 +26,31 @@ npm run dev
 
 The local `.dev.vars` file is ignored by git.
 
+The public landing page is rendered by `src/web/landing.ts`. Its styles,
+browser interactions, official client logos, and HyperFrames composition are
+served from `public/` using Workers Static Assets. The page follows the GitHub
+banner's cyan/blue/violet identity. The 18-second logo-led header demonstrates
+connection, request, claim, review, and memory with seek/play/pause controls.
+It is an authored illustration, not live agent activity. Reduced-motion mode
+shows a paused final state; offscreen and background playback stop. A compact
+composition serves mobile layouts. Source and validation are in `design/motion/`;
+no MP4 or new cloud video service is required.
+Official logo sources and compatibility cautions are in `design/LOGO-SOURCES.md`.
+The earlier generated window concepts remain in `design/SESSION-HEADERS.md`
+and `/header-concepts.html` for comparison; they are not the current header.
+The collaboration section uses an original generated illustration,
+`public/images/message-friends.webp`: three envelope characters exchanging
+messages. It is labeled as imagined artwork, not a product screenshot. No app
+preview, simulated workflow controls, or brief builder appears on the landing.
+The former public `/preview` route is removed. The authenticated dashboard
+continues to use `src/web/cockpit.ts` for its actual cockpit components.
+The dashboard and account setup remain at `/app`.
+The landing's `#how-it-works` and `#connect` sections explain the actual Cloud
+connection path: workspace, scoped token, remote HTTP MCP, then registration.
+Copyable two-session prompts use distinct names and matching project/team
+scope. No credentials are entered on the public landing. Client configuration
+formats differ; use the app's endpoint/token and the client's MCP settings.
+
 ## Hosted Deployment
 
 Current deployment:
@@ -98,8 +123,19 @@ CLI setup flow end to end.
 
 The dashboard at `http://localhost:8787/app` can also create workspaces,
 create/list/revoke agent tokens, add/update/remove workspace members, show the
-remote MCP URL, send team/direct messages, create tracked tasks, and load the
+remote MCP URL, send messages as the signed-in person, create tracked tasks, and load the
 workspace cockpit with Kanban, activity, and team-chat history.
+
+In **Team chat**, select a project/area/team conversation and type `@` to
+mention an agent. Untagged messages reach all registered agents in that
+conversation. Agents receive normal inbox messages and use `reply` to answer
+in the same thread; the dashboard refreshes automatically. Delivery is queued
+until an agent checks its inbox, not a wake-up for closed sessions. Viewers
+cannot send. Failed sends preserve drafts and retries are deduplicated.
+
+Run `AGENT_BUS_BROWSER_TEST=1 npm run check` with Playwright and Chrome installed to
+exercise the composer, mentions, replies, long reports, draft recovery, mobile
+layout, and viewer controls using isolated test accounts.
 
 Dashboard users log in with email/password. Agent sessions do not use the
 dashboard cookie; they use scoped workspace bearer tokens created from the

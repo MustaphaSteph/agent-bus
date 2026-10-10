@@ -12,6 +12,7 @@ export interface Principal {
   id: string;
   workspaceId?: string;
   role: WorkspaceRole;
+  displayName?: string;
 }
 
 export interface WorkspaceContext {

@@ -1,11 +1,24 @@
 # Install
 
-agent-bus installs in two steps: the **CLI** (one npm command) and the
-**plugin** (one click in your tool). The plugin is how you install agent-bus —
-it connects the MCP server and installs the bundled **skills**. Claude/Codex
-installs also include the `/main` and `/listen` **slash commands** and listener
-hook where the host supports them. Those skills are what teach your agents to
-use the bus well, so the plugin is the supported path on every tool.
+Choose the setup wizard for **skills + MCP**, or the traditional CLI + plugin
+path for additional host-specific slash commands and listener hooks.
+
+## Setup Wizard (0.42.0+)
+
+```bash
+npx --package=@agent-bus-connect/cli@latest agent-bus setup
+```
+
+Select Local or Cloud, then your clients. Setup installs bundled skills,
+checks the connection, and writes user MCP configuration with backups.
+Restart/reconnect afterward. See [setup guide](setup.md) for secure token input,
+supported clients, and source-build use before this version is published.
+
+## Marketplace Plugin Installation
+
+The plugin path has two steps: the **CLI** and the **plugin**. Claude/Codex
+plugins also include `/main` and `/listen` commands and listener hooks where
+the host supports them. This path still expects the global CLI first.
 
 **Prerequisites:** Node.js ≥ 20.
 

@@ -20,7 +20,14 @@ naturally, you translate their intent into agent-bus tool calls.
 
 ## Setup check (do this first)
 
-Before using any bus tools, run `scripts/check-setup.sh`. If it exits
+If installed through `agent-bus setup`, MCP may launch via a version-pinned
+`npx` command instead of a global binary. First discover the local Agent Bus
+MCP tools and call `whois` to confirm the connection; a successful call is
+sufficient for this setup path. Do not require a global CLI just for MCP use.
+For Cloud, use the `agent-bus-cloud` skill and remote connection instead;
+never silently fall back between local and remote stores.
+
+For a traditional global CLI/plugin installation, run `scripts/check-setup.sh`. If it exits
 non-zero, halt and show the user the install hint it printed. Do not
 try to use the bus until the check passes. If the user asks you to fix
 the setup, run `scripts/check-setup.sh --install-cli`; it installs or

@@ -45,6 +45,19 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   PRIMARY KEY (channel, agent)
 );
 
+CREATE TABLE IF NOT EXISTS human_participants (
+  name TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS human_chat_requests (
+  user_id TEXT NOT NULL,
+  request_id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  result TEXT NOT NULL,
+  PRIMARY KEY (user_id, request_id)
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   title TEXT NOT NULL,

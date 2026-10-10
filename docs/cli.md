@@ -4,6 +4,22 @@ The `agent-bus` binary. Run `agent-bus --help` for an auto-generated list.
 
 ## Daily commands
 
+### `agent-bus setup`
+
+Interactive Local/Cloud connection wizard (0.42.0+). Installs bundled skills,
+merges user MCP settings for Codex, Claude Code, current Kimi Code, and Cursor,
+and verifies MCP before writing. No global CLI required when run with npx.
+
+```bash
+npx --package=@agent-bus-connect/cli@latest agent-bus setup
+agent-bus setup --mode local --clients codex,claude-code --dry-run
+```
+
+Supports `--mode`, `--clients`, `--url`, `--token-env`, `--name`, `--replace`,
+`--dry-run`, `--yes`, and the development-only `--local-server` option.
+No token argument: use the hidden prompt or an environment variable.
+See [setup guide](setup.md) for paths, backup behavior, and security details.
+
 ### `agent-bus cloud`
 
 Hosted Agent Bus Cloud setup helpers. These commands talk to the

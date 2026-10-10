@@ -1,6 +1,6 @@
 {
   "name": "@agent-bus-connect/cli",
-  "version": "0.41.0",
+  "version": "0.42.0",
   "homepage": "https://github.com/MustaphaSteph/agent-bus",
   "repository": {
     "type": "git",
@@ -32,6 +32,7 @@
     "agent-bus-mcp": "dist/mcp/server.js"
   },
   "files": [
+    "skills",
     "dist",
     "docs",
     "llms.txt",
@@ -44,6 +45,8 @@
     "dev:mcp": "tsx src/mcp/server.ts",
     "dev:cli": "tsx src/cli/index.ts",
     "test": "tsx test/smoke.ts",
+    "test:setup": "npm run build && tsx test/setup.ts",
+    "test:setup:package": "npm run build && node test/setup-package.mjs",
     "test:cloud": "npm --prefix apps/cloud test",
     "check:cloud": "npm --prefix apps/cloud run check",
     "check:cloud:deploy": "npm --prefix apps/cloud run check:deploy",
@@ -56,10 +59,13 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@inquirer/prompts": "^7.10.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "better-sqlite3": "^11.3.0",
     "commander": "^12.1.0",
+    "jsonc-parser": "^3.3.1",
     "kleur": "^4.1.5",
+    "smol-toml": "^1.9.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {

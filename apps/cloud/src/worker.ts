@@ -3,6 +3,7 @@ import { errorResponse, notFound } from "./shared/http";
 import { handleApi } from "./api/routes";
 import { handleMcp, handleMcpInfo } from "./mcp/remote";
 import { dashboardPage, landingPage } from "./web/pages";
+import { blogRoute } from "./web/blog";
 import { WorkspaceBusObject } from "./durable-objects/workspace-bus";
 
 export { WorkspaceBusObject };
@@ -10,6 +11,8 @@ export { WorkspaceBusObject };
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   try {
+    const blog = blogRoute(request);
+    if (blog) return blog;
     if (url.pathname === "/") return landingPage();
     if (url.pathname === "/app") return await dashboardPage(request, env);
     if (url.pathname.startsWith("/api/")) return await handleApi(request, env, url);

@@ -11,6 +11,12 @@ The local package stays local-first. Cloud support should be additive:
 
 ## Product Goal
 
+For connecting existing clients, use `agent-bus setup` (CLI 0.42.0+), select
+Cloud, and enter a workspace MCP URL and agent token. It installs Cloud-specific
+guidance and tests access before writing user-level MCP configuration.
+See [the setup guide](setup.md); this is separate from provisioning a workspace
+with `cloud bootstrap` or installing a marketplace plugin.
+
 A user creates a workspace, connects Claude Code, Codex, Kimi, Cursor, or any
 remote-MCP capable agent to an Agent Bus Cloud URL, and every connected session
 can chat, ask, delegate, review, remember, and use team boards inside that
@@ -25,6 +31,28 @@ Current hosted deployment:
 https://agent-bus-cloud.mustapha-achtaou.workers.dev
 ```
 
+## Chat With Your Agents
+
+Open `/app`, select a workspace, and choose a conversation in **Team chat**.
+Write as yourself: type `@` to select an agent, or leave out mentions to send
+to everyone registered in that conversation. The selector separates teams by
+project and area, even when team names match.
+
+Agents receive the message in their normal inbox. They can call `reply` with
+its message ID; the answer appears in the dashboard automatically. Use
+**Reply** to continue the same thread. People are labelled separately from
+agents and do not appear in the worker roster.
+
+Messages are queued, not proof that an agent is reading them. A running agent
+must check its inbox or be listening; the dashboard cannot start or wake a
+closed session. Mentions show current presence, and messages show delivery
+progress. Chat does not automatically create a tracked task or grant approval
+for edits, deployment, or other restricted actions.
+
+Workspace viewers can read but cannot post. Failed sends keep the draft;
+retrying the same send does not create duplicate deliveries. The conversation
+shows the latest 100 deliveries, with full-message expansion for long reports.
+
 ## Verification
 
 Run local and hosted checks before changing the cloud app:
@@ -34,6 +62,18 @@ npm run typecheck
 npm test
 npm run check:cloud:deploy
 ```
+
+Optional browser integration coverage (requires Playwright and Google Chrome):
+
+```bash
+cd apps/cloud
+AGENT_BUS_BROWSER_TEST=1 npm run check
+```
+
+Set `AGENT_BUS_PLAYWRIGHT_PATH` to an external Playwright module path when it
+is not installed in this checkout; browser tooling is not a runtime dependency.
+
+This uses temporary test accounts and storage, never the real workspace.
 
 `check:cloud` starts local Workers with isolated D1 persistence, creates
 dashboard users/workspaces/tokens, verifies real remote MCP

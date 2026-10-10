@@ -73,6 +73,7 @@ import {
 } from "../util/project.js";
 import { parseSince, printActivity, printCockpit, printNow } from "./coordination.js";
 import { registerCloudCommands } from "./cloud.js";
+import { registerSetupCommands } from "./setup.js";
 import { formatMessage, previewText } from "./format.js";
 import { installHook, uninstallHook } from "./install-hook.js";
 import { doneTasks, kanban, taskDetail } from "./kanban.js";
@@ -92,6 +93,7 @@ program
   .version(packageVersion());
 
 registerCloudCommands(program);
+registerSetupCommands(program);
 
 function normalizeTeamOption(value: string | undefined): string | undefined {
   return value === "all" ? TEAM_WILDCARD : value;

@@ -2,6 +2,7 @@ import { WORKSPACE_SCHEMA_SQL } from "./schema";
 import type { Env, RpcRequest, RpcResponse, WorkspaceContext } from "../shared/types";
 import { json } from "../shared/http";
 import { now } from "../shared/ids";
+import { humanChatView, postHumanChat } from "./human-chat";
 
 type SqlDatabase = DurableObjectStorage["sql"];
 const ACTIVE_ASK_CYCLE_WINDOW_MS = 110_000;
@@ -26,6 +27,7 @@ interface AgentRow {
 }
 
 interface MessageRow {
+  sender_name: string | null;
   id: number;
   from_agent: string;
   to_agent: string;
@@ -60,6 +62,7 @@ function validateName(kind: string, value: unknown): string {
   if (typeof value !== "string" || value.length < 1 || value.length > 64 || !/^[a-zA-Z0-9_.-]+$/.test(value)) {
     throw new Error(`${kind} must be 1-64 chars and contain only letters, digits, _ . -`);
   }
+  if (value.startsWith("human.") && !["to", "team", "channel"].includes(kind)) throw new Error("Names beginning with human. are reserved for signed-in people.");
   return value;
 }
 
@@ -85,6 +88,8 @@ function toMessage(row: MessageRow): Record<string, unknown> {
   return {
     ...row,
     thread_id: row.thread_id ?? "",
+    sender_kind: row.from_agent.startsWith("human.") ? "human" : "agent",
+    sender_name: row.sender_name || row.from_agent,
   };
 }
 
@@ -147,11 +152,18 @@ export class WorkspaceBusObject implements DurableObject {
   private async ensureSchema(): Promise<void> {
     if (this.initialized) return;
     this.sql.exec(WORKSPACE_SCHEMA_SQL);
+    const columns = rows<{ name: string }>(this.sql.exec("PRAGMA table_info(messages)"));
+    if (!columns.some(column => column.name === "sender_name")) this.sql.exec("ALTER TABLE messages ADD COLUMN sender_name TEXT");
+    if (!columns.some(column => column.name === "human_post_id")) this.sql.exec("ALTER TABLE messages ADD COLUMN human_post_id TEXT");
     this.initialized = true;
   }
 
   private async dispatch(op: string, input: Record<string, unknown>, context: WorkspaceContext): Promise<unknown> {
     switch (op) {
+      case "human_chat_view":
+        return humanChatView(this.sql, context, input);
+      case "human_chat_post":
+        return postHumanChat(this.sql, this.state.storage, context, input);
       case "register":
         return this.register(input);
       case "whois":
@@ -421,7 +433,8 @@ export class WorkspaceBusObject implements DurableObject {
     const sender = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ?", from));
     if (!sender) throw new Error(`unknown sender ${from}`);
     const recipient = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ?", to));
-    if (!recipient) throw new Error(`unknown recipient ${to}`);
+    const human = to.startsWith("human.") ? one(this.sql.exec("SELECT name FROM human_participants WHERE name = ?", to)) : undefined;
+    if (!recipient && !human) throw new Error(`unknown recipient ${to}`);
     const at = now();
     this.sql.exec(
       `INSERT INTO messages (

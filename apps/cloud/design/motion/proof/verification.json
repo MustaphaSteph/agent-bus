@@ -1,0 +1,37 @@
+[
+  {
+    "name": "desktop",
+    "viewport": "1440x420",
+    "passed": true,
+    "checks": "loaded assets, ready, late-parent hello handshake, hello state preservation and source/origin rejection, paused opening, six message-route distances below 2px, seek, exact reverse-seek pixels, final memory, play/pause, bounds, loop, source/origin rejection"
+  },
+  {
+    "name": "desktop-short",
+    "viewport": "1280x300",
+    "passed": true,
+    "checks": "loaded assets, ready, late-parent hello handshake, hello state preservation and source/origin rejection, paused opening, six message-route distances below 2px, seek, exact reverse-seek pixels, final memory, play/pause, bounds, loop, source/origin rejection"
+  },
+  {
+    "name": "desktop-embed",
+    "viewport": "1000x300",
+    "passed": true,
+    "checks": "loaded assets, ready, late-parent hello handshake, hello state preservation and source/origin rejection, paused opening, six message-route distances below 2px, seek, exact reverse-seek pixels, final memory, play/pause, bounds, loop, source/origin rejection"
+  },
+  {
+    "name": "mobile",
+    "viewport": "390x390",
+    "passed": true,
+    "checks": "loaded assets, ready, late-parent hello handshake, hello state preservation and source/origin rejection, paused opening, six message-route distances below 2px, seek, exact reverse-seek pixels, final memory, play/pause, bounds, loop, source/origin rejection"
+  },
+  {
+    "name": "mobile-small",
+    "viewport": "320x320",
+    "passed": true,
+    "checks": "loaded assets, ready, late-parent hello handshake, hello state preservation and source/origin rejection, paused opening, six message-route distances below 2px, seek, exact reverse-seek pixels, final memory, play/pause, bounds, loop, source/origin rejection"
+  },
+  {
+    "name": "non-embed",
+    "passed": true,
+    "checks": "timeline paused and deterministic without embed=1"
+  }
+]

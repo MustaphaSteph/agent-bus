@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, realpathSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -104,6 +104,7 @@ async function waitForHttp(url) {
 const persistTo = mkdtempSync(join(tmpdir(), "agent-bus-cloud-cli-test-"));
 const agentBusDir = mkdtempSync(join(tmpdir(), "agent-bus-cloud-cli-home-"));
 const deployCheckDir = mkdtempSync(join(tmpdir(), "agent-bus-cloud-deploy-check-"));
+const setupHome = realpathSync(mkdtempSync(join(tmpdir(), "agent-bus-cloud-setup-home-")));
 const port = 18_000 + Math.floor(Math.random() * 10_000);
 
 try {
@@ -169,6 +170,28 @@ try {
     const tokenTest = cloud("token-test", "cli-demo", "--token", token);
     assert(tokenTest.includes("cli-demo"), "cloud token-test did not reach remote MCP workspace");
 
+    const setupEnv = {
+      ...env, HOME: setupHome, CODEX_HOME: join(setupHome, ".codex"),
+      KIMI_CODE_HOME: join(setupHome, ".kimi-code"), CLAUDE_CONFIG_DIR: "",
+      AGENT_BUS_SETUP_TEST_TOKEN: token,
+    };
+    const setupArgs = ["setup", "--mode", "cloud", "--clients", "codex,claude-code,kimi,cursor",
+      "--url", `${host}/mcp/cli-demo`, "--token-env", "AGENT_BUS_SETUP_TEST_TOKEN", "--yes"];
+    const setup = agentBus(setupArgs, setupEnv);
+    assert(setup.includes("Setup complete"), "setup did not verify real Worker MCP");
+    assert(!setup.includes(token), "setup leaked the token");
+    const claudeConfig = JSON.parse(readFileSync(join(setupHome, ".claude.json"), "utf8"));
+    assert(claudeConfig.mcpServers["agent-bus-cloud"].url === `${host}/mcp/cli-demo`, "wrong workspace URL");
+    assert(existsSync(join(setupHome, ".codex/skills/agent-bus-cloud/SKILL.md")), "cloud skill missing");
+    const repeatedSetup = agentBus(setupArgs, setupEnv);
+    assert(repeatedSetup.includes("0 file changes"), "cloud setup is not idempotent");
+    const beforeFailure = readFileSync(join(setupHome, ".claude.json"), "utf8");
+    let rejected = false;
+    try { agentBus([...setupArgs, "--replace"], { ...setupEnv, AGENT_BUS_SETUP_TEST_TOKEN: "invalid-token" }); }
+    catch { rejected = true; }
+    assert(rejected, "invalid cloud token was accepted");
+    assert(readFileSync(join(setupHome, ".claude.json"), "utf8") === beforeFailure, "failed auth changed config");
+
     const smoke = cloud("smoke", "cli-demo", "--token", token, "--team", "cli-smoke");
     assert(smoke.includes("cloud smoke: ok"), "cloud smoke did not pass");
     assert(smoke.includes("message: delivered"), "cloud smoke did not deliver a message");
@@ -210,4 +233,5 @@ try {
   rmSync(persistTo, { recursive: true, force: true });
   rmSync(agentBusDir, { recursive: true, force: true });
   rmSync(deployCheckDir, { recursive: true, force: true });
+  rmSync(setupHome, { recursive: true, force: true });
 }

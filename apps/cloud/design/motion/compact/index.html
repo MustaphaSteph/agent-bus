@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Agent Bus coordination illustration</title><style>@font-face{font-family:Manrope;src:url('assets/manrope-400.woff2') format('woff2');font-weight:400;font-display:block}
+@font-face{font-family:Manrope;src:url('assets/manrope-600.woff2') format('woff2');font-weight:600;font-display:block}
+@font-face{font-family:Manrope;src:url('assets/manrope-700.woff2') format('woff2');font-weight:700;font-display:block}
+@font-face{font-family:Plex;src:url('assets/mono-400.woff2') format('woff2');font-weight:400;font-display:block}
+*{box-sizing:border-box;margin:0;padding:0;letter-spacing:0}
+html,body{width:100%;height:100%;overflow:hidden;background:#08090b;color:#f4f6f8}
+body{font-family:Manrope,sans-serif}
+#root{width:100%;height:100%;position:relative;transform-origin:0 0}
+.scene{width:100%;height:100%;position:relative;overflow:hidden}
+header{position:absolute;left:64px;top:24px;right:64px}
+.eyebrow,.phase-number,.agent p,.hub p,.task-label,.task-state,.record-label,small,footer{font-family:Plex,monospace;font-weight:400}
+.eyebrow{font-size:12px;color:#a6adb8}
+.phase-headings{position:relative;height:54px;margin-top:12px}
+.phase-heading{position:absolute;inset:0;display:flex;align-items:center;gap:18px;opacity:0}
+.phase-heading:first-child{opacity:1}
+.phase-number{font-size:18px;color:#00d4ff}
+h1{font-size:32px;font-weight:600;line-height:1.25}
+.circuit{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.route,.trace{fill:none;stroke-width:1.5;stroke:#303640}
+.trace{stroke:#00d4ff;stroke-width:2;opacity:0}
+.trace-claim{stroke:#2563eb}.trace-review,.trace-verify{stroke:#7c3aed}
+#packet,#packet-memory{fill:#00d4ff;opacity:0}#packet-review{fill:#bda5ff;opacity:0}
+.agent{position:absolute;width:160px;text-align:center}
+.logo-wrap{position:relative;width:88px;height:88px;margin:0 auto 8px;display:grid;place-items:center}
+.logo-wrap img{object-fit:contain;width:66px;height:66px}
+.node-focus{position:absolute;inset:0;border:1px solid #00d4ff;border-radius:8px;opacity:0}
+.codex .node-focus{border-color:#2563eb}.kimi .node-focus{border-color:#7c3aed}
+.agent h2{font-size:27px;font-weight:600;line-height:36px}
+.agent p{font-size:12px;color:#a6adb8;margin-top:5px}
+.claude{left:200px;top:223px}.codex{left:1055px;top:141px}.kimi{left:1055px;top:325px}
+.hub{position:absolute;left:618px;top:172px;width:204px;text-align:center}
+.bus-mark{width:156px;height:136px;object-fit:contain;display:block;margin:-18px auto -5px}
+.hub h2{font-size:30px;font-weight:700;line-height:40px}.hub p{font-size:12px;color:#a6adb8;margin-top:4px;white-space:nowrap}
+.hub-port{display:flex;justify-content:center;gap:5px;margin-top:17px}.hub-port span{width:20px;height:3px;background:#303640}
+.secondary{position:absolute;display:flex;align-items:center;gap:10px;color:#a6adb8;font-size:14px}
+.secondary img{object-fit:contain}.cursor{left:380px;top:121px}.gemini{left:940px;top:99px}.opencode{left:1270px;top:300px;flex-direction:column;gap:7px;font-size:12px}
+.task{position:absolute;left:595px;top:359px;width:250px;height:91px;border:1px solid #303640;background:#08090b;border-radius:8px;padding:12px 18px;text-align:center}
+.task-label{font-size:10px;color:#a6adb8;display:block}.task strong{display:block;font-size:18px;line-height:28px;font-weight:600}
+.task-states{height:18px;position:relative}.task-state{position:absolute;inset:0;opacity:0;color:#00d4ff;font-size:11px;line-height:18px}.task-state:first-child{opacity:1}#state-3{color:#bda5ff}
+.record{position:absolute;left:430px;top:479px;width:570px;height:83px;border-top:1px solid #303640;padding-top:13px}
+.record-label{font-size:10px;color:#a6adb8;display:block;margin-bottom:10px}
+.record-fields{display:grid;grid-template-columns:1.5fr .7fr 1.5fr 1.5fr;gap:16px}
+small{font-size:9px;color:#a6adb8;display:block;margin-bottom:5px}.record-fields span{font-size:12px;white-space:nowrap;opacity:0}
+.record-progress{height:2px;background:#00d4ff;position:absolute;top:-1px;left:0;width:100%;transform-origin:left center}
+footer{position:absolute;bottom:25px;left:64px;right:64px;display:flex;justify-content:space-between;font-size:11px;color:#a6adb8}
+.wide header{left:32px;right:32px;top:20px}
+.wide .eyebrow{position:absolute;right:0;top:17px;font-size:16px}
+.wide .phase-headings{margin:0;height:54px;max-width:1080px}
+.wide h1{font-size:40px;line-height:50px}
+.wide .phase-number{font-size:24px}
+.wide .claude{left:45px;top:100px}.wide .codex{left:777px;top:100px}.wide .kimi{left:1195px;top:100px}
+.wide .logo-wrap{width:104px;height:104px;margin-bottom:8px}
+.wide .logo-wrap img{width:84px;height:84px}
+.wide .codex .logo-wrap img{width:116px;height:116px}
+.wide .agent h2{font-size:32px;line-height:40px}
+.wide .agent p{font-size:16px;line-height:22px;margin-top:2px}
+.wide .hub{left:386px;top:110px}
+.wide .bus-mark{width:184px;height:160px;margin:-34px auto -30px}
+.wide .hub h2{font-size:34px;line-height:40px}
+.wide .hub p,.wide footer,.wide .task-label,.wide .record-label{display:none}
+.wide .hub-port{margin-top:16px}
+.wide .task{left:200px;top:284px;width:548px;height:46px;padding:8px 12px;display:grid;grid-template-columns:232px 1fr;align-items:center;gap:10px}
+.wide .task strong{font-size:22px;line-height:28px}
+.wide .task-states{height:26px}
+.wide .task-state{font-size:18px;line-height:26px}
+.wide .secondary{top:292px;flex-direction:row;font-size:18px;gap:12px}
+.wide .secondary img{width:32px;height:32px}
+.wide .cursor{left:843px}.wide .gemini{left:1008px}.wide .opencode{left:1198px}
+.wide .record{left:48px;top:346px;width:1344px;height:74px;padding:10px 0 0}
+.wide .record-fields{grid-template-columns:1.3fr .7fr 1.2fr 1.2fr;gap:28px}
+.wide small{font-size:16px;line-height:20px;margin-bottom:4px}
+.wide .record-fields span{font-size:22px;line-height:30px}
+.compact header{left:28px;right:28px;top:23px}.compact .eyebrow{font-size:10px}.compact h1{font-size:25px}.compact .phase-headings{margin-top:10px;height:70px}.compact .phase-heading{gap:14px;align-items:flex-start}.compact .phase-number{font-size:15px;line-height:32px}.compact h1{max-width:455px;line-height:1.3}
+.compact .agent{width:136px}.compact .claude{left:50px;top:199px}.compact .codex{left:414px;top:199px}.compact .kimi{left:232px;top:409px}
+.compact .logo-wrap{width:72px;height:68px;margin-bottom:7px}.compact .logo-wrap img{width:54px;height:54px}.compact .agent h2{font-size:23px;line-height:29px}.compact .agent p{font-size:10px;margin-top:4px}
+.compact .hub{left:216px;top:231px;width:168px}.compact .bus-mark{width:126px;height:110px;margin:-15px auto -9px}.compact .hub h2{font-size:25px;line-height:34px}.compact .hub p{font-size:9px}.compact .hub-port{margin-top:10px}
+.compact .cursor{left:77px;top:144px}.compact .gemini{left:426px;top:144px}.compact .secondary{font-size:11px;gap:7px}.compact .secondary img{width:24px;height:24px}.compact .opencode{left:508px;top:330px;gap:7px;font-size:10px}
+.compact .task{left:24px;top:365px;width:196px;height:87px;padding:10px}.compact .task strong{font-size:16px}.compact .task-state{font-size:10px}
+.compact .record{left:28px;top:532px;width:544px;height:50px;padding-top:9px}.compact .record-label{display:none}.compact .record-fields{grid-template-columns:1.4fr .6fr 1.3fr 1.4fr;gap:9px}.compact small{font-size:8px}.compact .record-fields span{font-size:10px}.compact footer{display:none}
+</style><script src="assets/gsap.min.js"></script><script src="assets/MotionPathPlugin.min.js"></script></head>
+<body class="compact"><main id="root" data-composition-id="agent-bus" data-width="600" data-height="600" data-duration="18"><div id="coordination-scene" class="clip scene" data-start="0" data-duration="18" data-track-index="0">
+<header><span class="eyebrow">MCP COORDINATION / ILLUSTRATION</span><div class="phase-headings"><div class="phase-heading" id="heading-0"><span class="phase-number">01</span><h1>Independent sessions. Shared context.</h1></div><div class="phase-heading" id="heading-1"><span class="phase-number">02</span><h1>A request reaches the right session.</h1></div><div class="phase-heading" id="heading-2"><span class="phase-number">03</span><h1>One task. An explicit owner.</h1></div><div class="phase-heading" id="heading-3"><span class="phase-number">04</span><h1>A second session checks the work.</h1></div><div class="phase-heading" id="heading-4"><span class="phase-number">05</span><h1>The decision stays with the project.</h1></div></div></header>
+<svg class="circuit" viewBox="0 0 600 600" aria-hidden="true"><path class="route route-request" id="path-request" d="M154 233 H183 Q199 233 199 249 V286 Q199 302 215 302 H248"/><path class="trace trace-request" id="trace-request" d="M154 233 H183 Q199 233 199 249 V286 Q199 302 215 302 H248"/>
+<path class="route route-claim" id="path-claim" d="M352 302 H384 Q400 302 400 286 V249 Q400 233 416 233 H446"/><path class="trace trace-claim" id="trace-claim" d="M352 302 H384 Q400 302 400 286 V249 Q400 233 416 233 H446"/>
+<path class="route route-verify" id="path-verify" d="M300 353 V413"/><path class="trace trace-verify" id="trace-verify" d="M300 353 V413"/>
+<path class="route route-memory" id="path-memory" d="M338 443 H388 Q404 443 404 459 V498 Q404 514 420 514 H450 V532"/><path class="trace trace-memory" id="trace-memory" d="M338 443 H388 Q404 443 404 459 V498 Q404 514 420 514 H450 V532"/>
+<path class="route route-return" id="path-return" d="M220 532 H44 Q28 532 28 516 V249 Q28 233 44 233 H82"/><path class="trace trace-return" id="trace-return" d="M220 532 H44 Q28 532 28 516 V249 Q28 233 44 233 H82"/>
+<path class="route route-cursor" id="path-cursor" d="M172 160 H220 Q236 160 236 176 V218"/><path class="trace trace-cursor" id="trace-cursor" d="M172 160 H220 Q236 160 236 176 V218"/>
+<path class="route route-gemini" id="path-gemini" d="M428 160 H380 Q364 160 364 176 V218"/><path class="trace trace-gemini" id="trace-gemini" d="M428 160 H380 Q364 160 364 176 V218"/>
+<path class="route route-opencode" id="path-opencode" d="M548 377 V443 Q548 459 532 459 H404"/><path class="trace trace-opencode" id="trace-opencode" d="M548 377 V443 Q548 459 532 459 H404"/><rect id="packet" x="-7" y="-3" width="14" height="6" rx="2"/><rect id="packet-review" x="-7" y="-3" width="14" height="6" rx="2"/><rect id="packet-memory" x="-7" y="-3" width="14" height="6" rx="2"/></svg>
+<section class="agent claude" id="claude"><div class="logo-wrap"><img src="assets/claude.svg" alt="" width="72" height="72"/><span class="node-focus" id="focus-claude"></span></div><h2>Claude</h2><p>REQUESTER</p></section><section class="agent codex" id="codex"><div class="logo-wrap"><img src="assets/codex.svg" alt="" width="72" height="72"/><span class="node-focus" id="focus-codex"></span></div><h2>Codex</h2><p>OWNER</p></section><section class="agent kimi" id="kimi"><div class="logo-wrap"><img src="assets/kimi.png" alt="" width="72" height="72"/><span class="node-focus" id="focus-kimi"></span></div><h2>Kimi</h2><p>REVIEWER</p></section>
+<section class="hub"><img class="bus-mark" src="assets/agent-bus-mark.webp" width="184" height="160" alt="Agent Bus"/><h2>Agent Bus</h2><p>route / persist / coordinate</p><div class="hub-port"><span></span><span></span><span></span></div></section>
+<div class="secondary cursor"><img src="assets/cursor.svg" alt="" width="26" height="26"/><span>Cursor</span></div><div class="secondary gemini"><img src="assets/gemini.png" alt="" width="26" height="26"/><span>Gemini CLI</span></div><div class="secondary opencode"><img src="assets/opencode.svg" alt="" width="26" height="26"/><span>OpenCode</span></div>
+<div class="task"><span class="task-label">EXAMPLE REQUEST</span><strong>Review the change</strong><div class="task-states"><span class="task-state" id="state-0">Sessions connected</span><span class="task-state" id="state-1">Request queued</span><span class="task-state" id="state-2">Claimed by Codex</span><span class="task-state" id="state-3">Kimi checks the result</span><span class="task-state" id="state-4">Decision recorded</span></div></div>
+<section class="record"><span class="record-label">SHARED RECORD</span><div class="record-fields"><div><small>REQUEST</small><span id="record-request">Review the change</span></div><div><small>OWNER</small><span id="record-owner">Codex</span></div><div><small>REVIEW</small><span id="record-review">Independent check</span></div><div class="memory-field"><small>MEMORY</small><span id="record-memory">Decision + context</span></div></div><div class="record-progress"></div></section>
+<footer><span>Separate sessions</span><span>One shared thread</span></footer>
+</div></main><script>/* One paused, seek-safe composition. Live website playback is isolated in embed.js. */
+gsap.registerPlugin(MotionPathPlugin);
+const tl = gsap.timeline({ paused: true });
+const phaseStarts = [0, 3, 6, 10, 14];
+const phaseNames = ['connect', 'request', 'claim', 'review', 'memory'];
+phaseStarts.forEach((start, i) => {
+  tl.addLabel(phaseNames[i], start);
+  if (!i) return;
+  tl.set(`#heading-${i - 1}, #state-${i - 1}`, { opacity: 0 }, start);
+  tl.fromTo(`#heading-${i}`, { opacity: 0, y: 9 }, { opacity: 1, y: 0, duration: .35, ease: 'power2.out', immediateRender: false }, start);
+  tl.set(`#state-${i}`, { opacity: 1 }, start);
+});
+
+for (const [i, path] of [...document.querySelectorAll('.trace')].entries()) {
+  const length = path.getTotalLength();
+  tl.set(path, { strokeDasharray: length, strokeDashoffset: length, opacity: .6 }, 0);
+  tl.to(path, { strokeDashoffset: 0, duration: .75, ease: 'power2.out' }, .15 + i * .12);
+  tl.to(path, { opacity: 0, duration: .45 }, 2.3);
+}
+tl.fromTo('.secondary', { opacity: .45 }, { opacity: 1, stagger: .1, duration: .5 }, .6);
+tl.fromTo('.record-progress', { scaleX: 0 }, { scaleX: 1, duration: 14.8, ease: 'none' }, 1.7);
+
+function travel(target, route, start, duration, reverse = false) {
+  const path = document.getElementById('path-' + route);
+  tl.set(target, { opacity: 1 }, start);
+  tl.fromTo(target, { x: 0, y: 0 }, {
+    motionPath: { path: path.getAttribute('d'), start: reverse ? 1 : 0, end: reverse ? 0 : 1 },
+    duration, ease: 'none', immediateRender: false,
+  }, start);
+  tl.set(target, { opacity: 0 }, start + duration);
+  tl.to(`#trace-${route}`, { opacity: .8, duration: .15 }, start);
+  tl.to(`#trace-${route}`, { opacity: .18, duration: .4 }, start + duration);
+}
+function emphasis(id, start, end) {
+  tl.to(`#focus-${id}`, { opacity: 1, duration: .25 }, start);
+  tl.to(`#focus-${id}`, { opacity: 0, duration: .35 }, end);
+}
+emphasis('claude', 3, 5.5);
+travel('#packet', 'request', 3.35, 1.15);
+tl.to('#record-request', { opacity: 1, duration: .2 }, 4.5);
+tl.to('.hub-port span', { backgroundColor: '#00d4ff', stagger: .1, duration: .2 }, 4.5);
+travel('#packet', 'claim', 6.1, 1.1);
+emphasis('codex', 7.2, 10);
+tl.to('#record-owner', { opacity: 1, duration: .25 }, 7.2);
+tl.to('.task', { borderColor: '#2563eb', duration: .3 }, 7.2);
+travel('#packet-review', 'claim', 10.1, .85, true);
+travel('#packet-review', 'verify', 11.1, .95);
+emphasis('kimi', 12.05, 14.7);
+tl.to('.task', { borderColor: '#7c3aed', duration: .3 }, 12.05);
+tl.to('#record-review', { opacity: 1, duration: .25 }, 12.4);
+travel('#packet-memory', 'memory', 14.1, .85);
+tl.to('#record-memory', { opacity: 1, duration: .3 }, 14.95);
+tl.to('.task', { borderColor: '#00d4ff', duration: .3 }, 14.95);
+travel('#packet-memory', 'return', 15.55, 1.1);
+
+// The authored closing reset makes the website loop continuous, including reverse seeks.
+tl.to('.trace, .record-fields span, .record-progress', { opacity: 0, duration: .35 }, 17.5);
+tl.to('#heading-4, #state-4', { opacity: 0, duration: .2 }, 17.5);
+tl.to('#heading-0, #state-0', { opacity: 1, duration: .3 }, 17.7);
+tl.to('.task', { borderColor: '#303640', duration: .3 }, 17.7);
+tl.to('.hub-port span', { backgroundColor: '#303640', duration: .3 }, 17.7);
+window.__timelines = window.__timelines || {};
+window.__timelines['agent-bus'] = tl;
+tl.seek(0, false);
+</script></body></html>

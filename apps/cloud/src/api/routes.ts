@@ -1,5 +1,5 @@
 import type { Env } from "../shared/types";
-import { json, readJson } from "../shared/http";
+import { HttpError, json, readJson } from "../shared/http";
 import { callWorkspace } from "./rpc";
 import {
   addWorkspaceMember,
@@ -169,8 +169,33 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     const context = await resolveWorkspaceContext(env, request, slug);
     const input = await readJson<{ op?: string; input?: unknown }>(request);
     if (!input.op) throw new Error("op is required");
+    if (input.op === "human_chat_post") throw new HttpError(403, "FORBIDDEN", "Use the workspace chat to send a human message.");
     const result = await callWorkspace(env, context, input.op, input.input ?? {});
     return json({ ok: true, result });
+  }
+
+  const chatMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/chat$/);
+  if (chatMatch && (request.method === "GET" || request.method === "POST")) {
+    const context = await resolveWorkspaceContext(env, request, requireSlug(chatMatch));
+    if (request.method === "GET") {
+      const result = await callWorkspace(env, context, "human_chat_view", {
+        team: url.searchParams.get("team") || undefined,
+        project: url.searchParams.get("project") || null,
+        area: url.searchParams.get("area") || null,
+      });
+      return json({ ok: true, result });
+    }
+    if (context.principal.kind !== "user") throw new HttpError(403, "FORBIDDEN", "Sign in to send a human message.");
+    if (request.headers.get("origin") !== url.origin || request.headers.get("sec-fetch-site") === "cross-site") {
+      throw new HttpError(403, "FORBIDDEN", "Send messages from this workspace page.");
+    }
+    if (!request.headers.get("content-type")?.includes("application/json")) throw new HttpError(400, "BAD_REQUEST", "Expected a chat message.");
+    const text = await request.text();
+    if (text.length > 20000) throw new HttpError(413, "TOO_LARGE", "Message is too large.");
+    let input: unknown;
+    try { input = JSON.parse(text); } catch { throw new HttpError(400, "BAD_REQUEST", "Invalid chat message."); }
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new HttpError(400, "BAD_REQUEST", "Invalid chat message.");
+    return json({ ok: true, result: await callWorkspace(env, context, "human_chat_post", input) }, { status: 201 });
   }
 
   const cockpitMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/cockpit$/);

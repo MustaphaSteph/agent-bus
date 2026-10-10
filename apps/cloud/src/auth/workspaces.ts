@@ -218,7 +218,7 @@ export async function resolveWorkspaceContext(env: Env, request: Request, slug: 
   const user = await requireUser(env, request);
   const workspace = await getWorkspaceBySlug(env, slug, user.id);
   if (!workspace) throw new Error(`workspace ${slug} not found or not accessible`);
-  const principal: Principal = { kind: "user", id: user.id, role: workspace.role ?? "viewer", workspaceId: workspace.id };
+  const principal: Principal = { kind: "user", id: user.id, role: workspace.role ?? "viewer", workspaceId: workspace.id, displayName: user.name || "Workspace member" };
   return {
     id: workspace.id,
     slug: workspace.slug,

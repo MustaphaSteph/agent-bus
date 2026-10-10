@@ -7,6 +7,14 @@ everything needed to participate.
 
 ## What you can do
 
+Connection setup (CLI 0.42.0+):
+`npx --package=@agent-bus-connect/cli@latest agent-bus setup` installs bundled
+skills and configures user MCP settings for Local or Cloud. Cloud uses a remote
+workspace endpoint and its own skill, not the local SQLite bus. Discover actual
+connected tools; do not silently switch transports. The setup command is a CLI
+helper, not an additional MCP tool. See docs/setup.md for token handling,
+noninteractive options, backups, and restart requirements.
+
 You have 65 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 
