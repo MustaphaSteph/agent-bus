@@ -148,9 +148,11 @@ export const humanChatScript = String.raw`
     chatContent.style.height = Math.min(chatContent.scrollHeight + 2, Math.round(innerHeight * 0.4)) + "px";
   }
   function updateComposer() {
-    const disabled = !chat.canPost || !chat.scope || chat.sending;
+    const disabled = !chat.canPost || !chat.scope || chat.sending || creatingWorkspace;
     chatContent.disabled = disabled;
-    workspaceSelect.disabled = chat.sending;
+    workspaceSelect.disabled = chat.sending || creatingWorkspace;
+    document.getElementById("create-workspace").disabled = chat.sending || creatingWorkspace;
+    document.querySelectorAll("[data-chat-scope]").forEach(button => { button.disabled = chat.sending || creatingWorkspace; });
     document.getElementById("chat-send").disabled = disabled || !chatContent.value.trim();
     document.getElementById("chat-mention-button").disabled = disabled || !chat.members.length;
     document.getElementById("chat-send").textContent = chat.sending ? "Sending..." : "Send";
@@ -426,9 +428,13 @@ export const humanChatScript = String.raw`
     }
   });
   function selectConversation(key) {
+    if (chat.sending || creatingWorkspace) return;
     if (key === scopeKey(chat.scope)) { showView("chat"); return; }
     if (chatContent.value.trim() && !confirm("Discard this draft and switch conversations?")) return;
     chat.scope = chat.groups.find(group => scopeKey(group) === key) || null;
+    chat.refreshId++; chat.controller?.abort(); chat.refreshing = false;
+    chat.messages = []; chat.members = []; chat.fullMessages.clear(); chat.expanded.clear();
+    chat.failed = false; chat.renderedCount = 0;
     chat.canPost = false; chat.loaded = false; chatContent.value = ""; chat.request = null; cancelChatReply(); hideMentions(); chatFeedback("");
     chat.renderedScope = ""; renderChatChrome(); renderHumanMessages(); showView("chat"); onChatScopeChange(); refreshHumanChat(true);
   }
@@ -436,7 +442,7 @@ export const humanChatScript = String.raw`
     const item = event.target.closest("[data-chat-scope]"); if (item) selectConversation(item.dataset.chatScope);
   });
   document.getElementById("human-chat-form").addEventListener("submit", async event => {
-    event.preventDefault(); if (chat.sending || !chat.canPost || !chat.scope || !chatContent.value.trim()) return;
+    event.preventDefault(); if (chat.sending || creatingWorkspace || !chat.canPost || !chat.scope || !chatContent.value.trim()) return;
     const slug = currentSlug();
     const payload = { ...chat.scope, content: chatContent.value.trim(), reply_to: chat.reply?.id || null };
     const fingerprint = JSON.stringify([slug, payload]);

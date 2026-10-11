@@ -156,7 +156,10 @@ export const cockpitRenderScript = String.raw`
   }
   function scopeParams(scope) {
     const params = new URLSearchParams();
-    if (scope) for (const key of ["team", "project", "area"]) if (scope[key]) params.set(key, scope[key]);
+    if (scope) {
+      params.set("exact", "1");
+      for (const key of ["team", "project", "area"]) params.set(key, scope[key] ?? "");
+    }
     return params;
   }
   async function fetchCockpit(slug, scope) {

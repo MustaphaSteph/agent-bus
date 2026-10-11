@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { testWorkspaceRaces } from "./workspace-races-browser.mjs";
 
 // Optional browser coverage. Uses temporary smoke-test accounts and storage only.
 export async function testHumanChatBrowser({ origin, scope, rpc }) {
@@ -58,6 +59,7 @@ export async function testHumanChatBrowser({ origin, scope, rpc }) {
     await page.waitForTimeout(1000);
     assert((await page.locator("#team-chat").textContent()).includes("END_OF_REPORT"));
     await page.locator("#chat-content").fill("");
+    await testWorkspaceRaces(page, origin, scope);
     await page.evaluate(() => { document.getElementById("team-chat").scrollTop = 0; });
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "desktop overflow");
     await page.locator(".human-chat").screenshot({ path: "/tmp/agent-bus-human-chat-desktop.png" });

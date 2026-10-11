@@ -110,5 +110,23 @@ export async function testHumanChat(worker, cookie, token) {
   assert.equal((await readOnly.json()).result.can_post, false);
   assert.equal((await request("not permitted", {}, { ...headers, cookie: viewerCookie })).status, 403);
   console.log("agent-bus human chat passed: authenticated identity, mentions, isolation, retries, replies, queued delivery, and read-only enforcement");
+  const exactTeam = "null-scope-test";
+  await rpc("register", { name: "null-scope-agent", team: exactTeam });
+  await rpc("register", { name: "project-scope-agent", team: exactTeam, project: "other", area: "ui" });
+  for (const project of [null, "other"]) {
+    await rpc("remember", { by_agent: "null-scope-agent", team: exactTeam, project, content: "scope regression" });
+  }
+  const cockpit = async query => {
+    const response = await fetchLocal("/api/workspaces/demo/cockpit?" + query, { headers });
+    assert.equal(response.status, 200);
+    return (await response.json()).result;
+  };
+  const exact = await cockpit(new URLSearchParams({ exact: "1", team: exactTeam, project: "", area: "" }));
+  assert.deepEqual(exact.board.agents.map(agent => agent.name), ["null-scope-agent"]);
+  assert.equal(exact.memories.memories.length, 1);
+  const broad = await cockpit(new URLSearchParams({ team: exactTeam }));
+  assert.equal(broad.board.agents.length, 2, "legacy unscoped reads must stay broad");
+  assert.equal(broad.memories.memories.length, 2);
+  assert.equal((await fetchLocal("/api/workspaces/demo/cockpit?exact=1&team=" + exactTeam, { headers })).status, 400);
   return { origin, scope, rpc, headers };
 }

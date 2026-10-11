@@ -358,6 +358,7 @@ const appScript = String.raw`
   const narrowNav = matchMedia("(max-width: 860px)");
   const overlayDetails = matchMedia("(max-width: 1180px)");
   let lastFocus = null; let appliedView = ""; let toastTimer = 0;
+  let workspaceGeneration = 0; let creatingWorkspace = false;
 
   // Theme: system by default; an explicit choice is shared with the landing page via localStorage.
   const themeKey = "agent-bus.theme";
@@ -534,12 +535,14 @@ const appScript = String.raw`
   sidebar.addEventListener("click", (event) => { if (event.target.closest("[data-view-link]")) closeNav(); });
 
   async function createWorkspace() {
+    if (chat.sending || creatingWorkspace) return;
     const slugInput = document.getElementById("workspace-slug");
     const slug = slugInput.value.trim();
     const name = document.getElementById("workspace-name").value.trim() || slug;
     if (!/^[a-zA-Z0-9_.-]+$/.test(slug)) { setNote("workspace-result", "Choose an address using letters, numbers, dots, dashes or underscores.", "error"); slugInput.focus(); return; }
     if (chatContent.value.trim() && !confirm("Discard this draft and switch workspaces?")) return;
     const button = document.getElementById("create-workspace"); button.disabled = true; setNote("workspace-result", "Creating...");
+    creatingWorkspace = true; updateComposer();
     try {
       const body = await api("/api/workspaces", jsonInit("POST", { slug, name }));
       state.workspaces.unshift({ ...body.workspace, role: body.workspace.role || "owner" });
@@ -549,7 +552,7 @@ const appScript = String.raw`
       notify("Created " + body.workspace.name + ".");
       switchWorkspace(); showView("chat");
     } catch (error) { setNote("workspace-result", friendly(error), "error"); }
-    finally { button.disabled = false; }
+    finally { creatingWorkspace = false; updateComposer(); }
   }
   document.getElementById("workspace-form").addEventListener("submit", (event) => { event.preventDefault(); createWorkspace(); });
   document.getElementById("workspace-name").addEventListener("input", (event) => {
@@ -560,12 +563,14 @@ const appScript = String.raw`
 
   async function createToken() {
     const slug = currentSlug();
+    const generation = workspaceGeneration;
     if (!slug) return;
     const name = document.getElementById("token-name").value.trim() || "agent";
     const role = document.getElementById("token-role").value;
     const button = document.getElementById("create-token"); button.disabled = true; setNote("token-result", "Creating...");
     try {
       const body = await api("/api/workspaces/" + encodeURIComponent(slug) + "/tokens", jsonInit("POST", { name, role }));
+      if (generation !== workspaceGeneration) return;
       const mcpUrl = location.origin + "/mcp/" + slug;
       const config = { mcpServers: { "agent-bus-cloud": { type: "http", url: mcpUrl, headers: { Authorization: "Bearer " + body.token.token } } } };
       tokenOutput.textContent = [
@@ -579,8 +584,8 @@ const appScript = String.raw`
       setNote("token-result", "Created token " + name + ".", "success");
       tokenOutput.focus();
       await refreshTokens();
-    } catch (error) { setNote("token-result", friendly(error), "error"); }
-    finally { button.disabled = false; }
+    } catch (error) { if (generation === workspaceGeneration) setNote("token-result", friendly(error), "error"); }
+    finally { if (generation === workspaceGeneration) button.disabled = false; }
   }
 
   async function refreshTokens() {
@@ -715,6 +720,8 @@ const appScript = String.raw`
   });
 
   function switchWorkspace() {
+    workspaceGeneration++;
+    document.getElementById("create-token").disabled = false;
     resetHumanChat(); board.all = board.team = null; board.error = "";
     document.getElementById("token-reveal").hidden = true; tokenOutput.textContent = "";
     document.getElementById("member-list").innerHTML = ""; document.getElementById("token-list").innerHTML = "";
@@ -736,6 +743,7 @@ const initScript = String.raw`
     try { await fetch("/api/auth/logout", { method: "POST" }); } finally { location.href = "/app"; }
   });
   workspaceSelect.addEventListener("change", () => {
+    if (chat.sending || creatingWorkspace) { workspaceSelect.value = chat.workspace; return; }
     if (chatContent.value.trim() && !confirm("Discard this draft and switch workspaces?")) { workspaceSelect.value = chat.workspace; return; }
     switchWorkspace();
   });

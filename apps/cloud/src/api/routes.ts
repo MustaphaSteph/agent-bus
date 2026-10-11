@@ -205,7 +205,13 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     const team = url.searchParams.get("team") ?? undefined;
     const project = url.searchParams.get("project") ?? undefined;
     const area = url.searchParams.get("area") ?? undefined;
-    const result = await callWorkspace(env, context, "cockpit", { team, project, area });
+    const exact = url.searchParams.get("exact") === "1";
+    if (exact && [team, project, area].some(value => value === undefined || value === "*")) {
+      throw new HttpError(400, "BAD_REQUEST", "Exact scope requires team, project, and area.");
+    }
+    const result = await callWorkspace(env, context, "cockpit", exact
+      ? { team: team || null, project: project || null, area: area || null, exact_scope: true }
+      : { team, project, area });
     return json({ ok: true, result });
   }
 

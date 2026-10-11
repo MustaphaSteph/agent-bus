@@ -110,6 +110,9 @@ function scopeClause(input: Record<string, unknown>, prefix = ""): { sql: string
   const params: unknown[] = [];
   for (const key of ["project", "area", "team"] as const) {
     const value = input[key];
+    if (input.exact_scope === true && value === null) {
+      clauses.push(`${prefix}${key} IS NULL`);
+    }
     if (typeof value === "string" && value !== "*") {
       clauses.push(`${prefix}${key} = ?`);
       params.push(value);
