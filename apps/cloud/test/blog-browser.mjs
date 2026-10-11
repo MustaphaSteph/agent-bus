@@ -53,6 +53,7 @@ export async function testBlogBrowser(origin) {
         if (width < 861) {
           await page.getByRole("button", { name: "Open navigation" }).click();
           await page.locator("#mobile-nav a[href='/blog']").click();
+          await page.waitForLoadState("load");
           assert.equal(new URL(page.url()).pathname, "/blog");
         }
         await page.locator("#theme-toggle").click();
