@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { testTaskWorkspaceSwitching } from "./task-workspace-browser.mjs";
 
 export async function testWorkspaceRaces(page, origin, scope) {
   const selector = value => `[data-chat-scope='${JSON.stringify([value.project, value.area, value.team])}']`;
@@ -70,6 +71,7 @@ export async function testWorkspaceRaces(page, origin, scope) {
   assert(!await page.locator("#token-reveal").isVisible(), "delayed secret appeared in another workspace");
   assert.equal(await page.locator("#token-output").textContent(), "");
   await page.unroute("**/tokens", delayedToken);
+  await testTaskWorkspaceSwitching(page, origin);
   await page.locator("#workspace-select").selectOption("demo");
   await page.evaluate(() => { location.hash = "chat"; });
   await page.locator(selector(scope)).click();

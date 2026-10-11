@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { unstable_dev } from "wrangler";
 import { testHumanChat } from "./human-chat.mjs";
 import { testHumanChatBrowser } from "./human-chat-browser.mjs";
+import { testAttachments } from "./attachments.mjs";
 import { testLandingBrowser } from "./landing-browser.mjs";
 import { testBlog } from "./blog.mjs";
 import { testBlogBrowser } from "./blog-browser.mjs";
@@ -680,9 +681,11 @@ try {
       title: "Cloud smoke task",
       team: "cloud-smoke",
     });
+    // Assignment also sends a thread message, which can be newer than task.updated_at.
+    const baselineTask = await debugCall("wait_for_task", { task_id: createdTask.task.id, wait_s: 0 });
     const waitForTask = debugCall("wait_for_task", {
       task_id: createdTask.task.id,
-      since_updated_at: createdTask.task.updated_at,
+      since_updated_at: Math.max(createdTask.task.updated_at, baselineTask.latest_message?.created_at ?? 0),
       wait_s: 2,
     });
     setTimeout(() => {
@@ -703,6 +706,27 @@ try {
       waitedTask.latest_event?.message === "task moved during wait",
       "wait_for_task did not return latest task event",
     );
+
+    const reviewedTask = await mcpCall(80, "create_task", {
+      requested_by: "codex", title: "Review gate regression", team: "cloud-smoke",
+      review_required: true, independent_review: true,
+    });
+    const reviewTaskId = reviewedTask.task.id;
+    await mcpCall(81, "claim_task", { agent: "claude", task_id: reviewTaskId });
+    const premature = await mcp({ jsonrpc: "2.0", id: 82, method: "tools/call", params: {
+      name: "update_task", arguments: { agent: "claude", task_id: reviewTaskId, state: "completed" },
+    } });
+    assert(premature.result?.isError === true, "MCP accepted completion without review");
+    await mcpCall(83, "submit_review", { task_id: reviewTaskId, reviewer: "codex", review_state: "changes_requested", notes: "Need evidence" });
+    const approved = await mcpCall(84, "submit_review", { task_id: reviewTaskId, reviewer: "codex", review_state: "approved", notes: "Evidence verified" });
+    assert(approved.task.review_state === "approved", "MCP approval was silently converted to changes_requested");
+    const complete = await mcpCall(85, "update_task", { agent: "claude", task_id: reviewTaskId, state: "completed" });
+    assert(complete.task.finished_at > 0, "completion did not record its timestamp");
+    const reopen = await mcp({ jsonrpc: "2.0", id: 86, method: "tools/call", params: {
+      name: "update_task", arguments: { agent: "claude", task_id: reviewTaskId, state: "working" },
+    } });
+    assert(reopen.result?.isError === true, "MCP reopened terminal task");
+    console.log("remote MCP workflow regression passed: completion gate, verdict persistence, terminal state");
     const messages = await worker.fetch(
       "/api/workspaces/demo/messages?team=cloud-smoke",
       { headers: { cookie } },
@@ -726,6 +750,7 @@ try {
     );
 
     const chatFixture = await testHumanChat(worker, cookie, token);
+    await testAttachments(chatFixture, token);
     await testBlog(chatFixture.origin);
     if (process.env.AGENT_BUS_BROWSER_TEST === "1") await testBlogBrowser(chatFixture.origin);
     if (process.env.AGENT_BUS_BROWSER_TEST === "1") await testHumanChatBrowser(chatFixture);

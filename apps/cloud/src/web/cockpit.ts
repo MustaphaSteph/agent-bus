@@ -84,7 +84,7 @@ export const cockpitMarkup = `
         <details id="task-form-panel" class="panel disclosure">
           <summary><span>${icon("plus", 16)} Assign work</span><span class="summary-hint">Create a tracked task for an agent</span></summary>
           <div class="form-grid">
-            <label class="field">Requesting agent<input id="action-from" list="agent-names" placeholder="codex-pm" autocomplete="off"></label>
+            <label class="field">Requested by<input id="action-from" readonly aria-label="Signed-in requester"></label>
             <label class="field">Team<input id="action-team" placeholder="ios-ui" autocomplete="off"></label>
             <label class="field span-2">Task title<input id="task-title" placeholder="Design the empty state"></label>
             <label class="field span-2">Task description<textarea id="task-description" placeholder="Expected output, scope, and constraints."></textarea></label>
@@ -170,17 +170,19 @@ export const cockpitRenderScript = String.raw`
   }
   async function refreshCockpit() {
     const slug = currentSlug();
+    const generation = workspaceGeneration;
     if (!slug) { board.all = board.team = null; renderCockpit(); return; }
     const scope = chat.scope;
     board.loading = true;
     try {
       const [all, team] = await Promise.all([fetchCockpit(slug, null), scope ? fetchCockpit(slug, scope) : Promise.resolve(null)]);
-      if (slug !== currentSlug() || scopeKey(scope) !== scopeKey(chat.scope)) return;
+      if (!isCurrentWorkspace(slug, generation) || scopeKey(scope) !== scopeKey(chat.scope)) return;
       board.all = all; board.team = team; board.error = "";
     } catch (error) {
-      if (slug === currentSlug()) board.error = error.message === "Failed to fetch" ? "Connection lost. Retrying automatically." : error.message;
-    } finally { board.loading = false; }
-    renderCockpit();
+      if (isCurrentWorkspace(slug, generation) && scopeKey(scope) === scopeKey(chat.scope)) board.error = error.message === "Failed to fetch" ? "Connection lost. Retrying automatically." : error.message;
+    } finally {
+      if (isCurrentWorkspace(slug, generation) && scopeKey(scope) === scopeKey(chat.scope)) { board.loading = false; renderCockpit(); }
+    }
   }
   function onChatScopeChange() {
     board.team = null;

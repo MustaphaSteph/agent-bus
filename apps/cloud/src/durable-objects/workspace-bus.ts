@@ -2,7 +2,10 @@ import { WORKSPACE_SCHEMA_SQL } from "./schema";
 import type { Env, RpcRequest, RpcResponse, WorkspaceContext } from "../shared/types";
 import { json } from "../shared/http";
 import { now } from "../shared/ids";
-import { humanChatView, postHumanChat } from "./human-chat";
+import { humanChatView, humanIdentity, postHumanChat } from "./human-chat";
+import { attachmentOperation, cleanupAttachments } from "./attachments";
+import { TASK_TRANSITIONS, buildFinalReport, type ReportTask, type ReportTest } from "../../../../src/core/workflow";
+import { BusError } from "../../../../src/util/errors";
 
 type SqlDatabase = DurableObjectStorage["sql"];
 const ACTIVE_ASK_CYCLE_WINDOW_MS = 110_000;
@@ -27,6 +30,7 @@ interface AgentRow {
 }
 
 interface MessageRow {
+  attachments: string;
   sender_name: string | null;
   id: number;
   from_agent: string;
@@ -87,6 +91,7 @@ function toAgent(row: AgentRow): Record<string, unknown> {
 function toMessage(row: MessageRow): Record<string, unknown> {
   return {
     ...row,
+    attachments: JSON.parse(row.attachments || "[]"),
     thread_id: row.thread_id ?? "",
     sender_kind: row.from_agent.startsWith("human.") ? "human" : "agent",
     sender_name: row.sender_name || row.from_agent,
@@ -148,7 +153,7 @@ export class WorkspaceBusObject implements DurableObject {
       return json({ ok: true, result } satisfies RpcResponse);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return json({ ok: false, error: { code: "BUS_ERROR", message } } satisfies RpcResponse, { status: 400 });
+      return json({ ok: false, error: { code: error instanceof BusError ? error.code : "BUS_ERROR", message } } satisfies RpcResponse, { status: 400 });
     }
   }
 
@@ -158,15 +163,36 @@ export class WorkspaceBusObject implements DurableObject {
     const columns = rows<{ name: string }>(this.sql.exec("PRAGMA table_info(messages)"));
     if (!columns.some(column => column.name === "sender_name")) this.sql.exec("ALTER TABLE messages ADD COLUMN sender_name TEXT");
     if (!columns.some(column => column.name === "human_post_id")) this.sql.exec("ALTER TABLE messages ADD COLUMN human_post_id TEXT");
+    if (!columns.some(column => column.name === "attachments")) this.sql.exec("ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'");
     this.initialized = true;
   }
 
+  async alarm(): Promise<void> {
+    await this.ensureSchema();
+    await cleanupAttachments(this.sql, this.state.storage, this.env);
+  }
+
   private async dispatch(op: string, input: Record<string, unknown>, context: WorkspaceContext): Promise<unknown> {
+    if (op.startsWith("attachment_")) return attachmentOperation(this.sql, this.state.storage, this.env, context, op, input);
     switch (op) {
       case "human_chat_view":
         return humanChatView(this.sql, context, input);
       case "human_chat_post":
         return postHumanChat(this.sql, this.state.storage, context, input);
+      case "human_task_create": {
+        if (context.principal.kind !== "user" || context.role === "viewer") throw new BusError("TASK_FORBIDDEN", "Sign in with write access to create tasks.");
+        const allowed = new Set(["title", "description", "claimed_by", "state", "team", "project", "area"]);
+        if (Object.keys(input).some(key => !allowed.has(key))) throw new BusError("INVALID_INPUT", "Unexpected task field.");
+        if (typeof input.title !== "string" || !input.title.trim()) throw new BusError("INVALID_INPUT", "A task title is required.");
+        for (const key of ["description", "claimed_by", "state", "team", "project", "area"]) {
+          if (input[key] != null && typeof input[key] !== "string") throw new BusError("INVALID_INPUT", `Invalid ${key}.`);
+        }
+        return this.state.storage.transactionSync(() => {
+          this.sql.exec("INSERT INTO human_participants (name, display_name) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET display_name = excluded.display_name",
+            humanIdentity(context), context.principal.displayName || "Workspace member");
+          return this.createTask({ ...input, title: String(input.title).trim() }, context);
+        });
+      }
       case "register":
         return this.register(input);
       case "whois":
@@ -615,6 +641,8 @@ export class WorkspaceBusObject implements DurableObject {
       const at = now();
       for (const message of rowsFound) {
         this.sql.exec("UPDATE messages SET status = 'delivered', delivered_at = ? WHERE id = ?", at, message.id);
+        message.status = "delivered";
+        message.delivered_at = at;
       }
     }
     return { messages: rowsFound.map(toMessage) };
@@ -902,15 +930,43 @@ export class WorkspaceBusObject implements DurableObject {
 
   private setAgentStatus(input: Record<string, unknown>): unknown {
     const agent = validateName("agent", input.agent ?? input.name);
+    this.requireAgent(agent);
     const status = optionalString(input.status) ?? "idle";
+    if (!["idle", "working", "blocked", "waiting_review", "sleeping"].includes(status)) throw new BusError("INVALID_INPUT", "invalid agent status");
     this.sql.exec("UPDATE agents SET status = ?, last_seen = ? WHERE name = ?", status, now(), agent);
     return { agent, status };
   }
 
-  private createTask(input: Record<string, unknown>): unknown {
-    const requestedBy = validateName("requested_by", input.requested_by);
+  private requireAgent(name: string): AgentRow {
+    const agent = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ? AND removed_at IS NULL", name));
+    if (!agent) throw new BusError("UNKNOWN_AGENT", `unknown agent ${name}`);
+    return agent;
+  }
+
+  private taskRow(id: number): Record<string, unknown> {
+    if (!Number.isInteger(id) || id <= 0) throw new BusError("INVALID_INPUT", "task_id is required");
+    const task = one<Record<string, unknown>>(this.sql.exec("SELECT * FROM tasks WHERE id = ?", id));
+    if (!task) throw new BusError("TASK_NOT_FOUND", `task ${id} not found`);
+    return task;
+  }
+
+  private taskActor(input: Record<string, unknown>, task: Record<string, unknown>): string {
+    const agent = validateName("agent", input.agent ?? input.by_agent);
+    this.requireAgent(agent);
+    if (task.claimed_by !== agent && task.requested_by !== agent) throw new BusError("TASK_FORBIDDEN", "only the holder or requester can change this task");
+    this.sql.exec("UPDATE agents SET last_seen = ? WHERE name = ?", now(), agent);
+    return agent;
+  }
+
+  private createTask(input: Record<string, unknown>, humanContext?: WorkspaceContext): unknown {
+    const requestedBy = humanContext ? humanIdentity(humanContext) : validateName("requested_by", input.requested_by);
+    const requester = humanContext ? { project: null, area: null, team: null } : this.requireAgent(requestedBy);
     const title = String(input.title ?? "");
     if (!title) throw new Error("title is required");
+    const initialState = optionalString(input.state) ?? "open";
+    if (!["open", "backlog"].includes(initialState)) throw new BusError("INVALID_INPUT", "new tasks must start open or backlog; assign or claim after creation");
+    if (input.claimed_by) this.requireAgent(validateName("claimed_by", input.claimed_by));
+    if (initialState === "backlog" && input.claimed_by) throw new BusError("TASK_INVALID_TRANSITION", "promote backlog before assignment");
     const at = now();
     const threadId = optionalString(input.thread_id) ?? makeThreadId();
     this.sql.exec(
@@ -925,15 +981,15 @@ export class WorkspaceBusObject implements DurableObject {
       threadId,
       requestedBy,
       optionalString(input.claimed_by),
-      optionalString(input.state) ?? "open",
+      initialState,
       optionalString(input.milestone),
       Number.isInteger(input.priority) ? input.priority : 0,
       optionalString(input.cwd),
       at,
       at,
-      optionalString(input.project),
-      optionalString(input.area),
-      optionalString(input.team),
+      input.project === undefined ? requester.project : input.project,
+      input.area === undefined ? requester.area : input.area,
+      input.team === undefined ? requester.team : input.team,
       optionalString(input.required_capability),
       optionalString(input.mode) ?? "edit_files",
       optionalString(input.expected_output),
@@ -945,6 +1001,8 @@ export class WorkspaceBusObject implements DurableObject {
       input.independent_review === true ? 1 : 0,
     );
     const row = one<{ id: number }>(this.sql.exec("SELECT last_insert_rowid() AS id"))!;
+    this.sql.exec("UPDATE tasks SET review_state = ?, claimed_by = NULL WHERE id = ?", input.review_required === true ? "pending" : "none", row.id);
+    if (input.claimed_by) return this.assignTask({ task_id: row.id, to_agent: input.claimed_by });
     return this.getTask({ task_id: row.id });
   }
 
@@ -953,7 +1011,7 @@ export class WorkspaceBusObject implements DurableObject {
       ...input,
       requested_by: input.from ?? input.requested_by,
       claimed_by: input.to ?? input.claimed_by,
-      state: input.to || input.claimed_by ? "claimed" : (input.state ?? "open"),
+      state: input.state ?? "open",
       ack_required: input.ack_required ?? true,
     }) as { task: Record<string, unknown> };
     if (input.to) {
@@ -986,10 +1044,13 @@ export class WorkspaceBusObject implements DurableObject {
   private claimTask(input: Record<string, unknown>): unknown {
     const taskId = Number(input.task_id ?? input.id);
     const agent = validateName("agent", input.agent);
-    const existing = one<Record<string, unknown>>(this.sql.exec("SELECT * FROM tasks WHERE id = ?", taskId));
-    if (!existing) throw new Error(`task ${taskId} not found`);
-    if (!["open", "claimed"].includes(String(existing.state)) && existing.claimed_by && existing.claimed_by !== agent) {
-      throw new Error(`task ${taskId} is not claimable`);
+    const holder = this.requireAgent(agent);
+    const existing = this.taskRow(taskId);
+    if (existing.state !== "open") throw new BusError("TASK_NOT_CLAIMABLE", `task ${taskId} is not open`);
+    if (existing.pending_assignee && existing.pending_assignee !== agent) throw new BusError("TASK_FORBIDDEN", "task reserved for another agent");
+    if (existing.required_capability && !(JSON.parse(holder.capabilities) as string[]).includes(String(existing.required_capability))) throw new BusError("TASK_FORBIDDEN", "required capability missing");
+    for (const key of ["project", "area", "team"] as const) {
+      if (existing[key] && holder[key] && existing[key] !== holder[key] && !(key !== "project" && (existing[key] === "*" || holder[key] === "*"))) throw new BusError("TASK_FORBIDDEN", `task belongs to another ${key}`);
     }
     const at = now();
     this.sql.exec("UPDATE tasks SET claimed_by = ?, state = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ?", agent, at, at, taskId);
@@ -998,12 +1059,24 @@ export class WorkspaceBusObject implements DurableObject {
 
   private assignTask(input: Record<string, unknown>): unknown {
     const taskId = Number(input.task_id ?? input.id);
-    const agent = validateName("agent", input.agent ?? input.to);
+    const agent = validateName("agent", input.to_agent ?? input.agent ?? input.to);
+    this.requireAgent(agent);
+    const existing = this.taskRow(taskId);
+    if (existing.state !== "open" || existing.claimed_by) throw new BusError("TASK_NOT_CLAIMABLE", "only open, unclaimed tasks can be assigned");
     const at = now();
     this.sql.exec("UPDATE tasks SET claimed_by = ?, state = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ?", agent, at, at, taskId);
     const task = this.getTask({ task_id: taskId }) as { task: Record<string, unknown> };
     const requester = String(task.task.requested_by);
-    this.send({ from: requester, to: agent, message: `Assigned task #${taskId}: ${task.task.title}`, thread_id: task.task.thread_id });
+    const message = `Assigned task #${taskId}: ${task.task.title}`;
+    if (requester.startsWith("human.")) {
+      // Only persisted human-owned tasks can generate this notification; public send still rejects human senders.
+      const human = one<{ display_name: string }>(this.sql.exec("SELECT display_name FROM human_participants WHERE name = ?", requester));
+      this.sql.exec(`INSERT INTO messages (from_agent, to_agent, kind, content, status, created_at, thread_id, project, area, team, sender_name)
+        VALUES (?, ?, 'msg', ?, 'pending', ?, ?, ?, ?, ?, ?)`, requester, agent, message, at,
+        String(task.task.thread_id), task.task.project as string | null, task.task.area as string | null, task.task.team as string | null, human?.display_name ?? "Workspace member");
+    } else {
+      this.send({ from: requester, to: agent, message, thread_id: task.task.thread_id });
+    }
     return task;
   }
 
@@ -1042,31 +1115,51 @@ export class WorkspaceBusObject implements DurableObject {
 
   private updateTask(input: Record<string, unknown>): unknown {
     const id = Number(input.task_id ?? input.id);
-    if (!Number.isInteger(id) || id <= 0) throw new Error("task_id is required");
+    const task = this.taskRow(id);
+    const actor = this.taskActor(input, task);
+    if (input.claimed_by !== undefined) throw new BusError("INVALID_INPUT", "use assign_task or handoff_task to change ownership");
+    if (input.state !== undefined) {
+      const allowed: readonly string[] = TASK_TRANSITIONS[task.state as keyof typeof TASK_TRANSITIONS] ?? [];
+      if (!allowed.includes(String(input.state))) throw new BusError("TASK_INVALID_TRANSITION", `cannot transition task ${id} from '${task.state}' to '${input.state}'`);
+      if (input.state === "completed" && Number(task.review_required) === 1 && task.review_state !== "approved") throw new BusError("TASK_REVIEW_REQUIRED", `task ${id} requires approved review before completion`);
+    }
+    if (["review_state", "reviewed_by", "review_notes"].some(key => input[key] !== undefined)) throw new BusError("INVALID_INPUT", "use submit_review to record an independent review");
     const updates: string[] = [];
     const params: unknown[] = [];
-    for (const field of ["state", "claimed_by", "result", "phase", "blocked_reason", "final_answer", "review_state", "reviewed_by", "review_notes"] as const) {
+    for (const field of ["state", "result", "phase", "blocked_reason", "final_answer", "priority", "milestone", "expected_output", "deadline_at", "checkin_at"] as const) {
       if (input[field] !== undefined) {
         updates.push(`${field} = ?`);
         params.push(input[field]);
       }
     }
+    if (input.manager_reviewed !== undefined) { updates.push("manager_reviewed = ?"); params.push(input.manager_reviewed === true ? 1 : 0); }
+    if (input.state === "open" || input.state === "backlog") updates.push("claimed_by = NULL", "claimed_at = NULL", "pending_assignee = NULL");
+    if (input.state === "backlog") updates.push("phase = NULL");
+    if (["completed", "failed", "canceled"].includes(String(input.state))) { updates.push("finished_at = ?"); params.push(now()); }
     updates.push("updated_at = ?");
     params.push(now());
     params.push(id);
     this.sql.exec(`UPDATE tasks SET ${updates.join(", ")} WHERE id = ?`, ...params);
+    if (input.state !== undefined) this.recordTaskEvent({ task_id: id, by_agent: actor, event_type: "progress", message: `state ${task.state} -> ${input.state}`, metadata: { from_state: task.state, to_state: input.state } });
     return this.getTask({ task_id: id });
   }
 
   private releaseTask(input: Record<string, unknown>): unknown {
     const taskId = Number(input.task_id ?? input.id);
-    this.sql.exec("UPDATE tasks SET state = 'open', claimed_by = NULL, updated_at = ? WHERE id = ?", now(), taskId);
+    const task = this.taskRow(taskId);
+    this.taskActor(input, task);
+    if (["completed", "failed", "canceled"].includes(String(task.state))) throw new BusError("TASK_INVALID_TRANSITION", "cannot release a terminal task");
+    this.sql.exec("UPDATE tasks SET state = 'open', claimed_by = NULL, pending_assignee = NULL, claimed_at = NULL, updated_at = ? WHERE id = ?", now(), taskId);
     return this.getTask({ task_id: taskId });
   }
 
   private acknowledgeTask(input: Record<string, unknown>): unknown {
     const taskId = Number(input.task_id ?? input.id);
     const agent = validateName("agent", input.agent);
+    const task = this.taskRow(taskId);
+    this.requireAgent(agent);
+    if (task.claimed_by !== agent && task.pending_assignee !== agent) throw new BusError("TASK_FORBIDDEN", "only the assigned agent can acknowledge a task");
+    if (["completed", "failed", "canceled"].includes(String(task.state))) throw new BusError("TASK_INVALID_TRANSITION", "cannot acknowledge terminal task");
     const response = optionalString(input.response) ?? "claimed";
     const at = now();
     const updates = response === "blocked"
@@ -1082,15 +1175,26 @@ export class WorkspaceBusObject implements DurableObject {
   private submitReview(input: Record<string, unknown>): unknown {
     const taskId = Number(input.task_id ?? input.id);
     const reviewer = validateName("reviewer", input.reviewer ?? input.by_agent);
-    const approved = input.approved === true;
+    this.requireAgent(reviewer);
+    const task = this.taskRow(taskId);
+    if (Number(task.independent_review) === 1 && (task.claimed_by === reviewer || task.pending_assignee === reviewer)) throw new BusError("REVIEW_SELF_FORBIDDEN", "task requires a reviewer other than its implementer");
+    if (input.approved === undefined && !["approved", "changes_requested"].includes(String(input.review_state))) throw new BusError("INVALID_INPUT", "approved or review_state is required");
+    if (input.approved !== undefined && typeof input.approved !== "boolean") throw new BusError("INVALID_INPUT", "approved must be boolean");
+    if (input.approved !== undefined && input.review_state !== undefined && (input.approved === true) !== (input.review_state === "approved")) throw new BusError("INVALID_INPUT", "conflicting review verdicts");
+    const approved = input.approved === true || input.review_state === "approved";
     this.sql.exec(
-      "UPDATE tasks SET review_state = ?, reviewed_by = ?, review_notes = ?, updated_at = ? WHERE id = ?",
+      "UPDATE tasks SET review_required = 1, manager_reviewed = ?, review_state = ?, reviewed_by = ?, review_notes = ?, updated_at = ? WHERE id = ?",
+      approved ? 1 : 0,
       approved ? "approved" : "changes_requested",
       reviewer,
       optionalString(input.notes) ?? optionalString(input.review_notes),
       now(),
       taskId,
     );
+    this.recordTaskEvent({ task_id: taskId, by_agent: reviewer, event_type: "note", message: `review ${approved ? "approved" : "changes_requested"}${input.notes ? `: ${input.notes}` : ""}`, metadata: { review_state: approved ? "approved" : "changes_requested" } });
+    for (const recipient of new Set([task.claimed_by, task.requested_by])) {
+      if (recipient && recipient !== reviewer) this.send({ from: reviewer, to: recipient, message: `review ${approved ? "approved" : "changes_requested"} for task #${taskId}`, thread_id: task.thread_id });
+    }
     return this.getTask({ task_id: taskId });
   }
 
@@ -1098,8 +1202,11 @@ export class WorkspaceBusObject implements DurableObject {
     const taskId = Number(input.task_id ?? input.id);
     const to = optionalString(input.to_agent);
     const task = this.getTask({ task_id: taskId }) as { task: Record<string, unknown> };
+    const actor = this.taskActor({ agent: input.from_agent ?? input.by_agent }, task.task);
+    if (["completed", "failed", "canceled"].includes(String(task.task.state))) throw new BusError("TASK_INVALID_TRANSITION", "cannot hand off terminal task");
+    if (to) this.requireAgent(validateName("to", to));
     this.remember({
-      by_agent: input.by_agent ?? task.task.claimed_by ?? task.task.requested_by,
+      by_agent: actor,
       agent: to,
       kind: "handoff",
       content: input.message ?? `Handoff for task #${taskId}: ${task.task.title}`,
@@ -1110,17 +1217,23 @@ export class WorkspaceBusObject implements DurableObject {
       area: task.task.area,
       team: task.task.team,
     });
-    if (to) this.sql.exec("UPDATE tasks SET claimed_by = ?, state = 'claimed', updated_at = ? WHERE id = ?", to, now(), taskId);
+    if (to) {
+      this.releaseTask({ agent: actor, task_id: taskId });
+      this.assignTask({ task_id: taskId, to_agent: to });
+    }
     return this.getTask({ task_id: taskId });
   }
 
   private cancelTask(input: Record<string, unknown>): unknown {
     const taskId = Number(input.task_id ?? input.id);
+    const task = this.taskRow(taskId);
+    const actor = this.taskActor(input, task);
+    if (["completed", "failed", "canceled"].includes(String(task.state))) throw new BusError("TASK_INVALID_TRANSITION", "cannot cancel a terminal task");
     const at = now();
     this.sql.exec("UPDATE tasks SET state = 'canceled', finished_at = ?, updated_at = ? WHERE id = ?", at, at, taskId);
     this.recordTaskEvent({
       task_id: taskId,
-      by_agent: input.by_agent ?? "system",
+      by_agent: actor,
       event_type: "cancel",
       message: input.reason ?? "canceled",
     });
@@ -1143,6 +1256,8 @@ export class WorkspaceBusObject implements DurableObject {
   private recordTaskEvent(input: Record<string, unknown>): unknown {
     const taskId = Number(input.task_id);
     if (!Number.isInteger(taskId) || taskId <= 0) throw new Error("task_id is required");
+    const task = this.taskRow(taskId);
+    this.requireAgent(validateName("by_agent", input.by_agent));
     const phase = optionalString(input.phase);
     const at = now();
     this.sql.exec(
@@ -1154,12 +1269,12 @@ export class WorkspaceBusObject implements DurableObject {
       String(input.message ?? ""),
       phase,
       JSON.stringify(input.metadata ?? {}),
-      optionalString(input.project),
-      optionalString(input.area),
-      optionalString(input.team),
+      task.project,
+      task.area,
+      task.team,
       at,
     );
-    if (phase) this.sql.exec("UPDATE tasks SET phase = ?, updated_at = ? WHERE id = ?", phase, at, taskId);
+    if (input.phase !== undefined) this.sql.exec("UPDATE tasks SET phase = ?, updated_at = ? WHERE id = ?", phase, at, taskId);
     const row = one<{ id: number }>(this.sql.exec("SELECT last_insert_rowid() AS id"))!;
     return { id: row.id };
   }
@@ -1176,6 +1291,10 @@ export class WorkspaceBusObject implements DurableObject {
   }
 
   private recordTestResult(input: Record<string, unknown>): unknown {
+    const agent = this.requireAgent(validateName("by_agent", input.by_agent));
+    const parent = input.task_id ? this.taskRow(Number(input.task_id)) : agent;
+    if (!["passed", "failed", "skipped"].includes(String(input.status))) throw new BusError("INVALID_INPUT", "invalid test status");
+    if (typeof input.command !== "string" || !input.command.trim()) throw new BusError("INVALID_INPUT", "command must be non-empty");
     const at = now();
     this.sql.exec(
       `INSERT INTO test_results (by_agent, task_id, command, status, output_summary, git_ref, cwd, project, area, team, created_at)
@@ -1187,9 +1306,9 @@ export class WorkspaceBusObject implements DurableObject {
       optionalString(input.output_summary),
       optionalString(input.git_ref),
       optionalString(input.cwd),
-      optionalString(input.project),
-      optionalString(input.area),
-      optionalString(input.team),
+      input.project === undefined ? parent.project : input.project,
+      input.area === undefined ? parent.area : input.area,
+      input.team === undefined ? parent.team : input.team,
       at,
     );
     const row = one<{ id: number }>(this.sql.exec("SELECT last_insert_rowid() AS id"))!;
@@ -1211,7 +1330,10 @@ export class WorkspaceBusObject implements DurableObject {
     const task = this.getTask(input) as Record<string, unknown>;
     const taskId = Number(input.task_id ?? input.id);
     const tests = this.listTestResults({ task_id: taskId });
-    return { ...task, ...(tests as Record<string, unknown>) };
+    const row = task.task as Record<string, unknown>;
+    const memories = rows<Record<string, unknown>>(this.sql.exec("SELECT * FROM memories WHERE task_id = ? ORDER BY id DESC", taskId));
+    const messages = rows<MessageRow>(this.sql.exec("SELECT * FROM messages WHERE thread_id = ? ORDER BY id ASC", row.thread_id)).map(toMessage);
+    return { ...task, ...(tests as Record<string, unknown>), memories, messages };
   }
 
   private async waitForTask(input: Record<string, unknown>): Promise<unknown> {
@@ -1265,26 +1387,40 @@ export class WorkspaceBusObject implements DurableObject {
 
   private finalReport(input: Record<string, unknown>): unknown {
     const tasks = (this.listTasks({ ...input, include_terminal: true }) as { tasks: Array<Record<string, unknown>> }).tasks;
-    const tests = (this.listTestResults(input) as { test_results: unknown[] }).test_results;
-    const completed = tasks.filter((task) => task.state === "completed");
-    const blocked = tasks.filter((task) => task.state === "blocked");
-    const open = tasks.filter((task) => !["completed", "failed", "canceled"].includes(String(task.state)));
-    return {
-      implemented: completed.map((task) => ({ id: task.id, title: task.title })),
-      not_implemented: open.map((task) => ({ id: task.id, title: task.title, state: task.state })),
-      known_risks: blocked.map((task) => ({ id: task.id, title: task.title, reason: task.blocked_reason })),
-      tests_passed: tests,
-      safe_to_commit: open.length === 0,
-      safe_to_push: open.length === 0,
-      safe_to_deploy: false,
-    };
+    const tests = (this.listTestResults(input) as { test_results: ReportTest[] }).test_results.slice(0, 100);
+    const normalized = tasks.slice(0, Number(input.limit ?? 500)).map(task => {
+      const holder = task.claimed_by ? one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ?", task.claimed_by)) : undefined;
+      return { ...task, manager_reviewed: Number(task.manager_reviewed) === 1, review_required: Number(task.review_required) === 1,
+        stale: ["claimed", "working", "blocked"].includes(String(task.state)) && !!task.claimed_by && (!holder || now() - holder.last_seen > STALE_AGENT_MS),
+      } as unknown as ReportTask;
+    });
+    const implementations = normalized.filter(task => task.state === "completed" && ["edit_files", "propose_patch"].includes(task.mode));
+    const scope = scopeClause(input);
+    const hasContext = one(this.sql.exec(`SELECT id FROM memories WHERE 1=1${scope.sql} LIMIT 1`, ...scope.params)) || one(this.sql.exec(`SELECT id FROM decisions WHERE 1=1${scope.sql} LIMIT 1`, ...scope.params));
+    const warnings = implementations.length >= 2 && !hasContext ? [`${implementations.length} completed implementation/proposal task(s), but no decisions or memories exist in this scope; briefs may lack reusable context. Record decisions, lessons, risks, or handoff notes when they are transferable.`] : [];
+    return buildFinalReport(normalized, tests, warnings);
   }
 
   private reviewGate(input: Record<string, unknown>): unknown {
-    const report = this.finalReport(input) as { safe_to_commit: boolean; not_implemented: unknown[]; known_risks: unknown[] };
+    const report = this.finalReport(input) as ReturnType<typeof buildFinalReport>;
+    const board = this.board(input) as { tasks: Record<string, unknown>[] };
+    const tasks = board.tasks.filter(task => task.state !== "backlog");
+    const blockers: string[] = [];
+    const active = tasks.filter(task => ["claimed", "working"].includes(String(task.state)));
+    const blocked = tasks.filter(task => task.state === "blocked");
+    const reviews = tasks.filter(task => Number(task.review_required) === 1 && task.review_state === "pending");
+    if (active.length) blockers.push(`${active.length} active task(s) still running`);
+    if (blocked.length) blockers.push(`${blocked.length} blocked task(s)`);
+    if (reviews.length) blockers.push(`${reviews.length} task(s) waiting for review`);
+    if (!report.safe_to_commit) blockers.push("final_report says safe_to_commit=false");
+    if (!report.safe_to_push) blockers.push("final_report says safe_to_push=false");
     return {
-      ok: report.safe_to_commit,
-      blockers: [...report.not_implemented, ...report.known_risks],
+      ok: blockers.length === 0,
+      blockers,
+      warnings: report.warnings,
+      final_report: report,
+      board,
+      // Compatibility for existing Cloud dashboard consumers.
       report,
     };
   }
@@ -1412,7 +1548,12 @@ export class WorkspaceBusObject implements DurableObject {
     const events = rows<Record<string, unknown>>(
       this.sql.exec(`SELECT * FROM task_events WHERE 1 = 1${scope.sql} ORDER BY id DESC LIMIT ?`, ...scope.params, limit),
     ).map((event) => ({ type: "task_event", at: event.created_at, item: event }));
-    return { activity: [...messages, ...events].sort((a, b) => Number(b.at) - Number(a.at)).slice(0, limit) };
+    const extra = ["test_results", "decisions", "memories"].flatMap(table => {
+      const type = table === "test_results" ? "test_result" : table === "decisions" ? "decision" : "memory";
+      return rows<Record<string, unknown>>(this.sql.exec(`SELECT * FROM ${table} WHERE 1=1${scope.sql} ORDER BY created_at DESC, id DESC LIMIT ?`, ...scope.params, limit))
+        .map(item => ({ type, at: item.created_at, item }));
+    });
+    return { activity: [...messages, ...events, ...extra].sort((a, b) => Number(b.at) - Number(a.at) || Number(b.item.id) - Number(a.item.id)).slice(0, limit) };
   }
 
   private cockpit(input: Record<string, unknown>): unknown {
@@ -1425,21 +1566,27 @@ export class WorkspaceBusObject implements DurableObject {
 
   private agentNow(input: Record<string, unknown>): unknown {
     const agent = validateName("agent", input.agent);
-    const status = optionalString(input.status) ?? optionalString(input.phase) ?? "working";
-    this.sql.exec("UPDATE agents SET status = ?, last_seen = ? WHERE name = ?", status, now(), agent);
+    const status = optionalString(input.status) ?? (input.task_id ? "working" : "idle");
+    this.setAgentStatus({ agent, status });
     if (input.task_id) {
-      this.recordTaskEvent({
+      const task = this.taskRow(Number(input.task_id));
+      this.updateTask({ agent, task_id: input.task_id, phase: input.phase,
+        ...(["claimed", "blocked"].includes(String(task.state)) ? { state: "working" } : {}) });
+      if (input.note !== undefined || input.phase !== undefined) this.recordTaskEvent({
         task_id: input.task_id,
         by_agent: agent,
-        event_type: "phase",
-        message: input.note ?? status,
-        phase: input.phase ?? status,
+        event_type: input.phase !== undefined ? "phase" : "progress",
+        message: input.note ?? `phase -> ${input.phase}`,
+        phase: input.phase,
       });
     }
     return { agent, status, task_id: input.task_id ?? null, note: input.note ?? null };
   }
 
   private remember(input: Record<string, unknown>): unknown {
+    const agent = this.requireAgent(validateName("by_agent", input.by_agent));
+    if (typeof input.content !== "string" || !input.content.trim()) throw new BusError("INVALID_INPUT", "content must be non-empty");
+    if (input.task_id) this.taskRow(Number(input.task_id));
     const at = now();
     this.sql.exec(
       `INSERT INTO memories (by_agent, agent, kind, content, project, area, team, task_id, thread_id, pinned, supersedes_id, created_at, updated_at)
@@ -1448,9 +1595,9 @@ export class WorkspaceBusObject implements DurableObject {
       optionalString(input.agent),
       optionalString(input.kind) ?? "fact",
       String(input.content ?? ""),
-      optionalString(input.project),
-      optionalString(input.area),
-      optionalString(input.team),
+      input.project === undefined ? agent.project : input.project,
+      input.area === undefined ? agent.area : input.area,
+      input.team === undefined ? agent.team : input.team,
       input.task_id ?? null,
       optionalString(input.thread_id),
       input.pinned === true ? 1 : 0,
@@ -1479,19 +1626,22 @@ export class WorkspaceBusObject implements DurableObject {
 
   private sessionBrief(input: Record<string, unknown>): unknown {
     const board = this.board(input) as Record<string, unknown>;
-    const memories = this.listMemories(input) as { memories: unknown[] };
+    const memories = this.listMemories(input) as { memories: Record<string, unknown>[] };
     const decisions = this.listDecisions(input) as { decisions: unknown[] };
     const activity = this.activity({ ...input, limit: 10 }) as { activity: unknown[] };
     return {
       summary: "Agent Bus Cloud workspace brief",
       board,
-      pinned_memories: memories.memories,
+      pinned_memories: memories.memories.filter(memory => Number(memory.pinned) === 1),
+      recent_memories: memories.memories.filter(memory => Number(memory.pinned) === 0),
       recent_decisions: decisions.decisions,
       recent_activity: activity.activity,
     };
   }
 
   private recordDecision(input: Record<string, unknown>): unknown {
+    const agent = this.requireAgent(validateName("by_agent", input.by_agent));
+    if (typeof input.decision !== "string" || !input.decision.trim()) throw new BusError("INVALID_INPUT", "decision must be non-empty");
     const at = now();
     this.sql.exec(
       `INSERT INTO decisions (by_agent, decision, rationale, implemented, project, area, team, created_at, updated_at)
@@ -1500,9 +1650,9 @@ export class WorkspaceBusObject implements DurableObject {
       String(input.decision ?? ""),
       optionalString(input.rationale),
       input.implemented === true ? 1 : 0,
-      optionalString(input.project),
-      optionalString(input.area),
-      optionalString(input.team),
+      input.project === undefined ? agent.project : input.project,
+      input.area === undefined ? agent.area : input.area,
+      input.team === undefined ? agent.team : input.team,
       at,
       at,
     );

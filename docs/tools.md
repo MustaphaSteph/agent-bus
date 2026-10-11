@@ -7,6 +7,8 @@ To connect clients, use the [Local/Cloud setup wizard](setup.md) (CLI 0.42.0+).
 Setup installs skills and MCP configuration; it adds no local MCP tools.
 Cloud connections additionally expose `cloud_workspace` for checking the
 authenticated workspace and role. Local and Cloud data are not synchronized.
+For tested semantics and remaining differences, see
+[Cloud behavior parity](../apps/cloud/docs/behavior-parity.md).
 
 ## register
 

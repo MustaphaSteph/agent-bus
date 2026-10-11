@@ -4,6 +4,7 @@ import { HttpError } from "../shared/http";
 const READ_ONLY_OPS = new Set([
   "cloud_workspace",
   "human_chat_view",
+  "attachment_get",
   "whois",
   "directory",
   "wait_for_agents",
@@ -44,7 +45,7 @@ const MANAGER_ONLY_OPS = new Set([
 ]);
 
 function assertWorkspacePermission(context: WorkspaceContext, op: string): void {
-  if (op === "human_chat_post" && context.principal.kind !== "user") {
+  if (["human_chat_post", "human_task_create"].includes(op) && context.principal.kind !== "user") {
     throw new HttpError(403, "FORBIDDEN", "Sign in to send a human message.");
   }
   if (context.role === "viewer" && !READ_ONLY_OPS.has(op)) {

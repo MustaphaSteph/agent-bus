@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { testWorkspaceRaces } from "./workspace-races-browser.mjs";
+import { testAttachmentBrowser } from "./attachments-browser.mjs";
 
 // Optional browser coverage. Uses temporary smoke-test accounts and storage only.
 export async function testHumanChatBrowser({ origin, scope, rpc }) {
@@ -15,6 +16,7 @@ export async function testHumanChatBrowser({ origin, scope, rpc }) {
     await page.locator("#email").fill("smoke@example.com");
     await page.locator("#password").fill("change-me-please");
     await page.locator("#login").click();
+    await page.locator("#workspace-select").selectOption("demo");
     await wait("document.querySelector('[data-chat-scope]') !== null");
     await page.locator(`[data-chat-scope='${JSON.stringify([scope.project, scope.area, scope.team])}']`).click();
     await wait(`document.getElementById('chat-title-text').textContent === ${JSON.stringify(scope.team)} && !document.getElementById('chat-content').disabled`);
@@ -60,6 +62,7 @@ export async function testHumanChatBrowser({ origin, scope, rpc }) {
     assert((await page.locator("#team-chat").textContent()).includes("END_OF_REPORT"));
     await page.locator("#chat-content").fill("");
     await testWorkspaceRaces(page, origin, scope);
+    await testAttachmentBrowser(page, origin);
     await page.evaluate(() => { document.getElementById("team-chat").scrollTop = 0; });
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "desktop overflow");
     await page.locator(".human-chat").screenshot({ path: "/tmp/agent-bus-human-chat-desktop.png" });

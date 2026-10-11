@@ -2,6 +2,7 @@ import { getDb } from "./db.js";
 import { BusError } from "./util/errors.js";
 import { runLocalHook } from "./util/hooks.js";
 import { now, sleep } from "./util/time.js";
+import { TASK_TRANSITIONS, buildFinalReport } from "./core/workflow.js";
 
 export const MAX_ASK_TIMEOUT_S = 110;
 export const MAX_INBOX_WAIT_S = 110;
@@ -2161,16 +2162,7 @@ const CHECKIN_ATTENTION_STATES: TaskState[] = ["claimed", "working", "blocked"];
 // Exported so tests and tooling can mirror the state machine without
 // re-declaring it. Terminal states (completed/failed/canceled) have no
 // successors. `claimed -> open` exists for releaseTask-style flows.
-export const ALLOWED_TRANSITIONS: Record<TaskState, readonly TaskState[]> = {
-  backlog: ["open", "canceled"],
-  open: ["backlog", "claimed", "canceled"],
-  claimed: ["working", "completed", "open", "canceled", "failed"],
-  working: ["blocked", "completed", "failed", "canceled"],
-  blocked: ["working", "completed", "failed", "canceled"],
-  completed: [],
-  failed: [],
-  canceled: [],
-};
+export const ALLOWED_TRANSITIONS: Record<TaskState, readonly TaskState[]> = TASK_TRANSITIONS;
 
 function toTask(row: TaskRow, lastSeenByAgent?: Map<string, number>): Task {
   const task: Task = {
@@ -4999,38 +4991,7 @@ export interface ReviewGateReport {
 export function finalReport(opts: ListTasksOptions = {}): FinalReport {
   const tasks = listTasks({ ...opts, include_terminal: true, limit: opts.limit ?? 500 });
   const testResults = listTestResults({ project: opts.project, area: opts.area, team: opts.team, limit: 100 });
-  const implemented = tasks
-    .filter((task) => task.state === "completed")
-    .map((task) => task.title);
-  const notImplemented = tasks
-    .filter((task) => task.state !== "backlog" && task.state !== "completed" && task.state !== "canceled")
-    .map((task) => task.title);
-  const knownRisks = tasks
-    .filter((task) => task.blocked_reason !== null || task.state === "failed" || task.stale === true)
-    .map((task) => `#${task.id} ${task.title}${task.blocked_reason ? `: ${task.blocked_reason}` : ""}`);
-  const testsPassed = tasks
-    .filter((task) => task.mode === "test_only" && task.state === "completed")
-    .map((task) => task.final_answer ?? task.result ?? task.title);
-  for (const result of testResults.filter((row) => row.status === "passed")) {
-    testsPassed.push(`${result.command}${result.output_summary ? ` - ${result.output_summary}` : ""}${result.git_ref ? ` @${result.git_ref}` : ""}${result.cwd ? ` cwd=${result.cwd}` : ""}`);
-  }
-  const manualTestsNeeded = tasks
-    .filter((task) => task.state !== "backlog" && (task.state !== "completed" || task.manager_reviewed === false || (task.review_required && task.review_state !== "approved")))
-    .map((task) => task.title);
-  const warnings = finalReportWarnings(opts, tasks);
-  const safe = notImplemented.length === 0 && knownRisks.length === 0 && manualTestsNeeded.length === 0;
-  return {
-    implemented,
-    not_implemented: notImplemented,
-    known_risks: knownRisks,
-    tests_passed: testsPassed,
-    test_results: testResults,
-    manual_tests_needed: manualTestsNeeded,
-    warnings,
-    safe_to_commit: safe,
-    safe_to_push: safe,
-    safe_to_deploy: false,
-  };
+  return buildFinalReport(tasks, testResults, finalReportWarnings(opts, tasks));
 }
 
 function finalReportWarnings(opts: ListTasksOptions, tasks: Task[]): string[] {

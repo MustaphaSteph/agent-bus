@@ -115,9 +115,12 @@ export const humanChatMarkup = `
       <div id="chat-reply-context" class="reply-context" hidden><span id="chat-reply-label"></span><button id="chat-cancel-reply" class="icon-btn small" type="button" aria-label="Cancel reply">${icon("x", 16)}</button></div>
       <div id="chat-mentions" class="mention-options" role="listbox" aria-label="Agents to mention" hidden></div>
       <div class="composer-box">
+        <ul id="chat-draft-files" class="file-list" aria-label="Attached files"></ul>
+        <input id="chat-files" type="file" multiple hidden>
         <label for="chat-content" class="sr-only" id="chat-content-label">Message</label>
         <textarea id="chat-content" rows="1" placeholder="Message your team, or @mention an agent" maxlength="12000" aria-controls="chat-mentions" aria-expanded="false" aria-autocomplete="list" aria-describedby="chat-audience"></textarea>
         <div class="composer-tools">
+          <button id="chat-attach" class="icon-btn" type="button" title="Attach files" aria-label="Attach files">${icon("plus")}</button>
           <button id="chat-mention-button" class="icon-btn" type="button" title="Mention an agent" aria-label="Mention an agent">${icon("at")}</button>
           <span id="chat-audience" class="audience"></span>
           <span class="send-hint" aria-hidden="true">Enter to send · Shift+Enter for a new line</span>
@@ -130,6 +133,7 @@ export const humanChatMarkup = `
 
 export const humanChatScript = String.raw`
   const chat = { workspace: "", scope: null, groups: [], members: [], messages: [], human: null, canPost: false, loaded: false, failed: false,
+    files: [], uploading: false,
     reply: null, sending: false, refreshing: false, request: null, refreshId: 0, controller: null, fullMessages: new Map(), expanded: new Set(),
     mentionStart: -1, mentionEnd: -1, options: [], selected: 0, renderedCount: 0, renderedScope: "" };
   const chatContent = document.getElementById("chat-content");
@@ -150,10 +154,14 @@ export const humanChatScript = String.raw`
   function updateComposer() {
     const disabled = !chat.canPost || !chat.scope || chat.sending || creatingWorkspace;
     chatContent.disabled = disabled;
-    workspaceSelect.disabled = chat.sending || creatingWorkspace;
-    document.getElementById("create-workspace").disabled = chat.sending || creatingWorkspace;
-    document.querySelectorAll("[data-chat-scope]").forEach(button => { button.disabled = chat.sending || creatingWorkspace; });
-    document.getElementById("chat-send").disabled = disabled || !chatContent.value.trim();
+    workspaceSelect.disabled = chat.sending || chat.uploading || creatingWorkspace;
+    document.getElementById("create-workspace").disabled = chat.sending || chat.uploading || creatingWorkspace;
+    document.querySelectorAll("[data-chat-scope]").forEach(button => { button.disabled = chat.sending || chat.uploading || creatingWorkspace; });
+    document.getElementById("chat-attach").disabled = disabled || chat.uploading || chat.files.length >= 5;
+    document.getElementById("chat-files").disabled = disabled || chat.uploading;
+    document.querySelectorAll("[data-file-remove]").forEach(button => { button.disabled = chat.sending; });
+    document.querySelectorAll("[data-file-retry]").forEach(button => { button.disabled = chat.sending || chat.uploading; });
+    document.getElementById("chat-send").disabled = disabled || chat.uploading || chat.files.some(file => !file.attachment) || !hasChatDraft();
     document.getElementById("chat-mention-button").disabled = disabled || !chat.members.length;
     document.getElementById("chat-send").textContent = chat.sending ? "Sending..." : "Send";
     const readOnly = chat.loaded && !chat.canPost;
@@ -172,6 +180,7 @@ export const humanChatScript = String.raw`
     document.getElementById("chat-reply-context").hidden = true; updateComposer();
   }
   function resetHumanChat() {
+    clearDraftFiles();
     chat.refreshId++; chat.controller?.abort(); chat.refreshing = false; chat.workspace = currentSlug(); chat.scope = null; chat.loaded = false; chat.failed = false;
     chat.groups = []; chat.messages = []; chat.members = []; chat.fullMessages.clear(); chat.expanded.clear(); chat.canPost = false; chatContent.value = "";
     chat.request = null; cancelChatReply(); hideMentions(); chatFeedback(""); chat.renderedCount = 0; chat.renderedScope = "";
@@ -314,6 +323,7 @@ export const humanChatScript = String.raw`
             '<time datetime="' + new Date(message.created_at).toISOString() + '" title="' + escapeHtml(new Date(message.created_at).toLocaleString()) + '">' + escapeHtml(clock(message.created_at)) + '</time></div>') +
           replyRef +
           '<div class="msg-body' + (clamped ? " clamped" : "") + '">' + formatBody(text) + '</div>' +
+          messageAttachments(message.attachments) +
           (message.truncated && full === undefined ? '<button type="button" class="msg-more" data-chat-full="' + message.id + '">Read full message</button>'
             : long ? '<button type="button" class="msg-more" data-chat-expand="' + message.id + '" aria-expanded="' + !clamped + '">' + (clamped ? "Show more" : "Show less") + '</button>' : "") +
           '<div class="msg-meta"><span>' + escapeHtml(audienceLabel(message.targets)) + '</span>' +
@@ -420,17 +430,22 @@ export const humanChatScript = String.raw`
     const full = event.target.closest("button[data-chat-full]");
     if (full) {
       const slug = currentSlug(); full.disabled = true; full.textContent = "Loading...";
+      const generation = workspaceGeneration; const scope = scopeKey(chat.scope);
       try {
         const result = await workspaceRpc("get_message", { message_id: Number(full.dataset.chatFull), include_content: true });
-        if (slug !== currentSlug()) return;
+        if (!isCurrentWorkspace(slug, generation) || scope !== scopeKey(chat.scope)) return;
         chat.fullMessages.set(result.message.id, result.message.content); chat.expanded.add(result.message.id); renderHumanMessages();
-      } catch (error) { chatFeedback(error.message, true); if (full.isConnected) { full.disabled = false; full.textContent = "Read full message"; } }
+      } catch (error) {
+        if (!isCurrentWorkspace(slug, generation) || scope !== scopeKey(chat.scope)) return;
+        chatFeedback(error.message, true); if (full.isConnected) { full.disabled = false; full.textContent = "Read full message"; }
+      }
     }
   });
   function selectConversation(key) {
-    if (chat.sending || creatingWorkspace) return;
+    if (chat.sending || chat.uploading || creatingWorkspace) return;
     if (key === scopeKey(chat.scope)) { showView("chat"); return; }
-    if (chatContent.value.trim() && !confirm("Discard this draft and switch conversations?")) return;
+    if (hasChatDraft() && !confirm("Discard this draft and switch conversations?")) return;
+    clearDraftFiles();
     chat.scope = chat.groups.find(group => scopeKey(group) === key) || null;
     chat.refreshId++; chat.controller?.abort(); chat.refreshing = false;
     chat.messages = []; chat.members = []; chat.fullMessages.clear(); chat.expanded.clear();
@@ -442,9 +457,9 @@ export const humanChatScript = String.raw`
     const item = event.target.closest("[data-chat-scope]"); if (item) selectConversation(item.dataset.chatScope);
   });
   document.getElementById("human-chat-form").addEventListener("submit", async event => {
-    event.preventDefault(); if (chat.sending || creatingWorkspace || !chat.canPost || !chat.scope || !chatContent.value.trim()) return;
+    event.preventDefault(); if (chat.sending || chat.uploading || creatingWorkspace || !chat.canPost || !chat.scope || !hasChatDraft() || chat.files.some(file => !file.attachment)) return;
     const slug = currentSlug();
-    const payload = { ...chat.scope, content: chatContent.value.trim(), reply_to: chat.reply?.id || null };
+    const payload = { ...chat.scope, content: chatContent.value.trim(), reply_to: chat.reply?.id || null, attachment_ids: chat.files.map(file => file.attachment.id) };
     const fingerprint = JSON.stringify([slug, payload]);
     if (!chat.request || chat.request.fingerprint !== fingerprint) chat.request = { fingerprint, id: crypto.randomUUID() };
     chat.sending = true; hideMentions(); updateComposer(); chatFeedback("Sending...");
@@ -454,7 +469,7 @@ export const humanChatScript = String.raw`
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error?.message || "Message not sent.");
-      chatContent.value = ""; chat.request = null; cancelChatReply();
+      chatContent.value = ""; clearDraftFiles(false); chat.request = null; cancelChatReply();
       const recipients = body.result.recipients;
       const waiting = recipients.filter(member => member.presence !== "listening");
       chatFeedback("Queued for " + recipients.map(member => "@" + member.name).join(", ") + (waiting.length ? ". " + waiting.length + " not currently listening." : "."));

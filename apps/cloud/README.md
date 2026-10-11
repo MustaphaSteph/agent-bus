@@ -8,6 +8,7 @@ This app is the hosted track for full Agent Bus parity:
 - D1 users/workspaces/memberships/tokens
 - one SQLite-backed Durable Object per workspace
 - remote MCP endpoint per workspace
+- private conversation attachments, stored in R2
 - tool registry for the full local 65-tool surface
 
 ## Local Dev
@@ -74,6 +75,7 @@ wrangler d1 create agent-bus-cloud
 # copy the returned database_id into wrangler.toml
 # set AGENT_BUS_CLOUD_ENV = "production" in wrangler.toml
 wrangler d1 migrations apply agent-bus-cloud --remote
+wrangler r2 bucket create agent-bus-cloud-chat-files
 wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET
 npm run deploy
 ```
@@ -132,6 +134,14 @@ conversation. Agents receive normal inbox messages and use `reply` to answer
 in the same thread; the dashboard refreshes automatically. Delivery is queued
 until an agent checks its inbox, not a wake-up for closed sessions. Viewers
 cannot send. Failed sends preserve drafts and retries are deduplicated.
+
+Use **Attach files**, drop files into the conversation, or paste an image into
+the composer. Send up to five files with or without a message (10 MB per file).
+Images have inline previews; Markdown, PDFs, archives, and other files download
+as files. Uploads stay private to the workspace. The local development server
+emulates file storage without accessing production.
+See [`docs/attachments.md`](docs/attachments.md) for limits, access rules,
+agent downloads, and storage operations.
 
 Run `AGENT_BUS_BROWSER_TEST=1 npm run check` with Playwright and Chrome installed to
 exercise the composer, mentions, replies, long reports, draft recovery, mobile
@@ -243,12 +253,20 @@ workspace Durable Object:
 - `POST /api/workspaces/:slug/members` — owner-only add/update member by email
 - `PATCH /api/workspaces/:slug/members/:userId` — owner-only change member role
 - `DELETE /api/workspaces/:slug/members/:userId` — owner-only remove member
+- `POST /api/workspaces/:slug/tasks` — signed-in members with write access create
+  open or backlog tasks. The server derives the human requester from the session;
+  an unassigned task needs no registered agents. Optional assignment still requires
+  a registered agent. Agent tokens and caller-supplied requester identities are rejected.
 - `POST /api/workspaces/:slug/rpc` — authenticated dashboard bridge to workspace
   bus operations such as `send_team`, `send`, and `create_task`
 - `GET /api/workspaces/:slug/messages?team=<team>` — paged chat history
 - `GET /api/workspaces/:slug/messages/:id/thread` — message thread context
 - `GET /api/workspaces/:slug/scopes` — projects and teams with counts
 - `GET /api/workspaces/:slug/metrics?hours=24` — message/task time series
+
+Switching workspaces clears the task draft, including team, assignee, and state.
+Delayed task, token, member, and board responses cannot overwrite the newly selected
+workspace, including when returning to a workspace visited earlier.
 
 ## Current Status
 
@@ -308,3 +326,7 @@ Implemented cloud operations:
 The cloud test suite checks both registry parity and Durable Object dispatch
 parity against the local MCP server so future local tool additions cannot
 silently miss the hosted endpoint.
+
+It also compares task transitions, reviews, and final reports with Local.
+See [behavior parity](docs/behavior-parity.md) for verified coverage, adapter
+details, and remaining gaps. Registry parity alone is not behavior parity.

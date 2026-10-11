@@ -4,6 +4,7 @@ import { listWorkspaces } from "../auth/workspaces";
 import { currentUser } from "../auth/session";
 import { cockpitMarkup, cockpitRenderScript, cockpitStyles, detailsMarkup } from "./cockpit";
 import { humanChatScript, humanChatStyles } from "./human-chat";
+import { attachmentScript, attachmentStyles } from "./chat-attachments";
 import { icon } from "./icons";
 export { landingPage } from "./landing";
 
@@ -359,6 +360,8 @@ const appScript = String.raw`
   const overlayDetails = matchMedia("(max-width: 1180px)");
   let lastFocus = null; let appliedView = ""; let toastTimer = 0;
   let workspaceGeneration = 0; let creatingWorkspace = false;
+  let taskDraftWorkspace = ""; let taskDraftGeneration = 0;
+  function isCurrentWorkspace(slug, generation) { return slug === currentSlug() && generation === workspaceGeneration; }
 
   // Theme: system by default; an explicit choice is shared with the landing page via localStorage.
   const themeKey = "agent-bus.theme";
@@ -535,12 +538,12 @@ const appScript = String.raw`
   sidebar.addEventListener("click", (event) => { if (event.target.closest("[data-view-link]")) closeNav(); });
 
   async function createWorkspace() {
-    if (chat.sending || creatingWorkspace) return;
+    if (chat.sending || chat.uploading || creatingWorkspace) return;
     const slugInput = document.getElementById("workspace-slug");
     const slug = slugInput.value.trim();
     const name = document.getElementById("workspace-name").value.trim() || slug;
     if (!/^[a-zA-Z0-9_.-]+$/.test(slug)) { setNote("workspace-result", "Choose an address using letters, numbers, dots, dashes or underscores.", "error"); slugInput.focus(); return; }
-    if (chatContent.value.trim() && !confirm("Discard this draft and switch workspaces?")) return;
+    if (hasChatDraft() && !confirm("Discard this draft and switch workspaces?")) return;
     const button = document.getElementById("create-workspace"); button.disabled = true; setNote("workspace-result", "Creating...");
     creatingWorkspace = true; updateComposer();
     try {
@@ -590,12 +593,13 @@ const appScript = String.raw`
 
   async function refreshTokens() {
     const slug = currentSlug();
+    const generation = workspaceGeneration;
     const target = document.getElementById("token-list");
     if (!slug) { target.innerHTML = ""; return; }
     if (!target.children.length) target.innerHTML = '<li class="muted">Loading tokens...</li>';
     try {
       const body = await api("/api/workspaces/" + encodeURIComponent(slug) + "/tokens");
-      if (slug !== currentSlug()) return;
+      if (!isCurrentWorkspace(slug, generation)) return;
       const manager = ["owner", "manager"].includes(currentRole());
       target.innerHTML = (body.tokens || []).length ? body.tokens.map((token) => {
         const used = token.last_used_at ? "last used " + new Date(token.last_used_at).toLocaleString() : "never used";
@@ -603,30 +607,34 @@ const appScript = String.raw`
           (manager ? '<div class="row-actions"><button class="btn danger" type="button" data-token-id="' + escapeHtml(token.id) + '" data-token-name="' + escapeHtml(token.name) + '">Revoke</button></div>' : '') + '</li>';
       }).join("") : '<li class="muted">No agent tokens yet.</li>';
     } catch (error) {
+      if (!isCurrentWorkspace(slug, generation)) return;
       target.innerHTML = '<li class="muted">' + escapeHtml(error.status === 403 ? "Your role can't view agent tokens." : friendly(error)) + '</li>';
     }
   }
   document.getElementById("token-list").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-token-id]"); if (!button) return;
+    const slug = currentSlug(); const generation = workspaceGeneration;
     if (!confirm("Revoke " + button.dataset.tokenName + "? Agents using it will lose access immediately.")) return;
     button.disabled = true;
     try {
-      await api("/api/workspaces/" + encodeURIComponent(currentSlug()) + "/tokens/" + encodeURIComponent(button.dataset.tokenId), { method: "DELETE" });
+      await api("/api/workspaces/" + encodeURIComponent(slug) + "/tokens/" + encodeURIComponent(button.dataset.tokenId), { method: "DELETE" });
+      if (!isCurrentWorkspace(slug, generation)) return;
       notify("Revoked " + button.dataset.tokenName + ".");
       await refreshTokens();
-    } catch (error) { notify(friendly(error), true); button.disabled = false; }
+    } catch (error) { if (isCurrentWorkspace(slug, generation)) { notify(friendly(error), true); button.disabled = false; } }
   });
 
   function initialsOf(name) { const parts = String(name || "?").split(/[\s._@-]+/).filter(Boolean); return ((parts[0]?.[0] || "?") + (parts[1]?.[0] || "")).toUpperCase(); }
   async function refreshMembers() {
     const slug = currentSlug();
+    const generation = workspaceGeneration;
     const target = document.getElementById("member-list");
     if (!slug) { target.innerHTML = ""; target.hidden = true; return; }
     target.hidden = false;
     if (!target.children.length) target.innerHTML = '<li class="muted">Loading members...</li>';
     try {
       const body = await api("/api/workspaces/" + encodeURIComponent(slug) + "/members");
-      if (slug !== currentSlug()) return;
+      if (!isCurrentWorkspace(slug, generation)) return;
       const owner = currentRole() === "owner";
       const roles = ["viewer", "agent", "manager", "owner"];
       target.innerHTML = (body.members || []).length ? body.members.map((member) => {
@@ -638,31 +646,37 @@ const appScript = String.raw`
             : '<span class="tag">' + escapeHtml(member.role) + '</span>') + '</div></li>';
       }).join("") : '<li class="muted">No members yet.</li>';
     } catch (error) {
+      if (!isCurrentWorkspace(slug, generation)) return;
       target.hidden = error.status === 403;
       if (error.status !== 403) target.innerHTML = '<li class="muted">' + escapeHtml(friendly(error)) + '</li>';
     }
   }
   document.getElementById("member-list").addEventListener("change", async (event) => {
     const select = event.target.closest("select[data-member-role]"); if (!select) return;
+    const slug = currentSlug(); const generation = workspaceGeneration;
     select.disabled = true;
     try {
-      await api("/api/workspaces/" + encodeURIComponent(currentSlug()) + "/members/" + encodeURIComponent(select.dataset.memberRole), jsonInit("PATCH", { role: select.value }));
+      await api("/api/workspaces/" + encodeURIComponent(slug) + "/members/" + encodeURIComponent(select.dataset.memberRole), jsonInit("PATCH", { role: select.value }));
+      if (!isCurrentWorkspace(slug, generation)) return;
       notify("Role updated.");
-    } catch (error) { notify(friendly(error), true); }
-    await refreshMembers();
+    } catch (error) { if (isCurrentWorkspace(slug, generation)) notify(friendly(error), true); }
+    if (isCurrentWorkspace(slug, generation)) await refreshMembers();
   });
   document.getElementById("member-list").addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-member-remove]"); if (!button) return;
+    const slug = currentSlug(); const generation = workspaceGeneration;
     if (!confirm("Remove " + button.dataset.memberName + " from this workspace?")) return;
     button.disabled = true;
     try {
-      await api("/api/workspaces/" + encodeURIComponent(currentSlug()) + "/members/" + encodeURIComponent(button.dataset.memberRemove), { method: "DELETE" });
+      await api("/api/workspaces/" + encodeURIComponent(slug) + "/members/" + encodeURIComponent(button.dataset.memberRemove), { method: "DELETE" });
+      if (!isCurrentWorkspace(slug, generation)) return;
       notify("Removed " + button.dataset.memberName + ".");
       await refreshMembers();
-    } catch (error) { notify(friendly(error), true); button.disabled = false; }
+    } catch (error) { if (isCurrentWorkspace(slug, generation)) { notify(friendly(error), true); button.disabled = false; } }
   });
   async function addMember() {
     const slug = currentSlug();
+    const generation = workspaceGeneration;
     if (!slug) return;
     const email = document.getElementById("member-email").value.trim();
     const role = document.getElementById("member-role").value;
@@ -670,11 +684,12 @@ const appScript = String.raw`
     const button = document.getElementById("add-member"); button.disabled = true;
     try {
       await api("/api/workspaces/" + encodeURIComponent(slug) + "/members", jsonInit("POST", { email, role }));
+      if (!isCurrentWorkspace(slug, generation)) return;
       document.getElementById("member-email").value = "";
       setNote("member-result", "Added " + email + " as " + role + ".", "success");
       await refreshMembers();
-    } catch (error) { setNote("member-result", friendly(error), "error"); }
-    finally { button.disabled = false; }
+    } catch (error) { if (isCurrentWorkspace(slug, generation)) setNote("member-result", friendly(error), "error"); }
+    finally { if (isCurrentWorkspace(slug, generation)) button.disabled = false; }
   }
 
   async function workspaceRpc(op, input) {
@@ -684,24 +699,38 @@ const appScript = String.raw`
     return body.result;
   }
 
+  function resetTaskDraft() {
+    taskDraftWorkspace = currentSlug(); taskDraftGeneration = workspaceGeneration;
+    document.getElementById("action-from").value = state.humanName || "You";
+    ["action-team", "task-title", "task-description", "task-assignee"].forEach(id => { document.getElementById(id).value = ""; });
+    document.getElementById("action-team").dataset.auto = "1";
+    document.getElementById("task-state").value = "open";
+    document.getElementById("create-task-action").disabled = false;
+  }
   async function createTrackedTask() {
-    const requested_by = document.getElementById("action-from").value.trim();
+    const slug = taskDraftWorkspace;
+    const generation = taskDraftGeneration;
+    if (!slug || !isCurrentWorkspace(slug, generation)) { resetTaskDraft(); setNote("action-result", "Workspace changed. Please enter the task again.", "error"); return; }
+    const button = document.getElementById("create-task-action");
+    if (button.disabled) return;
     const title = document.getElementById("task-title").value.trim();
     const description = document.getElementById("task-description").value;
     const claimed_by = document.getElementById("task-assignee").value.trim();
     const taskState = document.getElementById("task-state").value;
     const team = document.getElementById("action-team").value.trim();
-    if (!requested_by || !title) { setNote("action-result", "Add the requesting agent and a task title.", "error"); document.getElementById(requested_by ? "task-title" : "action-from").focus(); return; }
+    if (!title) { setNote("action-result", "Add a task title.", "error"); document.getElementById("task-title").focus(); return; }
     const scope = team ? { team, ...(chat.scope && chat.scope.team === team ? { project: chat.scope.project || undefined, area: chat.scope.area || undefined } : {}) } : {};
-    const button = document.getElementById("create-task-action"); button.disabled = true;
+    button.disabled = true;
     try {
-      const result = await workspaceRpc("create_task", { requested_by, title, description, claimed_by: claimed_by || undefined, state: taskState, ...scope });
+      const body = await api("/api/workspaces/" + encodeURIComponent(slug) + "/tasks", jsonInit("POST", { title, description, claimed_by: claimed_by || undefined, state: taskState, ...scope }));
+      if (!isCurrentWorkspace(slug, generation)) return;
+      const result = body.result;
       setNote("action-result", "Created task #" + result.task.id + ".", "success");
       document.getElementById("task-title").value = "";
       document.getElementById("task-description").value = "";
       await refreshCockpit();
-    } catch (error) { setNote("action-result", friendly(error), "error"); }
-    finally { button.disabled = false; }
+    } catch (error) { if (isCurrentWorkspace(slug, generation)) setNote("action-result", friendly(error), "error"); }
+    finally { if (isCurrentWorkspace(slug, generation)) button.disabled = false; }
   }
   document.getElementById("action-team").addEventListener("input", (event) => { event.target.dataset.auto = "0"; });
 
@@ -721,7 +750,9 @@ const appScript = String.raw`
 
   function switchWorkspace() {
     workspaceGeneration++;
+    resetTaskDraft();
     document.getElementById("create-token").disabled = false;
+    document.getElementById("add-member").disabled = false;
     resetHumanChat(); board.all = board.team = null; board.error = "";
     document.getElementById("token-reveal").hidden = true; tokenOutput.textContent = "";
     document.getElementById("member-list").innerHTML = ""; document.getElementById("token-list").innerHTML = "";
@@ -739,16 +770,18 @@ const initScript = String.raw`
   document.getElementById("create-task-action").addEventListener("click", () => createTrackedTask());
   document.getElementById("refresh-cockpit").addEventListener("click", () => refreshCockpit());
   document.getElementById("logout").addEventListener("click", async () => {
-    if (chatContent.value.trim() && !confirm("Discard this draft and log out?")) return;
+    if (hasChatDraft() && !confirm("Discard this draft and log out?")) return;
+    clearDraftFiles(); chatContent.value = "";
     try { await fetch("/api/auth/logout", { method: "POST" }); } finally { location.href = "/app"; }
   });
   workspaceSelect.addEventListener("change", () => {
-    if (chat.sending || creatingWorkspace) { workspaceSelect.value = chat.workspace; return; }
-    if (chatContent.value.trim() && !confirm("Discard this draft and switch workspaces?")) { workspaceSelect.value = chat.workspace; return; }
+    if (chat.sending || chat.uploading || creatingWorkspace) { workspaceSelect.value = chat.workspace; return; }
+    if (hasChatDraft() && !confirm("Discard this draft and switch workspaces?")) { workspaceSelect.value = chat.workspace; return; }
     switchWorkspace();
   });
   try { if (localStorage.getItem("agent-bus.details") === "closed") app.classList.add("details-collapsed"); } catch {}
   renderWorkspaceSelect();
+  resetTaskDraft();
   chat.workspace = currentSlug();
   applyView(false);
   renderChatChrome(); renderHumanMessages(); renderCockpit();
@@ -759,10 +792,10 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
   const user = await currentUser(env, request);
   if (!user) return authPage();
   const workspaces = await listWorkspaces(env, user.id);
-  const initialData = JSON.stringify({ workspaces }).replaceAll("<", "\\u003c");
-  const clientIcons = JSON.stringify({ reply: icon("reply", 15), message: icon("message", 16), tasks: icon("tasks", 16) }).replaceAll("<", "\\u003c");
+  const initialData = JSON.stringify({ workspaces, humanName: user.name || "You" }).replaceAll("<", "\\u003c");
+  const clientIcons = JSON.stringify({ reply: icon("reply", 15), message: icon("message", 16), tasks: icon("tasks", 16), x: icon("x", 16), arrowDown: icon("arrowDown", 16) }).replaceAll("<", "\\u003c");
   const displayName = user.name || user.email;
-  return shell("Agent Bus", "app-body", appStyles + humanChatStyles + cockpitStyles, `
+  return shell("Agent Bus", "app-body", appStyles + humanChatStyles + attachmentStyles + cockpitStyles, `
   <a class="skip-link" href="#chat-content">Skip to message composer</a>
   <div id="app" class="app" data-view="chat">
     <aside id="sidebar" class="sidebar" aria-label="Workspace navigation">
@@ -811,6 +844,7 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
     ${appScript}
     ${cockpitRenderScript}
     ${humanChatScript}
+    ${attachmentScript}
     ${initScript}
   </script>`);
 }

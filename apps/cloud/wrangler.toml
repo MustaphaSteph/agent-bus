@@ -6,6 +6,10 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "./public"
 
+[[r2_buckets]]
+binding = "CHAT_FILES"
+bucket_name = "agent-bus-cloud-chat-files"
+
 [[durable_objects.bindings]]
 name = "WORKSPACE_BUS"
 class_name = "WorkspaceBusObject"

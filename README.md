@@ -31,6 +31,10 @@ The local bus stays the default: one SQLite file, no daemon, no account. For
 teams that want the same Agent Bus workflow across machines, the repo now also
 contains the hosted Cloudflare app in [`apps/cloud`](apps/cloud).
 
+Local is the workflow reference. See [verified Cloud behavior and remaining
+parity coverage](apps/cloud/docs/behavior-parity.md) before assuming every tool
+has identical behavior. Local and Cloud data are separate.
+
 Agent Bus Cloud uses Workers, Durable Objects with SQLite, D1, signed dashboard
 sessions, workspace bearer tokens, and a real remote MCP endpoint at:
 

@@ -3,6 +3,7 @@ export interface Env {
   AGENT_BUS_CLOUD_DB: D1Database;
   AGENT_BUS_CLOUD_ENV: string;
   AGENT_BUS_CLOUD_AUTH_SECRET?: string;
+  CHAT_FILES: R2Bucket;
 }
 
 export type WorkspaceRole = "owner" | "manager" | "agent" | "viewer";

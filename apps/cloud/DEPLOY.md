@@ -33,9 +33,17 @@ For a new deployment or account, create fresh Cloudflare state:
 cd apps/cloud
 wrangler login
 wrangler d1 create agent-bus-cloud
+wrangler r2 bucket create agent-bus-cloud-chat-files
 ```
 
 Copy the returned `database_id` into `apps/cloud/wrangler.toml`.
+
+For an existing deployment, create the attachment bucket once before deploying
+the attachment feature. Keep it private: do not enable public access or attach
+a public custom domain. The `CHAT_FILES` binding in `wrangler.toml` must refer to
+this bucket. Existing authentication secrets and D1 data stay unchanged.
+Attachment metadata migrations run idempotently in each workspace; no extra D1
+migration is needed. Development and tests use local emulated R2 storage.
 
 Then set production mode in `[vars]`:
 
@@ -103,6 +111,21 @@ This registers two temporary agents, sends a real message, consumes it from the
 receiver inbox, creates a task, and verifies that the task is visible through
 the hosted bus.
 
+For deployment regression checks, from the repository root with a saved Cloud
+CLI login for the chosen host:
+
+```bash
+AGENT_BUS_LIVE_TEST=1 AGENT_BUS_CLOUD_HOST=https://<host> \
+  node apps/cloud/test/live-smoke.mjs
+```
+
+This opt-in test creates a separate `deploy-test-*` workspace. It verifies
+remote MCP messaging, task ownership and review gates, reports, memories,
+human mentions, and image/Markdown delivery. Credentials are read in memory,
+not printed. Temporary agent tokens are revoked and agents marked sleeping;
+the synthetic workspace and sent files remain as verification evidence.
+It does not modify existing workspaces or client connection settings.
+
 Open the dashboard:
 
 ```text
@@ -117,6 +140,8 @@ Confirm that you can:
 - add dashboard members
 - see the MCP URL/config
 - view cockpit, Kanban, team chat, activity, memories, and decisions
+- attach an image and a Markdown file, send, reload, and download both
+- confirm another workspace cannot access those files
 
 ## 5. Connect agents
 

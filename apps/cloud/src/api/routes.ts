@@ -1,6 +1,7 @@
 import type { Env } from "../shared/types";
 import { HttpError, json, readJson } from "../shared/http";
 import { callWorkspace } from "./rpc";
+import { attachmentRoute } from "./attachments";
 import {
   addWorkspaceMember,
   createAgentToken,
@@ -39,6 +40,8 @@ function parseRole(role: unknown): "owner" | "manager" | "agent" | "viewer" {
 }
 
 export async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
+  const attachment = await attachmentRoute(request, env, url);
+  if (attachment) return attachment;
   if (url.pathname === "/api/health") {
     const tools = cloudToolStatus();
     const implemented = tools.filter((tool) => tool.implemented).length;
@@ -169,9 +172,21 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     const context = await resolveWorkspaceContext(env, request, slug);
     const input = await readJson<{ op?: string; input?: unknown }>(request);
     if (!input.op) throw new Error("op is required");
-    if (input.op === "human_chat_post") throw new HttpError(403, "FORBIDDEN", "Use the workspace chat to send a human message.");
+    if (["human_chat_post", "human_task_create"].includes(input.op) || input.op.startsWith("attachment_")) throw new HttpError(403, "FORBIDDEN", "Use the workspace forms for human actions.");
     const result = await callWorkspace(env, context, input.op, input.input ?? {});
     return json({ ok: true, result });
+  }
+
+  const taskMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/tasks$/);
+  if (taskMatch && request.method === "POST") {
+    const context = await resolveWorkspaceContext(env, request, requireSlug(taskMatch));
+    if (context.principal.kind !== "user") throw new HttpError(403, "FORBIDDEN", "Sign in to create a task.");
+    if (request.headers.get("origin") !== url.origin || request.headers.get("sec-fetch-site") === "cross-site") {
+      throw new HttpError(403, "FORBIDDEN", "Create tasks from this workspace page.");
+    }
+    const input = await readJson<Record<string, unknown>>(request);
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new HttpError(400, "BAD_REQUEST", "Invalid task.");
+    return json({ ok: true, result: await callWorkspace(env, context, "human_task_create", input) }, { status: 201 });
   }
 
   const chatMatch = url.pathname.match(/^\/api\/workspaces\/(?<slug>[^/]+)\/chat$/);

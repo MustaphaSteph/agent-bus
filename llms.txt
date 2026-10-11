@@ -15,6 +15,11 @@ connected tools; do not silently switch transports. The setup command is a CLI
 helper, not an additional MCP tool. See docs/setup.md for token handling,
 noninteractive options, backups, and restart requirements.
 
+Cloud workflow parity: see apps/cloud/docs/behavior-parity.md for verified
+task/review/report behavior and remaining coverage. Matching tool names is not
+proof of complete parity. Use submit_review for Cloud review verdicts; task
+updates/releases require the acting agent. Cloud does not keep sessions alive.
+
 You have 65 MCP tools, all prefixed with the server name `agent-bus` in
 practice (e.g. `mcp__agent-bus__send`). They let you:
 

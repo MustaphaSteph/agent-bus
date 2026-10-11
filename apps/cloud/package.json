@@ -8,7 +8,7 @@
     "dev": "wrangler dev",
     "deploy": "node test/production-config.mjs && wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "node test/tool-parity.mjs && node test/smoke.mjs && node test/cli.mjs",
+    "test": "node test/tool-parity.mjs && tsx test/workflow-parity.ts && tsx test/attachments-unit.ts && node test/smoke.mjs && node test/cli.mjs",
     "check": "npm run typecheck && npm test",
     "check:deploy": "npm run check && wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun"
   },

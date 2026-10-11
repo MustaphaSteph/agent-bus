@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { testHumanTasks } from "./human-tasks.mjs";
 
 export async function testHumanChat(worker, cookie, token) {
   // Browsers allow Secure test cookies on loopback, not Wrangler's 0.0.0.0 bind address.
@@ -128,5 +129,7 @@ export async function testHumanChat(worker, cookie, token) {
   assert.equal(broad.board.agents.length, 2, "legacy unscoped reads must stay broad");
   assert.equal(broad.memories.memories.length, 2);
   assert.equal((await fetchLocal("/api/workspaces/demo/cockpit?exact=1&team=" + exactTeam, { headers })).status, 400);
-  return { origin, scope, rpc, headers };
+  const fixture = { origin, scope, rpc, headers };
+  await testHumanTasks(fixture, token);
+  return fixture;
 }

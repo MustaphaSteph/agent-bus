@@ -50,6 +50,21 @@ CREATE TABLE IF NOT EXISTS human_participants (
   display_name TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS chat_attachments (
+  id TEXT PRIMARY KEY,
+  uploader TEXT NOT NULL,
+  name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  content_type TEXT NOT NULL,
+  object_key TEXT NOT NULL,
+  project TEXT,
+  area TEXT,
+  team TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('uploading', 'ready', 'attached', 'deleting')),
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_expiry ON chat_attachments(state, expires_at);
+
 CREATE TABLE IF NOT EXISTS human_chat_requests (
   user_id TEXT NOT NULL,
   request_id TEXT NOT NULL,

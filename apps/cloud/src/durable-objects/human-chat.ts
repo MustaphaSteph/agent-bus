@@ -1,22 +1,15 @@
 import type { WorkspaceContext } from "../shared/types";
+import { attachmentIds } from "../shared/attachments";
+import { scopeFrom, type ChatScope as Scope } from "../shared/chat-scope";
+import { findAttachment, publicAttachment } from "./attachments";
 
 type Sql = DurableObjectStorage["sql"];
-type Scope = { team: string; project: string | null; area: string | null };
 type Member = { name: string; last_seen: number; paused: number; listening_until: number | null };
 const scopeSql = "team = ? AND project IS ? AND area IS ?";
 const humanPrefix = "human.";
 
 export function humanIdentity(context: WorkspaceContext): string {
   return humanPrefix + context.principal.id;
-}
-
-function scopeFrom(input: Record<string, unknown>): Scope {
-  if (typeof input.team !== "string" || !/^[a-zA-Z0-9_.-]{1,64}$/.test(input.team)) throw new Error("Choose a team before sending.");
-  for (const field of ["project", "area"] as const) {
-    if (input[field] !== null && input[field] !== undefined &&
-        (typeof input[field] !== "string" || !/^[a-zA-Z0-9_.-]{1,64}$/.test(input[field] as string))) throw new Error(`Invalid ${field}.`);
-  }
-  return { team: input.team, project: (input.project as string) || null, area: (input.area as string) || null };
 }
 
 function members(sql: Sql, scope: Scope): Member[] {
@@ -37,6 +30,7 @@ export function humanChatView(sql: Sql, context: WorkspaceContext, input: Record
   return {
     groups, scope, members: scope ? members(sql, scope).map(member => ({ name: member.name, presence: presence(member) })) : [],
     messages: messages.map(({ content, ...message }) => ({ ...message,
+      attachments: JSON.parse(String(message.attachments || "[]")),
       content_preview: String(content).slice(0, 4000), truncated: String(content).length > 4000,
       sender_kind: String(message.from_agent).startsWith(humanPrefix) ? "human" : "agent",
       sender_name: message.sender_name || message.from_agent,
@@ -48,22 +42,29 @@ export function humanChatView(sql: Sql, context: WorkspaceContext, input: Record
 
 export function postHumanChat(sql: Sql, storage: DurableObjectStorage, context: WorkspaceContext, input: Record<string, unknown>) {
   if (context.principal.kind !== "user" || context.role === "viewer") throw new Error("Only signed-in members with write access can send messages.");
-  const allowed = new Set(["team", "project", "area", "content", "reply_to", "request_id"]);
+  const allowed = new Set(["team", "project", "area", "content", "reply_to", "request_id", "attachment_ids"]);
   if (Object.keys(input).some(key => !allowed.has(key))) throw new Error("Unexpected chat field.");
   const scope = scopeFrom(input);
   const content = typeof input.content === "string" ? input.content.trim() : "";
-  if (!content || content.length > 12000) throw new Error("Messages must contain 1-12000 characters.");
+  const fileIds = attachmentIds(input.attachment_ids);
+  if ((!content && !fileIds.length) || content.length > 12000) throw new Error("Add a message or file. Messages can contain up to 12000 characters.");
   if (typeof input.request_id !== "string" || !/^[a-zA-Z0-9_-]{16,80}$/.test(input.request_id)) throw new Error("A valid request_id is required.");
   const replyTo = input.reply_to == null ? null : input.reply_to;
   if (replyTo !== null && (!Number.isSafeInteger(replyTo) || Number(replyTo) < 1)) throw new Error("Invalid reply target.");
   const author = humanIdentity(context);
-  const signature = JSON.stringify({ ...scope, content, replyTo });
+  const signature = JSON.stringify({ ...scope, content, replyTo, ...(fileIds.length ? { attachment_ids: fileIds } : {}) });
   return storage.transactionSync(() => {
     const previous = sql.exec<{ payload: string; result: string }>("SELECT payload, result FROM human_chat_requests WHERE user_id = ? AND request_id = ?", context.principal.id, input.request_id as string).toArray()[0];
     if (previous) {
       if (previous.payload !== signature) throw new Error("This request was already used for a different message.");
       return JSON.parse(previous.result);
     }
+    const attachments = fileIds.map(id => {
+      const file = findAttachment(sql, id);
+      if (file.uploader !== context.principal.id || file.state !== "ready" || file.expires_at <= Date.now() ||
+          file.team !== scope.team || file.project !== scope.project || file.area !== scope.area) throw new Error("Attachment is unavailable in this conversation. Attach it again.");
+      return publicAttachment(file, context.slug);
+    });
     const roster = members(sql, scope);
     const names = new Set(roster.map(member => member.name));
     const mentions = [...new Set([...content.matchAll(/(?:^|[\s(])@([a-zA-Z0-9_.-]+)(?=$|[\s,!?;:)])/g)].map(match => match[1]!))];
@@ -83,11 +84,12 @@ export function postHumanChat(sql: Sql, storage: DurableObjectStorage, context: 
     sql.exec("INSERT INTO human_participants (name, display_name) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET display_name = excluded.display_name", author, context.principal.displayName || "Workspace member");
     const ids: number[] = [];
     for (const target of targets) {
-      sql.exec(`INSERT INTO messages (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, project, area, team, priority, sender_name, human_post_id)
-        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'normal', ?, ?)`, author, target, replyTo ? "reply" : "msg", content, replyTo as number | null,
-        Date.now(), threadId, scope.project, scope.area, scope.team, context.principal.displayName || "Workspace member", input.request_id as string);
+      sql.exec(`INSERT INTO messages (from_agent, to_agent, kind, content, reply_to, status, created_at, thread_id, project, area, team, priority, sender_name, human_post_id, attachments)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'normal', ?, ?, ?)`, author, target, replyTo ? "reply" : "msg", content, replyTo as number | null,
+        Date.now(), threadId, scope.project, scope.area, scope.team, context.principal.displayName || "Workspace member", input.request_id as string, JSON.stringify(attachments));
       ids.push(Number(sql.exec<{ id: number }>("SELECT last_insert_rowid() AS id").toArray()[0]!.id));
     }
+    for (const id of fileIds) sql.exec("UPDATE chat_attachments SET state = 'attached' WHERE id = ?", id);
     if (replyTo !== null) sql.exec("UPDATE messages SET status = 'answered', replied_at = ? WHERE id = ? AND to_agent = ?", Date.now(), Number(replyTo), author);
     const result = { ids, thread_id: threadId, sender: author, recipients: targets.map(name => ({ name, presence: presence(roster.find(member => member.name === name)!), status: "queued" })) };
     sql.exec("INSERT INTO human_chat_requests (user_id, request_id, payload, result) VALUES (?, ?, ?, ?)", context.principal.id, input.request_id as string, signature, JSON.stringify(result));
