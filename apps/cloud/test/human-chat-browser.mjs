@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { testWorkspaceRaces } from "./workspace-races-browser.mjs";
 import { testAttachmentBrowser } from "./attachments-browser.mjs";
+import { testWorkspacePicker } from "./workspace-picker-browser.mjs";
 
 // Optional browser coverage. Uses temporary smoke-test accounts and storage only.
 export async function testHumanChatBrowser({ origin, scope, rpc }) {
@@ -62,6 +63,9 @@ export async function testHumanChatBrowser({ origin, scope, rpc }) {
     assert((await page.locator("#team-chat").textContent()).includes("END_OF_REPORT"));
     await page.locator("#chat-content").fill("");
     await testWorkspaceRaces(page, origin, scope);
+    await testWorkspacePicker(page, browser, origin);
+    await page.locator(`[data-chat-scope='${JSON.stringify([scope.project, scope.area, scope.team])}']`).click();
+    await wait(() => !document.getElementById("chat-content").disabled);
     await testAttachmentBrowser(page, origin);
     await page.evaluate(() => { document.getElementById("team-chat").scrollTop = 0; });
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "desktop overflow");

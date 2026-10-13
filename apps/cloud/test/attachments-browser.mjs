@@ -26,8 +26,8 @@ export async function testAttachmentBrowser(page, origin) {
   await page.waitForFunction(() => !document.querySelector("#chat-draft-files .file-card"));
   const download = page.locator(".msg .file-name").filter({ hasText: file.name });
   await download.waitFor();
-  const downloadResponse = await page.request.get(origin + await download.getAttribute("href"));
-  assert.equal(await downloadResponse.text(), file.buffer.toString());
+  const downloaded = await page.evaluate(async url => (await fetch(url)).text(), origin + await download.getAttribute("href"));
+  assert.equal(downloaded, file.buffer.toString());
 
   await page.locator("#chat-content").evaluate((input, base64) => {
     const data = new DataTransfer();
@@ -54,7 +54,7 @@ export async function testAttachmentBrowser(page, origin) {
   await page.locator("[data-file-remove]").click();
   const removedResponse = await removed;
   assert.equal(removedResponse.status(), 200);
-  assert.equal((await page.request.get(removedResponse.url())).status(), 404);
+  assert.equal(await page.evaluate(async url => (await fetch(url)).status, removedResponse.url()), 404);
   await page.locator("#chat-files").setInputFiles({ name: "too-large.zip", mimeType: "application/zip", buffer: Buffer.alloc(10485761) });
   assert((await page.locator("#chat-feedback").textContent()).includes("10 MB"));
   assert.equal(await page.locator("#chat-draft-files .file-card").count(), 0);

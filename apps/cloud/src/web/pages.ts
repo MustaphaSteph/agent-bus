@@ -6,6 +6,7 @@ import { cockpitMarkup, cockpitRenderScript, cockpitStyles, detailsMarkup } from
 import { humanChatScript, humanChatStyles } from "./human-chat";
 import { attachmentScript, attachmentStyles } from "./chat-attachments";
 import { icon } from "./icons";
+import { workspacePickerStyles, workspacePickerMarkup, workspaceDialogMarkup, workspacePickerScript } from "./workspace-picker";
 export { landingPage } from "./landing";
 
 // Theme tokens. System preference by default; data-theme on <html> forces light or dark.
@@ -89,11 +90,6 @@ const appStyles = `
   .sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 56px; padding: 0 10px 0 16px; }
   .workspace-switch { padding: 4px 10px 12px; border-bottom: 1px solid var(--line); }
   .eyebrow { display: block; padding: 0 4px 6px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-  .select-wrap { position: relative; }
-  .select-wrap select { appearance: none; width: 100%; height: 38px; padding: 0 32px 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--text); font-weight: 700; font-size: 14px; cursor: pointer; text-overflow: ellipsis; }
-  .select-wrap select:disabled { cursor: not-allowed; opacity: .7; }
-  .select-wrap::after { content: ""; position: absolute; right: 13px; top: 15px; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: rotate(45deg); pointer-events: none; }
-  .role-note { margin: 6px 4px 0; color: var(--muted); font-size: 12px; }
   .sidebar-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 8px 16px; }
   .nav-section + .nav-section { margin-top: 16px; }
   .nav-section h2 { padding: 4px 8px 6px; color: var(--muted); font-family: inherit; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
@@ -425,6 +421,7 @@ const appScript = String.raw`
     const slug = currentSlug(); const role = currentRole();
     const labels = { owner: "Owner", manager: "Manager", agent: "Agent", viewer: "Viewer (read-only)" };
     document.getElementById("workspace-role").textContent = slug ? "Your role: " + (labels[role] || role) : "";
+    syncWorkspacePicker();
     mcpOutput.textContent = slug ? location.origin + "/mcp/" + slug : "Create a workspace first.";
     document.title = (currentWorkspace()?.name ? currentWorkspace().name + " · " : "") + "Agent Bus";
     applyRoleGates();
@@ -474,12 +471,12 @@ const appScript = String.raw`
   addEventListener("hashchange", () => applyView(true));
   addEventListener("popstate", () => applyView(true));
 
-  function setNavExpanded(open) { document.querySelectorAll(".nav-open").forEach((button) => button.setAttribute("aria-expanded", String(open))); }
+  function setNavExpanded(open) { document.querySelectorAll("button.nav-open").forEach((button) => button.setAttribute("aria-expanded", String(open))); }
   function openNav(trigger) {
-    if (!narrowNav.matches) return;
+    if (!narrowNav.matches || app.classList.contains("nav-open")) return;
     lastFocus = trigger || document.activeElement;
     app.classList.add("nav-open"); scrim.hidden = false; mainEl.inert = true; detailsEl.inert = true; setNavExpanded(true);
-    (sidebar.querySelector("[aria-current]") || workspaceSelect).focus();
+    (sidebar.querySelector("[aria-current]") || workspaceTrigger).focus();
   }
   function closeNav() {
     if (!app.classList.contains("nav-open")) return;
@@ -520,7 +517,7 @@ const appScript = String.raw`
     app.classList.remove("nav-open", "details-open"); setNavExpanded(false); afterOverlayClose(false); updateDetailsToggle();
   }
   document.addEventListener("click", (event) => {
-    const opener = event.target.closest(".nav-open"); if (opener) openNav(opener);
+    const opener = event.target.closest("button.nav-open"); if (opener) openNav(opener);
   });
   document.getElementById("nav-close").addEventListener("click", closeNav);
   document.getElementById("details-toggle").addEventListener("click", (event) => {
@@ -776,8 +773,9 @@ const initScript = String.raw`
   });
   workspaceSelect.addEventListener("change", () => {
     if (chat.sending || chat.uploading || creatingWorkspace) { workspaceSelect.value = chat.workspace; return; }
+    if (workspaceSelect.value === chat.workspace) return;
     if (hasChatDraft() && !confirm("Discard this draft and switch workspaces?")) { workspaceSelect.value = chat.workspace; return; }
-    switchWorkspace();
+    switchWorkspace(); closeNav();
   });
   try { if (localStorage.getItem("agent-bus.details") === "closed") app.classList.add("details-collapsed"); } catch {}
   renderWorkspaceSelect();
@@ -793,9 +791,9 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
   if (!user) return authPage();
   const workspaces = await listWorkspaces(env, user.id);
   const initialData = JSON.stringify({ workspaces, humanName: user.name || "You" }).replaceAll("<", "\\u003c");
-  const clientIcons = JSON.stringify({ reply: icon("reply", 15), message: icon("message", 16), tasks: icon("tasks", 16), x: icon("x", 16), arrowDown: icon("arrowDown", 16) }).replaceAll("<", "\\u003c");
+  const clientIcons = JSON.stringify({ check: icon("check", 18), reply: icon("reply", 15), message: icon("message", 16), tasks: icon("tasks", 16), x: icon("x", 16), arrowDown: icon("arrowDown", 16) }).replaceAll("<", "\\u003c");
   const displayName = user.name || user.email;
-  return shell("Agent Bus", "app-body", appStyles + humanChatStyles + attachmentStyles + cockpitStyles, `
+  return shell("Agent Bus", "app-body", appStyles + workspacePickerStyles + humanChatStyles + attachmentStyles + cockpitStyles, `
   <a class="skip-link" href="#chat-content">Skip to message composer</a>
   <div id="app" class="app" data-view="chat">
     <aside id="sidebar" class="sidebar" aria-label="Workspace navigation">
@@ -804,9 +802,7 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
         <button id="nav-close" class="icon-btn nav-open-only" type="button" aria-label="Close navigation">${icon("x")}</button>
       </div>
       <div class="workspace-switch">
-        <label for="workspace-select" class="eyebrow">Workspaces</label>
-        <div class="select-wrap"><select id="workspace-select"></select></div>
-        <p id="workspace-role" class="role-note"></p>
+        ${workspacePickerMarkup}
       </div>
       <div class="sidebar-scroll">
         <nav class="nav-section" aria-labelledby="conversations-heading">
@@ -837,11 +833,13 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
     ${detailsMarkup}
     <div id="scrim" class="scrim" hidden></div>
   </div>
+  ${workspaceDialogMarkup}
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script id="initial-data" type="application/json">${initialData}</script>
   <script>
     const ICONS = ${clientIcons};
     ${appScript}
+    ${workspacePickerScript}
     ${cockpitRenderScript}
     ${humanChatScript}
     ${attachmentScript}

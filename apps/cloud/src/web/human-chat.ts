@@ -155,6 +155,7 @@ export const humanChatScript = String.raw`
     const disabled = !chat.canPost || !chat.scope || chat.sending || creatingWorkspace;
     chatContent.disabled = disabled;
     workspaceSelect.disabled = chat.sending || chat.uploading || creatingWorkspace;
+    workspaceTrigger.disabled = workspaceSelect.disabled;
     document.getElementById("create-workspace").disabled = chat.sending || chat.uploading || creatingWorkspace;
     document.querySelectorAll("[data-chat-scope]").forEach(button => { button.disabled = chat.sending || chat.uploading || creatingWorkspace; });
     document.getElementById("chat-attach").disabled = disabled || chat.uploading || chat.files.length >= 5;

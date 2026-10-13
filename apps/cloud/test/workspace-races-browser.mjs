@@ -37,15 +37,18 @@ export async function testWorkspaceRaces(page, origin, scope) {
   await page.locator("#chat-send").click();
   assert(await page.locator(selector(other)).isDisabled(), "team switch enabled during send");
   assert(await page.locator("#workspace-select").isDisabled());
+  assert(await page.locator("#workspace-trigger").isDisabled(), "workspace picker enabled during send");
   assert(await page.locator("#create-workspace").isDisabled());
   releaseSend();
   await ready();
   await page.unroute("**/chat", delayedSend);
 
-  const response = await page.request.post(origin + "/api/workspaces", {
-    headers: { origin }, data: { slug: "race-workspace", name: "Race workspace" },
-  });
-  assert.equal(response.status(), 201);
+  // Use browser fetch: Secure cookies work on loopback in Chrome, unlike APIRequestContext.
+  const status = await page.evaluate(async () => (await fetch("/api/workspaces", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ slug: "race-workspace", name: "Race workspace" }),
+  })).status);
+  assert.equal(status, 201);
   await page.reload();
   await page.locator("#workspace-select").selectOption("demo");
   await page.evaluate(() => { location.hash = "connect"; });
