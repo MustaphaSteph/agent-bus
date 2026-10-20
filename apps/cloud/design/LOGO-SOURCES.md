@@ -113,6 +113,7 @@ performed during this asset task. Do not turn this evidence into "certified,"
 - Publisher: Meta Platforms, Inc.
 - Discovery: [Muse official web app](https://muse.ai/), where the mark is the page's `Muse` brand image and, byte-identical apart from whitespace, its SVG favicon `https://muse.ai/images/favicon/app-squiggle.svg`. Product identity: [Muse at Meta](https://ai.meta.com/muse/).
 - `meta-muse.svg` exact source: `https://muse.ai/images/landing/brand/muse-logo.svg`, downloaded 2026-10-10, bytes unchanged. 100 x 100 viewBox, blue linear-gradient handwritten `M`, no scripts or external references.
+- `meta-muse-hatch.jpg` exact source: `https://muse.ai/images/landing/brand/hatch.jpg`, downloaded 2026-10-13, bytes unchanged (1080 x 1080 JPEG, sha256 1a7b2fee…340d). It is the Muse character artwork served from the official site's brand folder (its product walkthrough assets live under `/images/hatch/`). Used on the landing as Muse's avatar at user request; displayed with `object-fit: cover`, not recolored or cropped in the file.
 - This is the personal-agent app mark, not Muse Code. Do not use it for Muse Code, and keep the "Personal agent; connection unverified" status: the mark identifies the product, it does not establish an Agent Bus integration.
 - Attribution: Muse and its mark belong to Meta. Public availability is provenance, not a trademark license or endorsement.
 

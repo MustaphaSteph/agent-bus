@@ -145,6 +145,11 @@ function rebuildTasksTableForBacklog(db: Database.Database): void {
 }
 
 function migrate(db: Database.Database): void {
+  db.exec(`CREATE TABLE IF NOT EXISTS wake_receipts (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    token TEXT NOT NULL,
+    reply_id INTEGER REFERENCES messages(id) ON DELETE SET NULL
+  )`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS agents (
       name           TEXT PRIMARY KEY,

@@ -34,9 +34,15 @@ cd apps/cloud
 wrangler login
 wrangler d1 create agent-bus-cloud
 wrangler r2 bucket create agent-bus-cloud-chat-files
+wrangler kv namespace create OAUTH_KV
 ```
 
 Copy the returned `database_id` into `apps/cloud/wrangler.toml`.
+Copy the returned KV namespace `id` into the `OAUTH_KV` binding too. The checked-in
+binding belongs to the hosted deployment above; replace it for a different account.
+Production preflight rejects an all-zero local-only placeholder.
+For an existing deployment, create this namespace once before deploying OAuth
+connectors and apply the new `0003_oauth.sql` D1 migration using the command below.
 
 For an existing deployment, create the attachment bucket once before deploying
 the attachment feature. Keep it private: do not enable public access or attach
@@ -66,6 +72,11 @@ wrangler secret put AGENT_BUS_CLOUD_AUTH_SECRET
 
 Use a long random value. Do not commit it.
 
+For Google/GitHub website sign-in, also apply `0004_social_login.sql`, configure
+`AUTH_PUBLIC_ORIGIN` and `AUTH_SIGNUP_ENABLED`, and set provider client bindings.
+Follow [social login setup](docs/social-login.md). These providers authenticate
+people and are separate from the Claude/ChatGPT MCP OAuth connector.
+
 ## 3. Run deployment preflight
 
 From the repository root:
@@ -76,7 +87,7 @@ npm --prefix apps/cloud run deploy
 ```
 
 The deploy command refuses to run if `wrangler.toml` still has the placeholder
-D1 id or development environment setting.
+D1/KV id or development environment setting.
 
 ## 4. Verify the hosted app
 
@@ -125,6 +136,19 @@ human mentions, and image/Markdown delivery. Credentials are read in memory,
 not printed. Temporary agent tokens are revoked and agents marked sleeping;
 the synthetic workspace and sent files remain as verification evidence.
 It does not modify existing workspaces or client connection settings.
+
+Verify OAuth discovery, consent, MCP access, refresh, permissions, and Disconnect:
+
+```bash
+AGENT_BUS_LIVE_TEST=1 AGENT_BUS_CLOUD_HOST=https://<host> \
+  node apps/cloud/test/live-oauth.mjs
+```
+
+This creates an isolated `oauth-deploy-*` workspace and public test client.
+Temporary connections are disconnected in cleanup; the test workspace remains.
+Credentials stay in memory. For propagation diagnosis only, set
+`AGENT_BUS_OAUTH_SETTLE_MS=65000` to delay the first refresh. The default test
+refreshes immediately and must remain strict so intermittent failures surface.
 
 Open the dashboard:
 

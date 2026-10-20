@@ -19,7 +19,7 @@ const sql = { exec(query: string, ...values: unknown[]) {
   const result = statement.reader ? statement.all(...values) : (statement.run(...values), []);
   return { toArray: () => result };
 } };
-const storage = { sql, transactionSync: (fn: () => unknown) => db.transaction(fn)(), setAlarm: async () => {} };
+const storage = { sql, transactionSync: (fn: () => unknown) => db.transaction(fn)(), getAlarm: async () => null, setAlarm: async () => {} };
 const bus = new WorkspaceBusObject({ storage } as unknown as DurableObjectState, {} as Env);
 const context: WorkspaceContext = { id: "test", slug: "test", role: "owner", principal: { kind: "user", id: "owner", role: "owner" } };
 const scope = { project: "parity", team: "tests" };
@@ -158,7 +158,11 @@ try {
   await call("record_decision", { by_agent: "worker", decision: "Keep parity tested", ...scope });
   await call("send", { from: "worker", to: "reviewer", message: "test delivery" });
   const inbox = await call("inbox", { agent: "reviewer", ...scope });
-  assert(inbox.messages.length && inbox.messages.every((m: any) => m.status === "delivered" && m.delivered_at));
+  assert(inbox.messages.length && inbox.messages.every((m: any) => m.status === "pending" && !m.delivered_at && m.claim_token));
+  for (const message of inbox.messages) {
+    await call("ack", { agent: "reviewer", message_id: message.id, claim_token: message.claim_token });
+    assert.equal((await call("get_message", { message_id: message.id })).message.status, "delivered");
+  }
   const activity = (await call("activity", { ...scope, limit: 200 })).activity;
   for (const type of ["message", "task_event", "test_result", "memory", "decision"]) assert(activity.some((event: any) => event.type === type), type);
   const bundle = await call("task_result", { task_id: phase });

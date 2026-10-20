@@ -1,12 +1,37 @@
 # MCP tools reference
 
+Cloud additionally supports MCP Events discovery and authenticated
+`events/subscribe` / `events/unsubscribe` for `inbox.message_available`.
+These are protocol methods, not new Local tools. Cloud `reply` accepts an
+optional `idempotency_key` scoped to the sender and original message; repeating
+it returns the stored reply without inserting another. The Claude channel
+bridge exposes a separate `channel_complete` tool. See
+[native wake integrations](native-wake.md) for host requirements and limits.
+
+The separate `claude-channel` CLI now also connects to the Local SQLite bus.
+Its `channel_complete` records a reply before a token-checked acknowledgement.
+`codex-listen` uses the same local delivery path for dedicated App Server threads.
+These are opt-in CLI adapters, not additional tools on the ordinary Local MCP
+server; existing `inbox`, `reply` and `ack` contracts remain unchanged. Do not
+consume a bridge agent's inbox from those ordinary tools concurrently.
+
 Every tool exposed by `agent-bus-mcp`. All return JSON. Errors return
 `{ error: { code, message } }` with `isError: true`.
 
 To connect clients, use the [Local/Cloud setup wizard](setup.md) (CLI 0.42.0+).
 Setup installs skills and MCP configuration; it adds no local MCP tools.
+Hosted Claude/ChatGPT can instead use the Cloud `/mcp` OAuth connector with
+workspace consent. See [connector setup](../apps/cloud/docs/connectors.md).
 Cloud connections additionally expose `cloud_workspace` for checking the
 authenticated workspace and role. Local and Cloud data are not synchronized.
+Cloud inbox defaults to a 60-second lease: handle messages, then `ack` with
+`agent`, `message_id` and the received `claim_token`. Resume `since_id` from the
+highest handled/acked ID, not an unhandled `next_cursor`; older unacknowledged
+work can still be redelivered. Reopen successful polls immediately, backing off
+on connection failures.
+Cloud rejects `mark_delivered:true`; use `false` only for inspection.
+These defaults do not change the Local reference below. See
+[Cloud delivery and webhooks](../apps/cloud/docs/delivery.md).
 For tested semantics and remaining differences, see
 [Cloud behavior parity](../apps/cloud/docs/behavior-parity.md).
 

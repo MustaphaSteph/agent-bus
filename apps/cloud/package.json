@@ -8,17 +8,24 @@
     "dev": "wrangler dev",
     "deploy": "node test/production-config.mjs && wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "node test/tool-parity.mjs && tsx test/workflow-parity.ts && tsx test/attachments-unit.ts && node test/smoke.mjs && node test/cli.mjs",
+    "test:oauth": "node test/oauth-runner.mjs",
+    "test:social": "tsx test/social-auth.ts",
+    "test:delivery": "tsx test/delivery.ts && tsx ../../test/cloud-listen.ts && node test/delivery-runtime.mjs",
+    "test:events": "tsx test/mcp-events.ts",
+    "test": "node test/tool-parity.mjs && tsx test/workflow-parity.ts && tsx test/attachments-unit.ts && npm run test:delivery && npm run test:events && npm run test:social && node test/smoke.mjs && node test/cli.mjs",
     "check": "npm run typecheck && npm test",
     "check:deploy": "npm run check && wrangler deploy --dry-run --outdir /tmp/agent-bus-cloud-dryrun"
   },
   "dependencies": {
-    "agents": "^0.27.0",
+    "@cloudflare/workers-oauth-provider": "^1.2.3",
     "@modelcontextprotocol/server": "2.0.0",
+    "agents": "^0.27.0",
+    "oauth4webapi": "^3.8.8",
     "zod": "^4.1.8"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261007.1",
+    "miniflare": "5.20261006.0-alpha",
     "typescript": "^5.6.0",
     "wrangler": "^4.148.0"
   }

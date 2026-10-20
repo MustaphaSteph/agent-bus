@@ -1,6 +1,7 @@
 import type { Env, WorkspaceContext } from "../shared/types";
 import { DRAFT_FILE_TTL, MAX_FILE_BYTES, WORKSPACE_FILE_BYTES, type ChatAttachment } from "../shared/attachments";
 import { scopeFrom } from "../shared/chat-scope";
+import { scheduleDeliveryAlarm } from "./delivery-alarm";
 
 type Sql = DurableObjectStorage["sql"];
 export type AttachmentRow = {
@@ -21,8 +22,7 @@ export function findAttachment(sql: Sql, id: string): AttachmentRow {
 }
 
 export async function scheduleAttachmentCleanup(sql: Sql, storage: DurableObjectStorage): Promise<void> {
-  const next = sql.exec<{ deadline: number | null }>("SELECT MIN(expires_at) AS deadline FROM chat_attachments WHERE state <> 'attached'").toArray()[0]?.deadline;
-  if (next != null) await storage.setAlarm(Math.max(Date.now() + 60000, next));
+  await scheduleDeliveryAlarm(storage);
 }
 
 export async function attachmentOperation(sql: Sql, storage: DurableObjectStorage, env: Env, context: WorkspaceContext, op: string, input: Record<string, unknown>) {

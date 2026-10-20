@@ -31,6 +31,11 @@ Passing source tests does not mean those changes have been deployed.
 
 ## Cloud adapter details
 
+Cloud inbox now defaults to leased, explicit-ack delivery; Local keeps its
+existing defaults. Cloud `ack` requires the returned `claim_token`. Its receive
+cursor never hides pending unacknowledged work. See [delivery](delivery.md) for
+the migration contract, webhook API, tests and model wake-up limitations.
+
 Task updates and releases require the acting `agent`. The actor must be the
 requester or current holder. Use `submit_review` for approval rather than
 writing review fields through `update_task`. Cloud accepts either

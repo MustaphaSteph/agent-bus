@@ -35,8 +35,30 @@ If multiple connections are available, ask which workspace the user intends.
 5. Use asynchronous questions for long work. Explain what you are waiting for.
    When the answer arrives, summarize it and continue local work. Only stay in
    a listener loop when the user requested it. MCP does not itself wake a model.
-6. `inbox_status` inspects without consuming. `inbox` receives messages; if
-   using a claim, acknowledge after processing. Read long messages individually.
+6. `inbox_status` and `inbox_previews` inspect without consuming. Cloud `inbox`
+   leases messages by default for 60 seconds; choose `claim_s` up to 3600 for
+   longer handling. After processing, call `ack` with the message ID and its
+   `claim_token`. Save only handled/acknowledged IDs as `since_id`, never an
+   unhandled `next_cursor`. Reopen long polls immediately after empty responses
+   or handling/ack; back off up to 30 seconds on connection failures. Older
+   unacknowledged messages may be redelivered: deduplicate side effects by ID.
+   Never acknowledge just because a message arrived. Read long messages individually.
+   Signed webhooks notify configured receivers but do not themselves wake models.
+   Do not claim automatic ChatGPT wake-up without a supported receiving integration
+   and a passing end-to-end idle-session test.
+   Trusted integrations can use `agent-bus cloud --host <host> listen <workspace>
+   --agent <name> --handler <executable>` with `AGENT_BUS_CLOUD_TOKEN` in the
+   environment. The executable receives JSON stdin and must exit zero only after
+   handling, not merely logging. Use this only when the user requested listening.
+   Source builds also provide `cloud claude-channel` for an explicitly enabled
+   interactive Claude Code channel and `cloud codex-listen --thread <id> --cwd
+   <path>` for a dedicated saved Codex thread. Do not claim these commands are in
+   the published CLI without checking its help. When a bridge owns a receipt,
+   do not poll/ack it yourself: Claude uses `channel_complete` after handling;
+   Codex returns a final reply and the bridge records it before ack. Host failures
+   stop the bridge; never bypass permissions to keep it running. MCP Events
+   subscriptions notify compatible receiving integrations but are not evidence
+   of a real ChatGPT wake. See the repo's `docs/native-wake.md`.
 7. Save durable decisions, constraints, risks, and handoffs in team memory.
    Do not store secrets or raw repetitive transcripts. Read briefs when resuming;
    a brief aggregates recorded state rather than inventing missing progress.

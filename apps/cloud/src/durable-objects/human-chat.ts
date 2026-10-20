@@ -19,7 +19,7 @@ function members(sql: Sql, scope: Scope): Member[] {
 
 function presence(member: Member) {
   return member.paused ? "paused" : (member.listening_until ?? 0) > Date.now() ? "listening"
-    : Date.now() - member.last_seen > 300000 ? "offline" : "online";
+    : Date.now() - member.last_seen > 300000 ? "offline" : "last_checked";
 }
 
 export function humanChatView(sql: Sql, context: WorkspaceContext, input: Record<string, unknown>) {
@@ -28,7 +28,7 @@ export function humanChatView(sql: Sql, context: WorkspaceContext, input: Record
   const scope = input.team ? scopeFrom(input) : groups[0] ?? null;
   const messages = scope ? sql.exec(`SELECT * FROM messages WHERE ${scopeSql} ORDER BY id DESC LIMIT 100`, scope.team, scope.project, scope.area).toArray().reverse() : [];
   return {
-    groups, scope, members: scope ? members(sql, scope).map(member => ({ name: member.name, presence: presence(member) })) : [],
+    groups, scope, members: scope ? members(sql, scope).map(member => ({ name: member.name, presence: presence(member), last_seen: member.last_seen, listening_until: member.listening_until })) : [],
     messages: messages.map(({ content, ...message }) => ({ ...message,
       attachments: JSON.parse(String(message.attachments || "[]")),
       content_preview: String(content).slice(0, 4000), truncated: String(content).length > 4000,

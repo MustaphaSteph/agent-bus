@@ -1,8 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { CloudRequestError, listenCloud } from "./cloud-listen.js";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
 import kleur from "kleur";
 import { busDir } from "../util/paths.js";
+import { registerWakeCommands } from "./wake/commands.js";
 
 type WorkspaceRole = "owner" | "manager" | "agent" | "viewer";
 
@@ -156,9 +160,10 @@ async function tokenTest(host: string, workspaceSlug: string, token: string): Pr
   return mcpJsonCall(host, workspaceSlug, token, "cloud_workspace", {});
 }
 
-async function mcpJsonCall(host: string, workspaceSlug: string, token: string, tool: string, input: unknown): Promise<unknown> {
-  const response = await fetch(`${mcpUrl(host, workspaceSlug)}?json=1`, {
+async function mcpJsonCall(host: string, workspaceSlug: string, token: string, tool: string, input: unknown, signal?: AbortSignal): Promise<unknown> {
+  const response = await fetch(`${mcpUrl(host, workspaceSlug)}?json=1${tool === "inbox" && signal ? "&stream=1" : ""}`, {
     method: "POST",
+    signal,
     headers: {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
@@ -166,8 +171,10 @@ async function mcpJsonCall(host: string, workspaceSlug: string, token: string, t
     body: JSON.stringify({ tool, input }),
   });
   const body = await parseResponse(response);
-  if (!response.ok) throw new Error(errorMessage(body, `${tool} failed`));
+  if (!response.ok) throw new CloudRequestError(response.status);
   if (typeof body === "object" && body !== null) {
+    const failure = body as { isError?: boolean; error?: { status?: number } };
+    if (failure.isError) throw new CloudRequestError(failure.error?.status ?? 500);
     const content = (body as { content?: Array<{ text?: unknown }> }).content;
     const text = content?.[0]?.text;
     if (typeof text === "string") {
@@ -225,6 +232,58 @@ export function registerCloudCommands(program: Command): void {
     .command("cloud")
     .description("Agent Bus Cloud setup helpers for the hosted Worker dashboard and remote MCP endpoint")
     .option("--host <url>", "Agent Bus Cloud host", DEFAULT_HOST);
+
+  registerWakeCommands(cloud, () => normalizeHost(cloud.opts<CloudOptions>().host), mcpJsonCall);
+
+  cloud.command("listen <workspace>")
+    .description("Keep a Cloud inbox open; run a trusted handler before acknowledgement (not a model wake-up)")
+    .requiredOption("--agent <name>", "already registered Cloud agent")
+    .requiredOption("--handler <executable>", "trusted executable: receives one JSON message on stdin; exit 0 only after handling")
+    .option("--handler-arg <value...>", "arguments for the handler (no shell expansion)")
+    .option("--team <name>", "optional team scope")
+    .option("--project <name>", "optional project scope")
+    .action(async (workspace: string, opts: { agent: string; handler: string; handlerArg?: string[]; team?: string; project?: string }) => {
+      const host = normalizeHost(cloud.opts<CloudOptions>().host);
+      const token = process.env.AGENT_BUS_CLOUD_TOKEN;
+      if (!token) throw new Error("Set AGENT_BUS_CLOUD_TOKEN securely in the environment; do not pass it as an argument.");
+      if (!/^[a-zA-Z0-9_.-]{1,64}$/.test(opts.agent)) throw new Error("Invalid agent name");
+      await tokenTest(host, workspace, token);
+      const identity = JSON.stringify([host, workspace, opts.agent, opts.team ?? null, opts.project ?? null]);
+      const dir = join(busDir(), "cloud-listeners");
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const checkpoint = join(dir, createHash("sha256").update(identity).digest("hex") + ".json");
+      const saved = existsSync(checkpoint) ? JSON.parse(readFileSync(checkpoint, "utf8")) as { cursor: number } : { cursor: 0 };
+      if (!Number.isSafeInteger(saved.cursor) || saved.cursor < 0) throw new Error("Invalid listener checkpoint; inspect before restarting.");
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      process.once("SIGINT", stop); process.once("SIGTERM", stop);
+      try {
+        await listenCloud({
+          agent: opts.agent, scope: { team: opts.team, project: opts.project }, cursor: saved.cursor, signal: controller.signal,
+          call: (tool, input, signal) => mcpJsonCall(host, workspace, token, tool, input, signal),
+          saveCursor: cursor => {
+            const temporary = checkpoint + `.${process.pid}.tmp`;
+            writeFileSync(temporary, JSON.stringify({ cursor }), { mode: 0o600 });
+            renameSync(temporary, checkpoint);
+          },
+          status: state => console.error(`${new Date().toISOString()} ${state}`),
+          handle: (message, signal) => new Promise<void>((resolve, reject) => {
+            signal.throwIfAborted();
+            const child = spawn(opts.handler, opts.handlerArg ?? [], { shell: false, stdio: ["pipe", "inherit", "inherit"] });
+            const stopChild = () => { child.kill("SIGKILL"); };
+            signal.addEventListener("abort", stopChild, { once: true });
+            child.on("error", reject);
+            child.stdin.on("error", () => { /* Exit status determines whether handling succeeded. */ });
+            child.on("close", code => {
+              signal.removeEventListener("abort", stopChild);
+              if (code === 0 && !signal.aborted) resolve();
+              else reject(new Error("Handler failed; message left unacknowledged"));
+            });
+            child.stdin.end(JSON.stringify(message) + "\n");
+          }),
+        });
+      } finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }
+    });
 
   cloud
     .command("signup")
@@ -579,8 +638,16 @@ export function registerCloudCommands(program: Command): void {
         wait_s: 1,
       });
       const inboxRows = asRows(inboxBody, "messages");
-      const delivered = inboxRows.some((row) => typeof row === "object" && row !== null && (row as { content?: unknown }).content === message);
+      const received = inboxRows.find((row) => typeof row === "object" && row !== null && (row as { content?: unknown }).content === message) as { id: number; claim_token?: string } | undefined;
+      const delivered = received !== undefined;
       if (!delivered) throw new Error("cloud smoke message was not delivered through remote MCP");
+      // This smoke handler has verified its own message. Older Cloud servers
+      // auto-deliver; new servers require the receipt returned with the lease.
+      if (received?.claim_token) {
+        await mcpJsonCall(host, workspaceSlug, opts.token, "ack", {
+          agent: receiver, message_id: received.id, claim_token: received.claim_token,
+        });
+      }
 
       const taskBody = await mcpJsonCall(host, workspaceSlug, opts.token, "create_task", {
         requested_by: sender,

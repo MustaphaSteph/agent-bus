@@ -45,6 +45,53 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   PRIMARY KEY (channel, agent)
 );
 
+CREATE TABLE IF NOT EXISTS wake_replies (
+  agent TEXT NOT NULL,
+  key TEXT NOT NULL,
+  message_id INTEGER NOT NULL,
+  result TEXT NOT NULL,
+  PRIMARY KEY (agent, key)
+);
+
+CREATE TABLE IF NOT EXISTS mcp_event_subscriptions (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  owner_kind TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  agent TEXT NOT NULL,
+  project TEXT,
+  team TEXT,
+  url TEXT NOT NULL,
+  secret TEXT NOT NULL,
+  previous_secret TEXT,
+  rotation_until INTEGER,
+  expires_at INTEGER NOT NULL,
+  verified_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_event_generations (id TEXT PRIMARY KEY, generation TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mcp_event_deliveries (
+  id TEXT PRIMARY KEY,
+  subscription_id TEXT NOT NULL REFERENCES mcp_event_subscriptions(id) ON DELETE CASCADE,
+  message_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL,
+  http_status INTEGER,
+  UNIQUE(subscription_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_event_due ON mcp_event_deliveries(state, next_attempt_at);
+CREATE TRIGGER IF NOT EXISTS enqueue_mcp_events AFTER INSERT ON messages
+WHEN NEW.status = 'pending'
+BEGIN
+  INSERT INTO mcp_event_deliveries (id, subscription_id, message_id, created_at, next_attempt_at)
+    SELECT 'evt_' || s.id || '_' || NEW.id, s.id, NEW.id, NEW.created_at, NEW.created_at
+    FROM mcp_event_subscriptions s WHERE s.agent = NEW.to_agent
+      AND s.expires_at > NEW.created_at
+      AND (s.project IS NULL OR s.project = NEW.project)
+      AND (s.team IS NULL OR s.team = NEW.team);
+END;
+
 CREATE TABLE IF NOT EXISTS human_participants (
   name TEXT PRIMARY KEY,
   display_name TEXT NOT NULL
@@ -179,6 +226,32 @@ CREATE TABLE IF NOT EXISTS memories (
 
 CREATE INDEX IF NOT EXISTS idx_messages_to_status ON messages(to_agent, status, id);
 CREATE INDEX IF NOT EXISTS idx_messages_reply_to ON messages(reply_to);
+CREATE TABLE IF NOT EXISTS outbound_webhooks (
+  id TEXT PRIMARY KEY,
+  agent TEXT NOT NULL UNIQUE,
+  url TEXT NOT NULL,
+  secret TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  webhook_id TEXT NOT NULL REFERENCES outbound_webhooks(id) ON DELETE CASCADE,
+  message_id INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending',
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL,
+  http_status INTEGER,
+  UNIQUE(webhook_id, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_due ON webhook_deliveries(state, next_attempt_at);
+CREATE TRIGGER IF NOT EXISTS enqueue_message_webhooks AFTER INSERT ON messages
+WHEN NEW.status = 'pending'
+BEGIN
+  INSERT INTO webhook_deliveries (id, webhook_id, message_id, created_at, next_attempt_at)
+    SELECT lower(hex(randomblob(16))), id, NEW.id, NEW.created_at, NEW.created_at
+    FROM outbound_webhooks WHERE agent = NEW.to_agent;
+END;
 CREATE INDEX IF NOT EXISTS idx_messages_thread ON messages(thread_id);
 CREATE INDEX IF NOT EXISTS idx_messages_team ON messages(team);
 CREATE INDEX IF NOT EXISTS idx_agents_team ON agents(team);

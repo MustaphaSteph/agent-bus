@@ -4,6 +4,9 @@ import { json } from "../shared/http";
 import { now } from "../shared/ids";
 import { humanChatView, humanIdentity, postHumanChat } from "./human-chat";
 import { attachmentOperation, cleanupAttachments } from "./attachments";
+import { scheduleDeliveryAlarm } from "./delivery-alarm";
+import { deliverWebhooks, webhookOperation } from "./webhooks";
+import { deliverMcpEvents, eventOperation } from "./mcp-events";
 import { TASK_TRANSITIONS, buildFinalReport, type ReportTask, type ReportTest } from "../../../../src/core/workflow";
 import { BusError } from "../../../../src/util/errors";
 
@@ -45,6 +48,7 @@ interface MessageRow {
   thread_id: string | null;
   claim_deadline: number | null;
   claimed_by: string | null;
+  claim_token: string | null;
   channel: string | null;
   project: string | null;
   area: string | null;
@@ -77,7 +81,7 @@ function optionalString(value: unknown): string | null {
 function toAgent(row: AgentRow): Record<string, unknown> {
   const ageS = Math.max(0, Math.round((now() - row.last_seen) / 1000));
   const listening = row.listening_until !== null && row.listening_until > now() && row.paused !== 1;
-  const presence = row.paused === 1 ? "paused" : ageS < 60 ? "online" : ageS < 300 ? "idle" : "stale";
+  const presence = row.paused === 1 ? "paused" : listening ? "listening" : ageS < 300 ? "last_checked" : "offline";
   return {
     ...row,
     capabilities: JSON.parse(row.capabilities) as string[],
@@ -137,6 +141,7 @@ function sleep(ms: number): Promise<void> {
 export class WorkspaceBusObject implements DurableObject {
   private readonly sql: SqlDatabase;
   private initialized = false;
+  private readonly polls = new Map<string, Map<string, number>>();
 
   constructor(private readonly state: DurableObjectState, private readonly env: Env) {
     this.sql = state.storage.sql;
@@ -149,7 +154,12 @@ export class WorkspaceBusObject implements DurableObject {
     }
     const rpc = (await request.json()) as RpcRequest;
     try {
-      const result = await this.dispatch(rpc.op, (rpc.input ?? {}) as Record<string, unknown>, rpc.context);
+      // Arm before mutations: the SQL trigger atomically queues notifications,
+      // including messages produced by tasks, human chat and blocking asks.
+      if (one(this.sql.exec("SELECT id FROM outbound_webhooks UNION ALL SELECT id FROM mcp_event_subscriptions LIMIT 1"))) {
+        await scheduleDeliveryAlarm(this.state.storage, now() + 1000);
+      }
+      const result = await this.dispatch(rpc.op, (rpc.input ?? {}) as Record<string, unknown>, rpc.context, request.signal);
       return json({ ok: true, result } satisfies RpcResponse);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -164,15 +174,26 @@ export class WorkspaceBusObject implements DurableObject {
     if (!columns.some(column => column.name === "sender_name")) this.sql.exec("ALTER TABLE messages ADD COLUMN sender_name TEXT");
     if (!columns.some(column => column.name === "human_post_id")) this.sql.exec("ALTER TABLE messages ADD COLUMN human_post_id TEXT");
     if (!columns.some(column => column.name === "attachments")) this.sql.exec("ALTER TABLE messages ADD COLUMN attachments TEXT NOT NULL DEFAULT '[]'");
+    if (!columns.some(column => column.name === "claim_token")) this.sql.exec("ALTER TABLE messages ADD COLUMN claim_token TEXT");
+    // A persisted deadline is not a live connection after instance replacement.
+    this.sql.exec("UPDATE agents SET listening_until = NULL WHERE listening_until IS NOT NULL");
     this.initialized = true;
   }
 
   async alarm(): Promise<void> {
     await this.ensureSchema();
-    await cleanupAttachments(this.sql, this.state.storage, this.env);
+    try {
+      await deliverWebhooks(this.state.storage);
+      await deliverMcpEvents(this.state.storage, this.env);
+      await cleanupAttachments(this.sql, this.state.storage, this.env);
+    } finally {
+      await scheduleDeliveryAlarm(this.state.storage);
+    }
   }
 
-  private async dispatch(op: string, input: Record<string, unknown>, context: WorkspaceContext): Promise<unknown> {
+  private async dispatch(op: string, input: Record<string, unknown>, context: WorkspaceContext, signal?: AbortSignal): Promise<unknown> {
+    if (op.startsWith("mcp_events_")) return eventOperation(this.state.storage, this.env, context, op, input);
+    if (op.startsWith("webhook_")) return webhookOperation(this.sql, context, op, input);
     if (op.startsWith("attachment_")) return attachmentOperation(this.sql, this.state.storage, this.env, context, op, input);
     switch (op) {
       case "human_chat_view":
@@ -213,11 +234,11 @@ export class WorkspaceBusObject implements DurableObject {
       case "send_channel":
         return this.sendChannel(input);
       case "inbox":
-        return this.inbox(input);
+        return this.inbox(input, signal);
       case "inbox_status":
         return this.inboxStatus(input);
       case "inbox_previews":
-        return this.inboxPreviews(input);
+        return this.inboxPreviews(input, signal);
       case "get_message":
         return this.getMessage(input);
       case "ack":
@@ -573,13 +594,19 @@ export class WorkspaceBusObject implements DurableObject {
   }
 
   private markAgentListening(agent: string, deadline: number | null): void {
+    const active = [...(this.polls.get(agent)?.values() ?? [])].filter(value => value > now());
+    deadline = active.length ? Math.max(...active) : deadline;
     this.sql.exec("UPDATE agents SET last_seen = ?, listening_until = ? WHERE name = ? AND removed_at IS NULL", now(), deadline, agent);
   }
 
   private readInboxRows(input: Record<string, unknown>): MessageRow[] {
     const agent = validateName("agent", input.agent);
     const limit = Math.min(Math.max(Number(input.limit ?? 20), 1), 500);
-    const sinceId = Math.max(Number(input.since_id ?? 0), 0);
+    const sinceId = Number(input.since_id ?? 0);
+    if (!Number.isSafeInteger(sinceId) || sinceId < 0) throw new BusError("INVALID_INPUT", "since_id must be a non-negative safe integer.");
+    // A receive cursor is never an acknowledgement. Recover pending work below
+    // it as well, including expired leases and lower-priority messages.
+    const cursorFloor = input.mark_delivered === false ? sinceId : 0;
     const scope = scopeClause(input);
     const threadId = optionalString(input.thread_id);
     const threadSql = threadId ? " AND thread_id = ?" : "";
@@ -587,7 +614,7 @@ export class WorkspaceBusObject implements DurableObject {
     return rows<MessageRow>(
       this.sql.exec(
         `SELECT * FROM messages
-         WHERE to_agent = ? AND id > ? AND status = 'pending'
+         WHERE to_agent = ? AND id > ? AND (status = 'pending' OR (status = 'answered' AND delivered_at IS NULL AND claim_token IS NOT NULL))
            AND (claim_deadline IS NULL OR claim_deadline < ?)
            ${scope.sql}
            ${threadSql}
@@ -598,7 +625,7 @@ export class WorkspaceBusObject implements DurableObject {
            ELSE 0
          END DESC, id ASC LIMIT ?`,
         agent,
-        sinceId,
+        cursorFloor,
         now(),
         ...scope.params,
         ...threadParams,
@@ -607,67 +634,68 @@ export class WorkspaceBusObject implements DurableObject {
     );
   }
 
-  private async inbox(input: Record<string, unknown>): Promise<unknown> {
-    const agent = validateName("agent", input.agent);
-    const row = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ? AND removed_at IS NULL", agent));
-    if (!row) throw new Error(`unknown agent ${agent}`);
-    this.markAgentListening(agent, null);
-    if (row.paused === 1) return { messages: [] };
-
-    let rowsFound = this.readInboxRows(input);
-    const waitSeconds = Math.min(Math.max(Number(input.wait_s ?? 0), 0), 110);
-    if (rowsFound.length === 0 && waitSeconds > 0) {
-      const deadline = now() + waitSeconds * 1000;
-      this.markAgentListening(agent, deadline);
-      while (rowsFound.length === 0 && now() < deadline) {
-        await sleep(100);
-        this.markAgentListening(agent, deadline);
-        rowsFound = this.readInboxRows(input);
-      }
-      this.markAgentListening(agent, null);
-    }
-
-    const claimSeconds = Number(input.claim_s ?? 0);
-    const markDelivered = input.mark_delivered !== false && claimSeconds <= 0;
-    if (claimSeconds > 0 && rowsFound.length > 0) {
-      const deadline = now() + Math.min(Math.max(claimSeconds, 1), 3600) * 1000;
-      for (const message of rowsFound) {
-        this.sql.exec("UPDATE messages SET claim_deadline = ?, claimed_by = ? WHERE id = ?", deadline, agent, message.id);
-        message.claim_deadline = deadline;
-        message.claimed_by = agent;
-      }
-    }
-    if (markDelivered && rowsFound.length > 0) {
-      const at = now();
-      for (const message of rowsFound) {
-        this.sql.exec("UPDATE messages SET status = 'delivered', delivered_at = ? WHERE id = ?", at, message.id);
-        message.status = "delivered";
-        message.delivered_at = at;
-      }
-    }
-    return { messages: rowsFound.map(toMessage) };
+  private async inbox(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    return this.receiveInbox(input, false, signal);
   }
 
-  private async inboxPreviews(input: Record<string, unknown>): Promise<unknown> {
+  private async receiveInbox(input: Record<string, unknown>, preview: boolean, signal?: AbortSignal): Promise<unknown> {
     const agent = validateName("agent", input.agent);
-    const previewChars = Math.min(Math.max(Number(input.preview_chars ?? 300), 0), 4000);
-    const row = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ? AND removed_at IS NULL", agent));
-    if (!row) throw new Error(`unknown agent ${agent}`);
-    this.markAgentListening(agent, null);
-    if (row.paused === 1) return { messages: [] };
-    let found = this.readInboxRows({ ...input, limit: Math.min(Math.max(Number(input.limit ?? 20), 1), 100) });
-    const waitSeconds = Math.min(Math.max(Number(input.wait_s ?? 0), 0), 110);
-    if (found.length === 0 && waitSeconds > 0) {
-      const deadline = now() + waitSeconds * 1000;
-      this.markAgentListening(agent, deadline);
-      while (found.length === 0 && now() < deadline) {
-        await sleep(100);
-        this.markAgentListening(agent, deadline);
-        found = this.readInboxRows({ ...input, limit: Math.min(Math.max(Number(input.limit ?? 20), 1), 100) });
+    const waitSeconds = Number(input.wait_s ?? 0);
+    const claimSeconds = Number(input.claim_s ?? 60);
+    if (!Number.isFinite(waitSeconds) || waitSeconds < 0 || waitSeconds > 110 ||
+        !Number.isInteger(claimSeconds) || claimSeconds < 1 || claimSeconds > 3600) {
+      throw new BusError("INVALID_INPUT", "wait_s must be 0..110 and claim_s must be 1..3600.");
+    }
+    if (input.mark_delivered === true) throw new BusError("INVALID_INPUT", "Cloud inbox requires ack after handling. Omit mark_delivered to claim, or use false to inspect.");
+    const cursor = Number(input.since_id ?? 0);
+    if (!Number.isSafeInteger(cursor) || cursor < 0) throw new BusError("INVALID_INPUT", "since_id must be a non-negative safe integer.");
+    const pollId = crypto.randomUUID();
+    const deadline = now() + waitSeconds * 1000;
+    signal?.throwIfAborted();
+    const polls = this.polls.get(agent) ?? new Map<string, number>();
+    this.polls.set(agent, polls);
+    if (!preview && input.mark_delivered !== false && waitSeconds > 0) polls.set(pollId, deadline);
+    const disconnected = () => {
+      polls.delete(pollId);
+      this.markAgentListening(agent, null);
+    };
+    signal?.addEventListener("abort", disconnected, { once: true });
+    try {
+      while (true) {
+        signal?.throwIfAborted();
+        const row = one<AgentRow>(this.sql.exec("SELECT * FROM agents WHERE name = ? AND removed_at IS NULL", agent));
+        if (!row) throw new Error(`unknown agent ${agent}`);
+        this.markAgentListening(agent, null);
+        if (row.paused === 1) return { messages: [], next_cursor: cursor, paused: true };
+        const found = this.readInboxRows(preview ? { ...input, mark_delivered: false, limit: Math.min(Number(input.limit ?? 20), 100) } : input);
+        if (found.length || now() >= deadline) {
+          if (!preview && input.mark_delivered !== false) {
+            // No await between selection and leasing: concurrent requests cannot
+            // claim the same pending row in this Durable Object.
+            for (const message of found) {
+              const token = crypto.randomUUID();
+              const claimDeadline = now() + claimSeconds * 1000;
+              this.sql.exec("UPDATE messages SET claim_deadline = ?, claimed_by = ?, claim_token = ? WHERE id = ?", claimDeadline, agent, token, message.id);
+              message.claim_deadline = claimDeadline;
+              message.claimed_by = agent;
+              message.claim_token = token;
+            }
+          }
+          return { messages: found.map(message => preview ? previewMessage(message, Math.min(Number(input.preview_chars ?? 300), 4000)) : toMessage(message)),
+            next_cursor: Math.max(cursor, ...found.map(message => message.id)) };
+        }
+        await sleep(Math.min(250, Math.max(1, deadline - now())));
       }
+    } finally {
+      signal?.removeEventListener("abort", disconnected);
+      polls.delete(pollId);
+      if (!polls.size && this.polls.get(agent) === polls) this.polls.delete(agent);
       this.markAgentListening(agent, null);
     }
-    return { messages: found.map((row) => previewMessage(row, previewChars)) };
+  }
+
+  private async inboxPreviews(input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+    return this.receiveInbox(input, true, signal);
   }
 
   private inboxStatus(input: Record<string, unknown>): unknown {
@@ -718,8 +746,15 @@ export class WorkspaceBusObject implements DurableObject {
     const id = Number(input.message_id ?? input.id);
     if (!Number.isInteger(id) || id <= 0) throw new Error("message_id is required");
     const at = now();
+    const row = one<MessageRow>(this.sql.exec("SELECT * FROM messages WHERE id = ?", id));
+    if (!row || row.to_agent !== agent || !row.claim_token || row.claim_token !== input.claim_token ||
+        (!row.delivered_at && (!["pending", "answered"].includes(row.status) || row.claimed_by !== agent || (row.claim_deadline ?? 0) <= at))) {
+      throw new BusError("INVALID_INPUT", "Acknowledgement requires the current unexpired claim_token from inbox; stale claims must be received again.");
+    }
+    this.markAgentListening(agent, null);
+    if (row.delivered_at) return { message_id: id, acknowledged_by: agent };
     this.sql.exec(
-      "UPDATE messages SET status = 'delivered', delivered_at = ?, claim_deadline = NULL, claimed_by = NULL WHERE id = ? AND claimed_by = ?",
+      "UPDATE messages SET status = CASE WHEN status = 'answered' THEN 'answered' ELSE 'delivered' END, delivered_at = ?, claim_deadline = NULL, claimed_by = NULL WHERE id = ? AND claimed_by = ?",
       at,
       id,
       agent,
@@ -832,6 +867,21 @@ export class WorkspaceBusObject implements DurableObject {
     if (!Number.isInteger(messageId) || messageId <= 0) throw new Error("message_id is required");
     const original = one<MessageRow>(this.sql.exec("SELECT * FROM messages WHERE id = ?", messageId));
     if (!original) throw new Error(`message ${messageId} not found`);
+    if (input.idempotency_key !== undefined) {
+      const key = String(input.idempotency_key);
+      if (!/^[a-zA-Z0-9_:.-]{1,160}$/.test(key) || original.to_agent !== from) throw new Error("Invalid reply idempotency binding");
+      return this.state.storage.transactionSync(() => {
+        const existing = one<{ message_id: number; result: string }>(this.sql.exec("SELECT message_id, result FROM wake_replies WHERE agent = ? AND key = ?", from, key));
+        if (existing) {
+          if (existing.message_id !== messageId) throw new Error("Reply key belongs to another message");
+          return JSON.parse(existing.result);
+        }
+        const { idempotency_key: _key, ...rest } = input;
+        const result = this.reply(rest);
+        this.sql.exec("INSERT INTO wake_replies (agent, key, message_id, result) VALUES (?, ?, ?, ?)", from, key, messageId, JSON.stringify(result));
+        return result;
+      });
+    }
     const content = String(input.message ?? "");
     const at = now();
     const threadId = original.thread_id ?? makeThreadId();

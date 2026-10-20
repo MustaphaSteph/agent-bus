@@ -36,6 +36,19 @@ async function wire(method, params) {
   assert(!payload.error, `MCP ${method} failed`);
   return payload.result;
 }
+async function modern(method, params = {}) {
+  const response = await request(`/mcp/${slug}`, { method: "POST", headers: {
+    accept: "application/json, text/event-stream", authorization: `Bearer ${token}`, "content-type": "application/json",
+    "MCP-Protocol-Version": "2026-07-28", "Mcp-Method": method,
+  }, body: JSON.stringify({ jsonrpc: "2.0", id: ++sequence, method, params: { ...params, _meta: {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": { name: "agent-bus-live-events", version: "1" },
+    "io.modelcontextprotocol/clientCapabilities": {},
+  } } }) });
+  const text = await response.text();
+  const payload = text.startsWith("{") ? JSON.parse(text) : JSON.parse(text.split("\n").filter(line => line.startsWith("data: ")).at(-1).slice(6));
+  assert(!payload.error, `Modern MCP ${method} failed`); return payload.result;
+}
 async function call(name, args, expectedError) {
   const result = await wire("tools/call", { name, arguments: args });
   const text = result.content?.map(item => item.text || "").join("\n") || "";
@@ -71,18 +84,38 @@ try {
   assert(tools.tools.find(tool => tool.name === "update_task").inputSchema.required.includes("agent"));
   await call("cloud_workspace", {});
   console.log(`PASS live pages, authentication, workspace and MCP schemas (${tools.tools.length} tools)`);
+  assert((await modern("server/discover")).capabilities.events);
+  assert.equal((await modern("events/list")).events[0].name, "inbox.message_available");
+  console.log("PASS live MCP Events discovery alongside legacy tool protocol (not a ChatGPT wake test)");
 
   for (const name of ["verify-pm", "verify-builder", "verify-reviewer"]) {
     await call("register", { name, ...scope, capabilities: ["verification"] });
     registered.push(name);
   }
   const sent = await call("send", { from: "verify-pm", to: "verify-builder", message: "Deployment test: verify threaded messaging." });
-  const inbox = await call("inbox", { agent: "verify-builder", ...scope });
-  assert(inbox.messages.some(message => message.id === sent.id && message.status === "delivered"));
-  const reply = await call("reply", { from: "verify-builder", message_id: sent.id, message: "Threaded reply confirmed." });
+  const inbox = await call("inbox", { agent: "verify-builder", claim_s: 1, ...scope });
+  assert(inbox.messages.some(message => message.id === sent.id && message.status === "pending" && message.claim_token));
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  const resumed = await call("inbox", { agent: "verify-builder", since_id: inbox.next_cursor, ...scope });
+  const received = resumed.messages.find(message => message.id === sent.id);
+  assert(received && received.claim_token !== inbox.messages.find(message => message.id === sent.id).claim_token);
+  const replyInput = { from: "verify-builder", message_id: sent.id, message: "Threaded reply confirmed.", idempotency_key: `live:${sent.id}` };
+  const reply = await call("reply", replyInput);
+  assert.deepEqual(await call("reply", replyInput), reply);
   assert.equal(reply.thread_id, sent.thread_id);
-  await call("inbox", { agent: "verify-pm", ...scope });
-  console.log("PASS live messaging, delivery metadata and threaded reply");
+  await call("ack", { agent: "verify-builder", message_id: received.id, claim_token: received.claim_token });
+  const handled = (await call("get_message", { message_id: received.id })).message;
+  assert.equal(handled.status, "answered");
+  assert(handled.delivered_at, "handled message was not acknowledged");
+  const replies = await call("inbox", { agent: "verify-pm", ...scope });
+  for (const message of replies.messages) {
+    assert.equal(message.thread_id, sent.thread_id);
+    await call("ack", { agent: "verify-pm", message_id: message.id, claim_token: message.claim_token });
+  }
+  const pollStart = Date.now();
+  assert.equal((await call("inbox", { agent: "verify-pm", wait_s: 2, since_id: replies.next_cursor, ...scope })).messages.length, 0);
+  assert(Date.now() - pollStart >= 1900);
+  console.log("PASS live messaging, long poll, cursor recovery, explicit acknowledgement and threaded reply");
 
   const { task } = await call("create_task", { requested_by: "verify-pm", title: "Verify deployed review workflow", ...scope, review_required: true, independent_review: true });
   await call("claim_task", { task_id: task.id, agent: "verify-builder" });
@@ -140,6 +173,7 @@ try {
   assert.equal(await downloaded.text(), markdown);
   const answer = await call("reply", { from: "verify-builder", message_id: message.id, message: "Verified image and Markdown attachment delivery." });
   assert.equal(answer.thread_id, message.thread_id);
+  await call("ack", { agent: "verify-builder", message_id: message.id, claim_token: message.claim_token });
   const view = await (await request(base + "/chat?" + new URLSearchParams(scope), { headers })).json();
   assert(view.result.messages.some(row => row.attachments?.length === 2));
   console.log("PASS live image/Markdown upload, authenticated downloads, draft privacy/deletion, human mentions, retry safety and agent reply");

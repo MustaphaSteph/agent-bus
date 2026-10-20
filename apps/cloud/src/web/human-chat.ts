@@ -40,6 +40,8 @@ export const humanChatStyles = `
   .msg-more { margin-top: 4px; padding: 2px 0; border: 0; background: none; color: var(--cyan); font-size: 13px; font-weight: 600; cursor: pointer; }
   .msg-more:hover { text-decoration: underline; }
   .msg-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 3px; color: var(--muted); font-size: 12px; }
+  .delivery-times { overflow-wrap: anywhere; }
+  .delivery-times time { white-space: nowrap; }
   .delivery { display: inline-flex; align-items: center; gap: 5px; }
   .delivery::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; }
   .delivery.queued { color: var(--amber); }
@@ -212,6 +214,8 @@ export const humanChatScript = String.raw`
     } catch (error) {
       if (error.name !== "AbortError" && requestId === chat.refreshId) {
         chat.failed = true; chatFeedback(error.message === "Failed to fetch" ? "Connection lost. Retrying automatically." : error.message, true);
+        chat.members = chat.members.map(member => ({ ...member, presence: member.presence === "listening" ? "last_checked" : member.presence }));
+        renderDetails(); hideMentions();
         if (!chat.loaded) renderHumanMessages();
       }
     } finally {
@@ -265,13 +269,25 @@ export const humanChatScript = String.raw`
     const total = statuses.length;
     const picked = statuses.filter(value => value !== "pending").length;
     if (statuses.every(value => value === "answered")) return ["replied", "Replied", "Every recipient replied"];
-    if (!picked) return ["queued", "Queued", "Waiting in agent inboxes until they check in"];
+    if (!picked) return ["queued", "Queued", "Saved; waiting for inbox delivery or acknowledgement. This does not wake the agent."];
     if (picked < total) return ["partial", "Received " + picked + "/" + total, picked + " of " + total + " agents have picked this up"];
     return ["delivered", "Received", "Every recipient has picked this up"];
   }
   function audienceLabel(targets) {
     const names = [...new Set(targets)].map(name => name === chat.human?.id ? "you" : name.startsWith("human.") ? "a person" : "@" + name);
     return "To " + (names.length > 3 ? names.slice(0, 3).join(", ") + " +" + (names.length - 3) : names.join(", "));
+  }
+  function deliveryTimes(message) {
+    return message.deliveries.map(delivery => {
+      const stamp = (label, ts) => {
+        if (!ts) return "";
+        const seconds = Math.max(0, Math.round((ts - delivery.created_at) / 1000));
+        const delay = seconds < 60 ? seconds + "s" : Math.floor(seconds / 60) + "m " + seconds % 60 + "s";
+        return '<span>' + label + ' <time datetime="' + new Date(ts).toISOString() + '" title="' + escapeHtml(new Date(ts).toLocaleString()) + '">' + escapeHtml(new Date(ts).toLocaleTimeString()) + '</time> (+' + delay + ')</span>';
+      };
+      const stamps = [stamp("Acknowledged", delivery.delivered_at), stamp("Replied", delivery.replied_at)].filter(Boolean);
+      return stamps.length ? '<div class="msg-meta delivery-times"><span>' + escapeHtml(audienceLabel([delivery.to_agent])) + '</span>' + stamps.join("") + '</div>' : "";
+    }).join("");
   }
   function groupedMessages() {
     // Team fan-out stores one delivery per agent. Display those deliveries as one post.
@@ -280,8 +296,8 @@ export const humanChatScript = String.raw`
       const key = message.sender_kind === "human" && message.human_post_id ? "h" + JSON.stringify([message.from_agent, message.human_post_id])
         : "a" + JSON.stringify([message.from_agent, message.thread_id, message.created_at, message.content_preview]);
       const old = byPost.get(key);
-      if (old) { old.targets.push(message.to_agent); old.statuses.push(message.status); byId.set(message.id, old); }
-      else { const item = { ...message, targets: [message.to_agent], statuses: [message.status] }; byPost.set(key, item); grouped.push(item); byId.set(message.id, item); }
+      if (old) { old.targets.push(message.to_agent); old.statuses.push(message.status); old.deliveries.push(message); byId.set(message.id, old); }
+      else { const item = { ...message, targets: [message.to_agent], statuses: [message.status], deliveries: [message] }; byPost.set(key, item); grouped.push(item); byId.set(message.id, item); }
     }
     return { grouped, byId };
   }
@@ -328,7 +344,7 @@ export const humanChatScript = String.raw`
           (message.truncated && full === undefined ? '<button type="button" class="msg-more" data-chat-full="' + message.id + '">Read full message</button>'
             : long ? '<button type="button" class="msg-more" data-chat-expand="' + message.id + '" aria-expanded="' + !clamped + '">' + (clamped ? "Show more" : "Show less") + '</button>' : "") +
           '<div class="msg-meta"><span>' + escapeHtml(audienceLabel(message.targets)) + '</span>' +
-            (stateKey ? '<span class="delivery ' + stateKey + '" title="' + escapeHtml(stateTitle) + '">' + escapeHtml(stateLabel) + '</span>' : "") + '</div>' +
+            (stateKey ? '<span class="delivery ' + stateKey + '" title="' + escapeHtml(stateTitle) + '">' + escapeHtml(stateLabel) + '</span>' : "") + '</div>' + deliveryTimes(message) +
         '</div>' +
         '<div class="msg-actions"><button type="button" data-chat-reply="' + message.id + '" aria-label="Reply to ' + escapeHtml(who) + '"' + (!chat.canPost ? ' disabled' : '') + '>' + ICONS.reply + 'Reply</button></div>' +
       '</article>';
@@ -362,7 +378,7 @@ export const humanChatScript = String.raw`
   }
   function renderMentions() {
     mentionList.innerHTML = chat.options.map((member, index) => '<button type="button" role="option" tabindex="-1" id="chat-option-' + index + '" aria-selected="' + (index === chat.selected) + '" data-mention-index="' + index + '">' +
-      avatar(member.name, "agent") + '<span class="opt-name">@' + escapeHtml(member.name) + '</span>' + presenceBadge(member.presence) + '</button>').join("");
+      avatar(member.name, "agent") + '<span class="opt-name">@' + escapeHtml(member.name) + '</span>' + presenceBadge(member.presence, member.last_seen, member.listening_until) + '</button>').join("");
     chatContent.setAttribute("aria-activedescendant", "chat-option-" + chat.selected);
     document.getElementById("chat-option-" + chat.selected)?.scrollIntoView({ block: "nearest" });
   }
@@ -481,6 +497,16 @@ export const humanChatScript = String.raw`
   });
   document.getElementById("refresh-chat").addEventListener("click", () => { refreshHumanChat(true); refreshCockpit().catch(() => {}); });
   setInterval(() => { if (!document.hidden && !chat.sending) refreshHumanChat(); }, 5000);
+  setInterval(() => {
+    if (!document.hidden && chat.members.some(member => member.presence === "listening" && member.listening_until <= Date.now())) {
+      chat.members = chat.members.map(member => member.presence === "listening" && member.listening_until <= Date.now() ? { ...member, presence: "last_checked" } : member);
+      renderDetails(); hideMentions();
+    }
+  }, 1000);
+  window.addEventListener("offline", () => {
+    chat.members = chat.members.map(member => ({ ...member, presence: member.presence === "listening" ? "last_checked" : member.presence }));
+    renderDetails(); hideMentions();
+  });
   addEventListener("resize", autosizeComposer);
   updateComposer();
 `;

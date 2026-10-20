@@ -35,7 +35,7 @@ export async function testHumanChat(worker, cookie, token) {
   assert(initial.can_post);
   assert.equal(initial.human.name, "Smoke");
   assert.deepEqual(initial.members.map(member => member.name).sort(), ["chat-claude", "chat-codex", "chat-paused"]);
-  assert.equal(initial.members.find(member => member.name === "chat-paused").presence, "online");
+  assert.equal(initial.members.find(member => member.name === "chat-paused").presence, "last_checked");
 
   const id = crypto.randomUUID();
   const sentResponse = await request("@chat-claude Please improve this layout.", { request_id: id });

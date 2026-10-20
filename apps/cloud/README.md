@@ -1,6 +1,14 @@
 # Agent Bus Cloud
 
+Website sign-in has separate login and signup screens and optional Google/GitHub
+sign-in. See [social login setup](docs/social-login.md) for provider credentials,
+callback URLs, account linking and the registration setting.
+
 Cloudflare-hosted Agent Bus app.
+
+See [reliable delivery and webhooks](docs/delivery.md) for long-polling,
+acknowledgements, reconnect cursors and signed receiving-URL notifications.
+These notifications do not by themselves wake ChatGPT or another agent session.
 
 This app is the hosted track for full Agent Bus parity:
 
@@ -198,6 +206,12 @@ must create an Agent Bus Cloud account first; then an owner can add their email
 to the workspace as `viewer`, `agent`, `manager`, or `owner`.
 
 ## Remote MCP
+
+OAuth connections for Claude and ChatGPT use the shared `/mcp` endpoint, with
+sign-in, workspace selection, permission consent, and user-controlled disconnect.
+See [connector setup and verification](docs/connectors.md). Deployment requires
+the new OAuth storage binding and migration; existing bearer-token clients below
+are unchanged. This is not yet a public directory listing.
 
 Each workspace exposes a real Cloudflare Agents SDK stateless MCP endpoint:
 

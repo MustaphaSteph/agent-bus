@@ -241,16 +241,18 @@ console.log("✓ wait blocks for pending messages without consuming them");
 await run(["register", "--name", "ui-clean-pm", "--team", "ui-clean", "--project", "ui-clean", "--capabilities", "coordination", "--replace"]);
 await run(["register", "--name", "ui-clean-worker", "--team", "ui-clean", "--project", "ui-clean", "--capabilities", "implementation", "--replace"]);
 
-const ui = start(["ui", "--no-open", "--port", "8791", "--project", "all", "--area", "all", "--team", "all"]);
+const uiPort = process.env.AGENT_BUS_TEST_UI_PORT ?? "8791";
+const uiOrigin = `http://127.0.0.1:${uiPort}`;
+const ui = start(["ui", "--no-open", "--port", uiPort, "--project", "all", "--area", "all", "--team", "all"]);
 try {
-  const stateRes = await waitForUrl("http://127.0.0.1:8791/api/state");
+  const stateRes = await waitForUrl(`${uiOrigin}/api/state`);
   const state = await stateRes.json() as { version: string; stats: { online: number }; messages: unknown[] };
   assert.equal(state.version, packageVersion());
   assert.ok(Array.isArray(state.messages));
   assert.ok(state.stats.online >= 0);
-  const html = await (await waitForUrl("http://127.0.0.1:8791/")).text();
+  const html = await (await waitForUrl(`${uiOrigin}/`)).text();
   assert.match(html, /Agent Bus Cockpit/);
-  const removeRes = await fetch("http://127.0.0.1:8791/api/remove-agent", {
+  const removeRes = await fetch(`${uiOrigin}/api/remove-agent`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: "ui-clean-worker" }),
@@ -258,7 +260,7 @@ try {
   assert.equal(removeRes.status, 200);
   const removed = await removeRes.json() as { removed_agent: { name: string } };
   assert.equal(removed.removed_agent.name, "ui-clean-worker");
-  const deleteRes = await fetch("http://127.0.0.1:8791/api/delete-team", {
+  const deleteRes = await fetch(`${uiOrigin}/api/delete-team`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ team: "ui-clean", project: "ui-clean" }),

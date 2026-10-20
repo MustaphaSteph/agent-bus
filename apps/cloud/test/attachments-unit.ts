@@ -18,7 +18,7 @@ const eagerSql = { exec(query: string, ...values: unknown[]) {
   return { toArray: () => result };
 } } as unknown as DurableObjectStorage["sql"];
 const alarms: number[] = [];
-const storage = { setAlarm: async (time: number) => { alarms.push(time); } } as unknown as DurableObjectStorage;
+const storage = { sql: eagerSql, getAlarm: async () => null, setAlarm: async (time: number) => { alarms.push(time); } } as unknown as DurableObjectStorage;
 const deleted: string[] = [];
 let failDeletion = false;
 const env = { CHAT_FILES: { delete: async (key: string) => {

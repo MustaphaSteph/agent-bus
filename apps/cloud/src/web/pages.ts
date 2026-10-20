@@ -2,6 +2,7 @@ import type { Env } from "../shared/types";
 import { html } from "../shared/http";
 import { listWorkspaces } from "../auth/workspaces";
 import { currentUser } from "../auth/session";
+import { configuredProviders, safeAuthReturn, signupEnabled, socialErrorMessages } from "../auth/social";
 import { cockpitMarkup, cockpitRenderScript, cockpitStyles, detailsMarkup } from "./cockpit";
 import { humanChatScript, humanChatStyles } from "./human-chat";
 import { attachmentScript, attachmentStyles } from "./chat-attachments";
@@ -78,6 +79,11 @@ const authStyles = `
   #auth-result:empty { display: none; }
   .auth-foot { color: var(--muted); font-size: 13px; text-align: center; }
   .auth-foot a { color: var(--text-2); }
+  .social-signin { display: grid; gap: 10px; }
+  .social-signin .btn { width: 100%; }
+  .auth-divider { color: var(--muted); display: flex; align-items: center; gap: 12px; font-size: 12px; }
+  .auth-divider::before, .auth-divider::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+  .account-method { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 `;
 
 const appStyles = `
@@ -215,12 +221,13 @@ function shell(title: string, bodyClass: string, styles: string, body: string): 
   <meta name="theme-color" content="#08090b" id="theme-color" />
   <script>try{var t=localStorage.getItem("agent-bus.theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
   <title>${title}</title>
+  <meta name="robots" content="noindex,nofollow">
   <link rel="icon" type="image/webp" href="/images/agent-bus-mark.webp">
   <link rel="preload" href="/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
   <style>${baseStyles}${styles}</style>
 </head>
 <body class="${bodyClass}">${body}</body>
-</html>`);
+</html>`, { headers: { "cache-control": "no-store", "referrer-policy": "same-origin" } });
 }
 
 function escapeHtml(value: string): string {
@@ -232,18 +239,34 @@ function initials(name: string): string {
   return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
 }
 
-function authPage(): Response {
-  return shell("Sign in · Agent Bus", "auth-body", authStyles, `<main class="auth-wrap">
+function socialButtons(env: Env, returnTo: string, link = false, linked: string[] = []): string {
+  return configuredProviders(env).map((provider) => {
+    const name = provider === "google" ? "Google" : "GitHub";
+    if (linked.includes(provider)) return `<p class="account-method"><strong>${name}</strong><span>Connected</span></p>`;
+    return `<form method="post" action="/api/auth/${provider}/start"><input type="hidden" name="returnTo" value="${escapeHtml(returnTo)}"><input type="hidden" name="intent" value="${link ? "link" : "signin"}"><button class="btn" type="submit">${link ? "Connect" : "Continue with"} ${name}</button></form>`;
+  }).join("");
+}
+
+function authPage(request: Request, env: Env): Response {
+  const url = new URL(request.url);
+  const signup = url.searchParams.get("mode") === "signup" && signupEnabled(env);
+  const returnTo = safeAuthReturn(url.pathname === "/account" ? "/account" : url.searchParams.get("returnTo"));
+  const switchUrl = `/app?mode=${signup ? "login" : "signup"}&returnTo=${encodeURIComponent(returnTo)}`;
+  const error = socialErrorMessages[url.searchParams.get("auth_error") || ""] || "";
+  const social = socialButtons(env, returnTo);
+  return shell(`${signup ? "Create account" : "Sign in"} · Agent Bus`, "auth-body", authStyles, `<main class="auth-wrap">
     <div class="auth-card">
       <a class="brand" href="/"><img src="/images/agent-bus-mark.webp" alt="" width="26" height="26">Agent Bus</a>
-      <div><h1>Sign in</h1><p class="auth-sub">Sign in or create an account to bring your agents together.</p></div>
-      <form id="auth-form" class="auth-form" novalidate>
+      <div><h1>${signup ? "Create your account" : "Welcome back"}</h1><p class="auth-sub">${signup ? "One place for you and your agent team." : "Sign in to your Agent Bus workspace."}</p></div>
+      ${social ? `<div class="social-signin">${social}</div><div class="auth-divider">or use email</div>` : ""}
+      <form id="auth-form" class="auth-form">
         <label class="field">Email<input id="email" type="email" autocomplete="email" required></label>
-        <label class="field">Password<input id="password" type="password" autocomplete="current-password" required></label>
-        <label class="field">Name <span class="optional">for new accounts</span><input id="name" autocomplete="name"></label>
-        <div class="auth-actions"><button id="login" class="btn primary" type="submit">Log in</button><button id="signup" class="btn" type="button">Create account</button></div>
-        <p id="auth-result" class="form-note error" role="alert"></p>
+        <label class="field">Password<input id="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" ${signup ? 'minlength="8"' : ""} required></label>
+        ${signup ? '<label class="field"><span>Name <span class="optional">(optional)</span></span><input id="name" autocomplete="name" maxlength="200"></label>' : ""}
+        <div class="auth-actions"><button id="login" class="btn primary" type="submit">${signup ? "Create account" : "Log in"}</button></div>
+        <p id="auth-result" class="form-note error" role="alert">${escapeHtml(error)}</p>
       </form>
+      ${signupEnabled(env) ? `<p class="auth-foot">${signup ? "Already have an account?" : "New to Agent Bus?"} <a id="signup" href="${escapeHtml(switchUrl)}">${signup ? "Log in" : "Create account"}</a></p>` : '<p class="auth-foot">New account registration is currently closed.</p>'}
       <p class="auth-foot"><a href="/">Back to Agent Bus</a></p>
     </div>
     <script>
@@ -258,22 +281,39 @@ function authPage(): Response {
             body: JSON.stringify({
               email: document.getElementById("email").value.trim(),
               password: document.getElementById("password").value,
-              name: document.getElementById("name").value.trim(),
+              ${signup ? 'name: document.getElementById("name").value.trim(),' : ""}
             }),
           });
           const body = await res.json();
           if (!res.ok) throw new Error(body.error?.message || "Authentication failed.");
-          location.href = "/app";
+          location.href = ${JSON.stringify(returnTo).replaceAll("<", "\\u003c")};
         } catch (error) {
           result.textContent = error.message === "Failed to fetch" ? "Can't reach the server. Check your connection." : error.message;
           document.querySelectorAll(".auth-actions button").forEach((item) => item.disabled = false);
           button.focus();
         }
       }
-      document.getElementById("auth-form").addEventListener("submit", (event) => { event.preventDefault(); auth("/api/auth/login", document.getElementById("login")); });
-      document.getElementById("signup").addEventListener("click", (event) => auth("/api/auth/signup", event.currentTarget));
+      document.getElementById("auth-form").addEventListener("submit", (event) => { event.preventDefault(); auth("/api/auth/${signup ? "signup" : "login"}", document.getElementById("login")); });
     </script>
   </main>`);
+}
+
+export async function accountPage(request: Request, env: Env): Promise<Response> {
+  const user = await currentUser(env, request);
+  if (!user) return authPage(request, env);
+  const identities = await env.AGENT_BUS_CLOUD_DB.prepare("SELECT provider FROM auth_identities WHERE user_id = ?").bind(user.id).all<{ provider: string }>();
+  const password = await env.AGENT_BUS_CLOUD_DB.prepare("SELECT password_hash IS NOT NULL AS enabled FROM users WHERE id = ?").bind(user.id).first<{ enabled: number }>();
+  const error = socialErrorMessages[new URL(request.url).searchParams.get("auth_error") || ""] || "";
+  return shell("Account · Agent Bus", "auth-body", authStyles, `<main class="auth-wrap"><section class="auth-card">
+    <a class="brand" href="/app"><img src="/images/agent-bus-mark.webp" alt="" width="26" height="26">Agent Bus</a>
+    <div><h1>Your account</h1><p class="auth-sub">${escapeHtml(user.email)}</p></div>
+    <h2>Sign-in methods</h2>
+    <p class="account-method"><strong>Email and password</strong><span>${password?.enabled ? "Enabled" : "Not set"}</span></p>
+    <div class="social-signin">${socialButtons(env, "/account", true, identities.results.map((i) => i.provider))}</div>
+    ${!configuredProviders(env).length ? '<p class="auth-sub">Google and GitHub sign-in will appear here when available.</p>' : ""}
+    <p class="form-note error" role="alert">${escapeHtml(error)}</p>
+    <a class="btn" href="/app">Back to workspace</a>
+  </section></main>`);
 }
 
 const navOpen = `<button class="icon-btn nav-open" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">${icon("menu", 20)}</button>`;
@@ -303,8 +343,16 @@ const adminMarkup = `
     </div></div>
   </section>
   <section class="view" data-view-panel="connect" aria-labelledby="connect-title" hidden>
-    <header class="view-head">${navOpen}<div class="view-title"><h1 id="connect-title" tabindex="-1">Connect agents</h1><p class="view-sub">Give each agent session its own token</p></div></header>
+    <header class="view-head">${navOpen}<div class="view-title"><h1 id="connect-title" tabindex="-1">Connect agents</h1><p class="view-sub">Connect an app or set up an agent session</p></div></header>
     <div class="view-scroll"><div class="view-inner">
+      <section class="panel" aria-labelledby="apps-title">
+        <h2 id="apps-title" class="panel-title">Claude and ChatGPT</h2>
+        <p class="panel-sub">Add a custom connector in Claude or a custom app in ChatGPT using this URL. Choose OAuth, sign in to Agent Bus, then approve one workspace. Availability depends on your plan and administrator settings.</p>
+        <div class="copy-row"><pre id="oauth-mcp-output" class="code"></pre><button class="btn" type="button" data-copy-target="oauth-mcp-output" aria-label="Copy app connection URL">${icon("copy", 16)}<span>Copy</span></button></div>
+        <p class="panel-sub">Claude: Settings / Connectors / Add custom connector. ChatGPT: Settings / Apps / developer mode / Create app. No token or npm installation needed for these connections.</p>
+        <p class="panel-sub">After connecting, ask: “Use Agent Bus to check my workspace, then show its teams and tasks.” This connects tools; it does not start or wake agent sessions.</p>
+      </section>
+      <section aria-labelledby="connections-title"><h2 id="connections-title" class="section-title">Your connected apps in this workspace</h2><ul id="connection-list" class="list-panel"></ul></section>
       <section class="panel" aria-labelledby="mcp-url-label">
         <h2 id="mcp-url-label" class="panel-title">MCP URL</h2>
         <p class="panel-sub">Agents connect to this address with a bearer token. Any MCP client that supports HTTP servers with headers can join.</p>
@@ -465,7 +513,7 @@ const appScript = String.raw`
   }
   function loadViewData() {
     if (appliedView === "members") refreshMembers();
-    if (appliedView === "connect") refreshTokens();
+    if (appliedView === "connect") { refreshTokens(); refreshConnections(); }
     if (appliedView === "tasks" || appliedView === "activity") renderCockpit();
   }
   addEventListener("hashchange", () => applyView(true));
@@ -587,6 +635,29 @@ const appScript = String.raw`
     } catch (error) { if (generation === workspaceGeneration) setNote("token-result", friendly(error), "error"); }
     finally { if (generation === workspaceGeneration) button.disabled = false; }
   }
+
+  async function refreshConnections() {
+    const slug = currentSlug(); const generation = workspaceGeneration;
+    const target = document.getElementById("connection-list");
+    document.getElementById("oauth-mcp-output").textContent = location.origin + "/mcp";
+    if (!slug) { target.innerHTML = '<li class="muted">Create a workspace first.</li>'; return; }
+    target.innerHTML = '<li class="muted">Loading connected apps...</li>';
+    try {
+      const body = await api("/api/connections?workspace=" + encodeURIComponent(slug));
+      if (!isCurrentWorkspace(slug, generation)) return;
+      target.innerHTML = body.connections.length ? body.connections.map(item => '<li><div><strong>' + escapeHtml(item.client_name) + '</strong><p class="muted">' + (item.role === "viewer" ? "Read only" : "Read and collaborate") + ' · Expires ' + escapeHtml(new Date(item.expires_at).toLocaleDateString()) + '</p></div><button class="btn" data-disconnect="' + escapeHtml(item.id) + '">Disconnect</button></li>').join("") : '<li class="muted">No connected apps in this workspace.</li>';
+    } catch (error) { if (isCurrentWorkspace(slug, generation)) target.innerHTML = '<li class="muted">' + escapeHtml(friendly(error)) + '</li>'; }
+  }
+  document.getElementById("connection-list").addEventListener("click", async event => {
+    const button = event.target.closest("[data-disconnect]"); if (!button) return;
+    const slug = currentSlug(); const generation = workspaceGeneration;
+    if (!confirm("Disconnect this app from Agent Bus?")) return;
+    button.disabled = true;
+    try {
+      await api("/api/connections/" + encodeURIComponent(button.dataset.disconnect), { method: "DELETE" });
+      if (isCurrentWorkspace(slug, generation)) await refreshConnections();
+    } catch (error) { if (isCurrentWorkspace(slug, generation)) { notify(friendly(error), true); button.disabled = false; } }
+  });
 
   async function refreshTokens() {
     const slug = currentSlug();
@@ -753,6 +824,7 @@ const appScript = String.raw`
     resetHumanChat(); board.all = board.team = null; board.error = "";
     document.getElementById("token-reveal").hidden = true; tokenOutput.textContent = "";
     document.getElementById("member-list").innerHTML = ""; document.getElementById("token-list").innerHTML = "";
+    document.getElementById("connection-list").innerHTML = "";
     ["member-result", "token-result", "action-result"].forEach((id) => setNote(id, ""));
     updateWorkspaceChrome(); renderCockpit(); loadViewData(); refreshAll();
   }
@@ -788,7 +860,7 @@ const initScript = String.raw`
 
 export async function dashboardPage(request: Request, env: Env): Promise<Response> {
   const user = await currentUser(env, request);
-  if (!user) return authPage();
+  if (!user) return authPage(request, env);
   const workspaces = await listWorkspaces(env, user.id);
   const initialData = JSON.stringify({ workspaces, humanName: user.name || "You" }).replaceAll("<", "\\u003c");
   const clientIcons = JSON.stringify({ check: icon("check", 18), reply: icon("reply", 15), message: icon("message", 16), tasks: icon("tasks", 16), x: icon("x", 16), arrowDown: icon("arrowDown", 16) }).replaceAll("<", "\\u003c");
@@ -817,6 +889,7 @@ export async function dashboardPage(request: Request, env: Env): Promise<Respons
             <li><a class="nav-item" href="#members" data-view-link="members">${icon("users")}<span class="nav-label">Members</span></a></li>
             <li><a class="nav-item" href="#connect" data-view-link="connect">${icon("plug")}<span class="nav-label">Connect agents</span></a></li>
             <li><a class="nav-item" href="#new-workspace" data-view-link="new-workspace">${icon("plus")}<span class="nav-label">New workspace</span></a></li>
+            <li><a class="nav-item" href="/account">${icon("users")}<span class="nav-label">Account</span></a></li>
           </ul>
         </nav>
       </div>

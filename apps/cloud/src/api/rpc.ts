@@ -1,7 +1,7 @@
 import type { Env, RpcRequest, RpcResponse, WorkspaceContext } from "../shared/types";
 import { HttpError } from "../shared/http";
 
-const READ_ONLY_OPS = new Set([
+export const READ_ONLY_OPS = new Set([
   "cloud_workspace",
   "human_chat_view",
   "attachment_get",
@@ -40,11 +40,14 @@ const READ_ONLY_OPS = new Set([
 ]);
 
 const MANAGER_ONLY_OPS = new Set([
+  "webhook_create",
+  "webhook_list",
+  "webhook_delete",
   "remove_agent",
   "delete_team",
 ]);
 
-function assertWorkspacePermission(context: WorkspaceContext, op: string): void {
+export function assertWorkspacePermission(context: WorkspaceContext, op: string): void {
   if (["human_chat_post", "human_task_create"].includes(op) && context.principal.kind !== "user") {
     throw new HttpError(403, "FORBIDDEN", "Sign in to send a human message.");
   }
@@ -56,12 +59,13 @@ function assertWorkspacePermission(context: WorkspaceContext, op: string): void 
   }
 }
 
-export async function callWorkspace(env: Env, context: WorkspaceContext, op: string, input: unknown): Promise<unknown> {
+export async function callWorkspace(env: Env, context: WorkspaceContext, op: string, input: unknown, signal?: AbortSignal): Promise<unknown> {
   assertWorkspacePermission(context, op);
   const id = env.WORKSPACE_BUS.idFromName(context.id);
   const stub = env.WORKSPACE_BUS.get(id);
   const response = await stub.fetch("https://workspace-bus.internal/rpc", {
     method: "POST",
+    signal,
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ op, input, context } satisfies RpcRequest),
   });

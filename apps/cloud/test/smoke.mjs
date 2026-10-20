@@ -9,6 +9,8 @@ import { testAttachments } from "./attachments.mjs";
 import { testLandingBrowser } from "./landing-browser.mjs";
 import { testBlog } from "./blog.mjs";
 import { testBlogBrowser } from "./blog-browser.mjs";
+import { testOAuth } from "./oauth.mjs";
+import { testDeliveryMcp } from "./delivery-mcp.mjs";
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -79,6 +81,8 @@ try {
     persistTo,
   );
 
+  wrangler(["d1", "execute", "agent-bus-cloud", "--file", "migrations/d1/0003_oauth.sql"], persistTo);
+  wrangler(["d1", "execute", "agent-bus-cloud", "--file", "migrations/d1/0004_social_login.sql"], persistTo);
   const worker = await unstable_dev("src/worker.ts", {
     config: "wrangler.toml",
     local: true,
@@ -87,7 +91,7 @@ try {
     vars: {
       AGENT_BUS_CLOUD_AUTH_SECRET: "test-agent-bus-cloud-secret",
     },
-    experimental: { disableExperimentalWarning: true },
+    experimental: { disableExperimentalWarning: true, watch: false },
   });
 
   try {
@@ -102,7 +106,7 @@ try {
       landingHtml.includes("Connect your first two agents."),
       "landing page did not render hosted setup guide",
     );
-    for (const required of ['id="how-it-works"', 'id="join-prompt-a"', 'id="join-prompt-b"', 'data-copy-target="join-prompt-a"', 'data-copy-target="join-prompt-b"', 'Bearer &lt;your-agent-token&gt;', 'same workspace URL', 'not the local bus']) {
+    for (const required of ['id="how-it-works"', 'id="join-prompt-a"', 'id="join-prompt-b"', 'data-copy-target="join-prompt-a"', 'data-copy-target="join-prompt-b"', 'Bearer &lt;your-agent-token&gt;', 'same workspace URL']) {
       assert(landingHtml.includes(required), `missing connection guidance: ${required}`);
     }
     assert(landingHtml.includes("A message alone is not a task."), "how-it-works must distinguish messages from tracked tasks");
@@ -117,6 +121,7 @@ try {
     );
     assert(!landingHtml.includes("<iframe"), "landing hero must not embed an iframe");
     assert(!landingHtml.includes("docs/setup.md"), "landing must not link unpublished setup docs");
+    assert(!/local bus|Agent Bus Local/i.test(landingHtml), "the Cloud landing must not point people to the local bus");
     assert(!/`agent-bus setup`|<code>agent-bus setup<\/code>/.test(landingHtml), "landing must not tell npx users to run a global binary");
     for (const asset of [
       "claude.svg",
@@ -130,8 +135,7 @@ try {
       "hermes.svg",
       "cline.svg",
       "goose.png",
-      "buzz.png",
-      "meta-muse.svg",
+      "meta-muse-hatch.jpg",
     ]) {
       assert(
         landingHtml.includes(`/logos/${asset}`),
@@ -146,8 +150,7 @@ try {
       "landing must identify Meta Muse without reusing Muse Code branding or compatibility claims",
     );
     assert(
-      landingHtml.includes("MCP support is not an Agent Bus Cloud certification.") &&
-        landingHtml.includes("Local MCP only; Cloud unverified"),
+      landingHtml.includes("MCP support is not an Agent Bus Cloud certification."),
       "ecosystem must distinguish protocol support from Cloud certification",
     );
     assert(
@@ -171,12 +174,14 @@ try {
       "landing page still uses borrowed preview imagery",
     );
     await assertStatus(await worker.fetch("/preview"), 404, "retired app preview");
-    assert(
-      landingHtml.includes(
-        "agent-bus cloud --host https://your-worker.example bootstrap my-team",
-      ),
-      "landing page did not show bootstrap command",
-    );
+    for (const client of ["claude", "chatgpt", "claude-code", "codex", "kimi-code", "cursor", "gemini-cli", "opencode", "copilot", "cline", "goose", "windsurf", "openclaw", "grok", "muse", "hermes"]) {
+      assert(landingHtml.includes(`id="connect-${client}"`), `missing client guide: ${client}`);
+    }
+    assert(landingHtml.includes('id="oauth-endpoint"') && landingHtml.includes('data-copy-target="oauth-endpoint"'), "OAuth endpoint must be copyable");
+    assert(landingHtml.includes('Read and collaborate') && landingHtml.includes('Read only cannot register or write'), "guides must explain permissions");
+    assert(landingHtml.includes('cloud_workspace') && landingHtml.includes('not end-to-end certifications'), "guides must include verification and compatibility limits");
+    assert(!landingHtml.includes('--password YOUR_PASSWORD'), "guides must not put passwords into command history");
+    assert(landingHtml.includes('What does Queued mean?') && landingHtml.includes('acknowledged a claimed message'), "queued state must not imply unread or offline");
     const health = await worker.fetch("/api/health");
     await assertStatus(health, 200, "health");
     const healthBody = await json(health);
@@ -675,6 +680,8 @@ try {
       "inbox wait_s did not return delayed message",
     );
 
+    await testDeliveryMcp(mcpCall, worker, cookie, token);
+
     const createdTask = await mcpCall(7, "create_task", {
       requested_by: "codex",
       claimed_by: "claude",
@@ -749,6 +756,7 @@ try {
       "cockpit did not include registered agents",
     );
 
+    await testOAuth(worker, cookie);
     const chatFixture = await testHumanChat(worker, cookie, token);
     await testAttachments(chatFixture, token);
     await testBlog(chatFixture.origin);

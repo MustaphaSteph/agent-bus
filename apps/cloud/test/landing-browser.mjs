@@ -29,6 +29,38 @@ export async function testLandingBrowser(origin) {
         assert(bottom <= viewport.height, `setup command is below the first viewport (${bottom}px)`);
       }
       assert.equal(await page.locator('a[href*="docs/setup.md"]').count(), 0, "landing links to unpublished setup docs");
+      // Page length budget: the connect guides live in a drawer, not in the page flow.
+      const screens = await page.evaluate(() => document.documentElement.scrollHeight / innerHeight);
+      assert(screens <= (viewport.width >= 1024 ? 6.5 : 10.5), `landing is ${screens.toFixed(1)} screens tall at ${viewport.width}px`);
+      // Deep links open the matching guide in the drawer.
+      await page.goto(origin + "/#connect-chatgpt");
+      await page.locator("#guide-drawer[open]").waitFor();
+      assert(await page.locator("#connect-chatgpt").isVisible(), "direct links must open the selected guide");
+      assert(!await page.locator("#connect-claude").isVisible(), "only the selected guide is shown");
+      assert.equal(await page.locator("#oauth-endpoint").textContent(), origin + "/mcp", "OAuth URL must use this deployment's origin");
+      assert(!await page.locator("#workspace-address").isVisible(), "OAuth guides do not ask for a workspace token URL");
+      await page.getByRole("button", { name: "Copy OAuth MCP URL", exact: true }).click();
+      await page.waitForFunction(() => /Copied|Text selected/.test(document.getElementById("drawer-copy-result").textContent));
+      await page.keyboard.press("Escape");
+      await page.locator("#guide-drawer").waitFor({ state: "hidden" });
+      await page.waitForFunction(() => location.hash === "#connect", undefined, { timeout: 2000 }); // close event is async
+      // Picking a client opens its guide; the workspace field fills the examples and rejects bad input.
+      const gemini = page.locator('.client-pick[href="#connect-gemini-cli"]');
+      await gemini.click();
+      await page.locator("#connect-gemini-cli").waitFor();
+      assert(!await page.locator("#oauth-endpoint").isVisible(), "token guides hide the OAuth connector URL");
+      await page.locator("#workspace-address").fill("my-team");
+      const config = await page.locator("#config-gemini-cli").textContent();
+      assert(config.includes('"httpUrl"') && config.includes(origin + "/mcp/my-team"), "Gemini needs its own HTTP key and the filled workspace URL");
+      assert(config.includes("YOUR_AGENT_TOKEN"), "tokens are never filled in");
+      await page.locator("#workspace-address").fill("not valid!");
+      assert.equal(await page.locator("#workspace-address").getAttribute("aria-invalid"), "true");
+      assert((await page.locator("#config-gemini-cli").textContent()).includes("/mcp/YOUR_WORKSPACE"), "invalid addresses are not filled in");
+      assert(await page.locator("#guide-drawer").evaluate(el => el.scrollWidth <= el.clientWidth + 1), `drawer overflows at ${viewport.width}px`);
+      await page.locator(".drawer-close").click();
+      await page.locator("#guide-drawer").waitFor({ state: "hidden" });
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("href")), "#connect-gemini-cli", "focus returns to the chosen client");
+      await page.screenshot({ path: `/tmp/agent-bus-connectors-${viewport.width}.png`, fullPage: false });
       await page.close();
     }
     // Themes: follow the system by default; the toggle cycles system -> light -> dark and persists.
@@ -38,8 +70,8 @@ export async function testLandingBrowser(origin) {
     await page.goto(origin + "/");
     const background = () => page.evaluate(() => getComputedStyle(document.documentElement).backgroundColor);
     assert.equal(await background(), "rgb(246, 247, 249)", "system light preference not applied");
-    assert(await page.locator('.client-tile img[src="/logos/codex.svg"]').isVisible(), "light-background Codex mark hidden in light mode");
-    assert(!await page.locator('.client-tile img[src="/logos/codex-white.svg"]').isVisible(), "white Codex mark shown on a light tile");
+    assert(await page.locator('.client-pick[href="#connect-codex"] img[src="/logos/codex.svg"]').isVisible(), "light-background Codex mark hidden in light mode");
+    assert(!await page.locator('.client-pick[href="#connect-codex"] img[src="/logos/codex-white.svg"]').isVisible(), "white Codex mark shown on a light tile");
     assert(await page.locator('.setup-bar img[src="/logos/codex-white.svg"]').isVisible(), "dark command bar lost its white Codex mark");
     await page.locator("#theme-toggle").click();
     assert.equal(await page.evaluate(() => [document.documentElement.dataset.theme, localStorage.getItem("agent-bus.theme")].join()), "light,light");

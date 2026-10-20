@@ -37,7 +37,12 @@ export async function testHumanChatBrowser({ origin, scope, rpc }) {
     const message = inbox.messages.find(item => item.content.includes("Browser check"));
     assert(message, "browser message was not delivered to the agent");
     const reply = await rpc("reply", { from: "chat-claude", message_id: message.id, message: "Browser roundtrip confirmed." });
+    await rpc("ack", { agent: "chat-claude", message_id: message.id, claim_token: message.claim_token });
     await wait("document.getElementById('team-chat').textContent.includes('Browser roundtrip confirmed.')");
+    const times = page.locator(`#msg-${message.id} .delivery-times`);
+    assert.match(await times.textContent(), /Acknowledged.*Replied/);
+    assert.equal(await times.locator("time[datetime]").count(), 2);
+    assert.match(await times.textContent(), /\(\+\d+[sm]/);
     await page.locator(`[data-chat-reply="${reply.id}"]`).click();
     await page.locator("#chat-content").fill("Thank you, continue.");
     await page.locator("#chat-send").click();

@@ -110,6 +110,8 @@ const port = 18_000 + Math.floor(Math.random() * 10_000);
 try {
   wrangler(["d1", "execute", "agent-bus-cloud", "--file", "migrations/d1/0001_init.sql"], persistTo);
   wrangler(["d1", "execute", "agent-bus-cloud", "--file", "migrations/d1/0002_auth.sql"], persistTo);
+  wrangler(["d1", "execute", "agent-bus-cloud", "--file", "migrations/d1/0003_oauth.sql"], persistTo);
+  wrangler(["d1", "execute", "agent-bus-cloud", "--file", "migrations/d1/0004_social_login.sql"], persistTo);
 
   const worker = await startWorker(persistTo, port);
 
@@ -196,6 +198,15 @@ try {
     assert(smoke.includes("cloud smoke: ok"), "cloud smoke did not pass");
     assert(smoke.includes("message: delivered"), "cloud smoke did not deliver a message");
     assert(smoke.includes("task: visible"), "cloud smoke did not verify task visibility");
+    const receiptResponse = await fetch(`${host}/mcp/cli-demo?json=1`, {
+      method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ tool: "recent", input: { team: "cli-smoke", limit: 100 } }),
+    });
+    assert(receiptResponse.ok, "could not inspect smoke delivery receipt");
+    const receiptEnvelope = await receiptResponse.json();
+    const receiptMessages = JSON.parse(receiptEnvelope.content[0].text).messages;
+    assert(receiptMessages.some(message => String(message.content ?? message.content_preview ?? "").startsWith("cloud smoke ") && message.status === "delivered" && message.delivered_at),
+      "cloud smoke did not acknowledge its handled message");
 
     const tokenList = cloud("tokens", "list", "cli-demo");
     assert(tokenList.includes("codex-cli"), "cloud tokens list did not include created token");

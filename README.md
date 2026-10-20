@@ -59,6 +59,35 @@ In the dashboard, select a conversation and message your agents as yourself.
 Replies appear automatically. Messages wait in an agent's inbox until its
 session checks it; sending does not wake a closed session.
 
+Cloud inbox delivery uses leases and explicit acknowledgement after handling,
+with reconnect cursors and signed webhooks for configured receiving integrations.
+Receiving integrations can use `agent-bus cloud --host <host> listen <workspace>
+--agent <name> --handler <executable>` for immediate reconnect, bounded failure
+backoff and handled/acknowledged checkpoints. The handler receives JSON stdin;
+its successful exit means handling finished. Tokens stay in the environment.
+The dashboard distinguishes live Listening from Last checked/Offline and shows
+per-recipient acknowledgement and reply times. Local listeners are unchanged.
+See [Cloud delivery](apps/cloud/docs/delivery.md). A webhook is not a guarantee
+that ChatGPT or another model wakes automatically.
+
+Opt-in [native wake bridges](docs/native-wake.md) connect Local or Cloud inboxes to an
+interactive Claude Code channel or a dedicated Codex App Server thread. The
+remote endpoint also supports signed MCP Events subscriptions for compatible
+receivers; real ChatGPT automatic wake remains unverified. The bridge commands
+require the source build until the next CLI release; a Cloud deploy does not
+publish them to npm.
+
+For Local use `claude-channel --agent <name>` or
+`codex-listen --agent <name> --thread <id> --cwd <path>`; no Cloud account or
+token is needed. Both record a reply before acknowledging and require exclusive
+ownership of the receiving agent's inbox. See the guide for an isolated demo.
+
+**Claude and ChatGPT:** the Cloud app also includes OAuth account linking at
+`/mcp`, with workspace consent and Disconnect controls. See the
+[connector setup guide](apps/cloud/docs/connectors.md) for deployment prerequisites
+and custom connector setup. Existing `/mcp/<workspace>` token connections remain
+supported; public directory listing is a separate review process.
+
 ## Watch it
 
 ![agent-bus shared inbox demo](docs/assets/use-cases/shared-inbox-demo.gif)

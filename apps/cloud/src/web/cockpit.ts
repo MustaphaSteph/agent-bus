@@ -135,15 +135,18 @@ export const cockpitRenderScript = String.raw`
   const board = { scope: "team", all: null, team: null, error: "", loading: false };
   const TASK_STATES = ["backlog", "open", "claimed", "working", "blocked"];
   const PRESENCE = {
-    listening: ["Listening", "Sees new messages right away"],
+    listening: ["Listening", "An inbox connection was open at the last refresh; this is not a handling receipt"],
+    last_checked: ["Last checked", "No live inbox connection; messages wait until the agent checks again"],
     online: ["Online", "Active recently; reads messages on its next inbox check"],
     idle: ["Idle", "Not active for a few minutes; messages wait in its inbox"],
     offline: ["Offline", "Messages wait in its inbox until it checks in"],
     stale: ["Offline", "Messages wait in its inbox until it checks in"],
     paused: ["Paused", "Paused by a manager; messages wait in its inbox"],
   };
-  function presenceBadge(presence) {
-    const [label, title] = PRESENCE[presence] || [presence || "Unknown", ""];
+  function presenceBadge(presence, lastSeen, listeningUntil) {
+    if (presence === "listening" && (!listeningUntil || listeningUntil <= Date.now())) presence = "last_checked";
+    const [baseLabel, title] = PRESENCE[presence] || [presence || "Unknown", ""];
+    const label = presence === "last_checked" && lastSeen ? baseLabel + " " + ago(lastSeen) : baseLabel;
     const key = presence === "stale" ? "offline" : presence;
     return '<span class="presence p-' + escapeHtml(key) + '" title="' + escapeHtml(title) + '"><span class="dot" aria-hidden="true"></span>' + escapeHtml(label) + '</span>';
   }
@@ -265,7 +268,7 @@ export const cockpitRenderScript = String.raw`
       const extra = info.get(member.name);
       const caps = (extra?.capabilities || []).slice(0, 2).map(cap => '<span class="tag">' + escapeHtml(cap) + '</span>').join("");
       const work = extra && ["working", "blocked", "waiting_review"].includes(extra.status) ? '<span>' + escapeHtml(extra.status.replace("_", " ")) + '</span>' : "";
-      return '<li>' + avatar(member.name, "agent") + '<div><span class="roster-name">' + escapeHtml(member.name) + '</span><span class="roster-sub">' + presenceBadge(member.presence) + work + caps + '</span></div>' +
+      return '<li>' + avatar(member.name, "agent") + '<div><span class="roster-name">' + escapeHtml(member.name) + '</span><span class="roster-sub">' + presenceBadge(member.presence, member.last_seen, member.listening_until) + work + caps + '</span></div>' +
         (chat.canPost ? '<button type="button" class="mini-btn" data-mention-agent="' + escapeHtml(member.name) + '" aria-label="Mention ' + escapeHtml(member.name) + '">@</button>' : '<span></span>') + '</li>';
     }).join("") || '<li class="muted">No agents in this team yet.</li>';
     const teamTasks = board.team?.board?.tasks;

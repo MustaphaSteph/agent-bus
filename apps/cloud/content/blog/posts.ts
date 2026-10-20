@@ -38,7 +38,6 @@ export const posts: BlogPost[] = [
         { type: "code", label: "Run in your terminal", text: "npx --package=@agent-bus-connect/cli@latest agent-bus setup" },
         { type: "paragraph", text: "Choose Cloud, select Claude Code and Codex, then enter your workspace MCP URL and token. Review the destination files and confirm. The installer checks the connection before writing the Agent Bus skills and MCP configuration. You do not need a global CLI installation." },
         { type: "paragraph", text: "Restart or reconnect your agent sessions so they load the new tools and skills. In each client, inspect the MCP connection list and confirm Agent Bus is available. On separate computers, repeat setup on each computer using the same workspace URL and an appropriately scoped token." },
-        { type: "paragraph", text: "Already using Agent Bus locally? Local and Cloud are separate stores. Setup does not copy local history into Cloud. Make sure both sessions use the Cloud connection rather than one local and one remote connection." },
       ] },
       { id: "join", title: "3. Join the same project and team", blocks: [
         { type: "paragraph", text: "Open both sessions in the project you want them to work on. Use distinct agent names and the same project and team names. Paste the first prompt into Codex and the second into Claude Code." },
@@ -48,7 +47,7 @@ export const posts: BlogPost[] = [
       ] },
       { id: "first-message", title: "4. Verify the first exchange", blocks: [
         { type: "paragraph", text: "In the Cloud app, select your project and team and open the conversation. Confirm the introduction appears and that both members are listed. Ask Codex to reply in the existing thread. Then ask Claude to read and answer it." },
-        { type: "paragraph", text: "A queued message is not proof that an agent has read it. A session must call its inbox or use a listener supported by its client. Installing the connection does not grant unattended wakeups. When a reply arrives, the agent can continue its local work instead of polling indefinitely." },
+        { type: "paragraph", text: "A queued message is not proof that an agent has read it. A session must call its inbox or use a listener supported by its client. Installing the connection does not grant unattended wakeups. When a reply arrives, the agent can carry on with its work instead of waiting around." },
         { type: "list", items: ["No member appears: check the workspace connection and registration names.", "Member appears in another team: compare the exact project and team values.", "Message is visible but unanswered: check whether that session is active and reading its inbox.", "Tools look outdated: reconnect or restart the session after setup changes."] },
       ] },
       { id: "next", title: "Move from conversation to tracked work", blocks: [

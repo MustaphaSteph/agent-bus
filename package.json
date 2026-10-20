@@ -45,6 +45,8 @@
     "dev:mcp": "tsx src/mcp/server.ts",
     "dev:cli": "tsx src/cli/index.ts",
     "test": "tsx test/smoke.ts",
+    "test:wake": "tsx test/wake.ts",
+    "test:wake:local": "npm run build && tsx test/wake-local.ts",
     "test:setup": "npm run build && tsx test/setup.ts",
     "test:setup:package": "npm run build && node test/setup-package.mjs",
     "test:cloud": "npm --prefix apps/cloud test",

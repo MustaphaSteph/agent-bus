@@ -20,7 +20,38 @@ Supports `--mode`, `--clients`, `--url`, `--token-env`, `--name`, `--replace`,
 No token argument: use the hidden prompt or an environment variable.
 See [setup guide](setup.md) for paths, backup behavior, and security details.
 
+### `agent-bus claude-channel` / `agent-bus codex-listen`
+
+Source-build Local wake bridges; no Cloud token needed. Both accept
+`--agent <registered-name>`, optional `--project` and `--team` filters.
+`claude-channel` is a stdio MCP server launched by interactive Claude Code with
+development-channel consent. `codex-listen` additionally requires `--thread <id>`
+and `--cwd <path>` and accepts `--sandbox read-only|workspace-write` (read-only
+by default). It owns a dedicated saved thread, not an active desktop chat.
+
+Use the same `AGENT_BUS_DIR` for sender and receivers. Neither notification nor
+printing acknowledges: the host must handle and reply first. Stop other inbox
+consumers for these agent names. Existing `listen` still acknowledges after
+printing and is not a substitute. See [full Local setup](native-wake.md#local-bus-no-cloud-account-or-token).
+
 ### `agent-bus cloud`
+
+Native Cloud bridges (source build; not published by a Cloud deploy):
+`cloud claude-channel <workspace> --agent <name>` is a Claude Code stdio
+channel with explicit completion. `cloud codex-listen <workspace> --agent <name>
+--thread <id> --cwd <path>` runs a dedicated Codex App Server thread. Both accept
+project/team filters and require an environment token. Read the
+[native wake setup and safety limits](native-wake.md) before enabling either.
+
+`agent-bus cloud --host <https-origin> listen <workspace> --agent <name>
+--handler <executable>` runs a persistent Cloud receiving integration. Register
+the agent first; supply `AGENT_BUS_CLOUD_TOKEN` in the environment, not arguments.
+The trusted handler receives JSON stdin and must exit zero only after successful
+handling. It runs without a shell. Successful cycles reconnect immediately;
+failures back off up to 30 seconds. Checkpoints are isolated by host/workspace/
+agent/filter and advance only after handling and acknowledgement. Ctrl-C stops
+the connection/handler. This does not wake hosted chat models or alter Local
+`listen`. See [handler contract and limits](../apps/cloud/docs/delivery.md).
 
 Hosted Agent Bus Cloud setup helpers. These commands talk to the
 Cloudflare Worker API and store a dashboard session cookie in
@@ -52,6 +83,11 @@ agent-bus cloud mcp-config my-team --token ab_cloud_...
 agent-bus cloud token-test my-team --token ab_cloud_...
 agent-bus cloud smoke my-team --token ab_cloud_... --team cloud-smoke
 ```
+
+Cloud smoke acknowledges its own test message only after verifying its content,
+using the server's lease receipt when present. Cloud inbox clients must similarly
+handle messages before `ack`; see [delivery and webhooks](../apps/cloud/docs/delivery.md).
+This does not change the Local CLI listener or its inbox defaults.
 
 For production:
 

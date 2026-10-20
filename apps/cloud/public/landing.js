@@ -50,13 +50,84 @@
   addEventListener("scroll", onScroll, { passive: true });
   onScroll();
 
+  // Connection guides open in a drawer (native modal dialog: focus trap, Escape, focus return).
+  const drawer = document.getElementById("guide-drawer");
+  const guides = drawer ? [...drawer.querySelectorAll(".guide")] : [];
+  function openGuide(id) {
+    const guide = guides.find((item) => item.id === id);
+    if (!guide) return false;
+    guides.forEach((item) => item.classList.toggle("is-active", item === guide));
+    drawer.dataset.group = guide.dataset.group;
+    const need = drawer.querySelector(guide.dataset.group === "oauth" ? ".need-oauth" : ".need-token");
+    guide.querySelector(".guide-head").after(need);
+    drawer.setAttribute("aria-labelledby", "guide-title-" + id.replace(/^connect-/, ""));
+    if (!drawer.open) drawer.showModal();
+    drawer.querySelector(".drawer-body").scrollTop = 0;
+    drawer.querySelector(".drawer-close").focus({ preventScroll: true });
+    return true;
+  }
+  function guideFromHash() {
+    const hash = location.hash.slice(1);
+    if (hash === "connect-unverified") {
+      const details = document.getElementById(hash);
+      details.open = true;
+      details.scrollIntoView({ block: "start" });
+      return;
+    }
+    if (hash.startsWith("connect-") && guides.some((guide) => guide.id === hash)) {
+      document.getElementById("connect").scrollIntoView({ block: "start" });
+      openGuide(hash);
+    }
+  }
+  if (drawer) {
+    document.addEventListener("click", (event) => {
+      const link = event.target.closest('a[href^="#connect-"]');
+      if (!link || drawer.contains(link)) return;
+      const id = link.getAttribute("href").slice(1);
+      if (!guides.some((guide) => guide.id === id)) return;
+      event.preventDefault();
+      history.replaceState(null, "", "#" + id);
+      openGuide(id);
+    });
+    drawer.addEventListener("click", (event) => {
+      // A click on the backdrop lands on the dialog element itself.
+      if (event.target === drawer || event.target.closest("[data-drawer-close]")) drawer.close();
+    });
+    drawer.addEventListener("close", () => {
+      if (location.hash.startsWith("#connect-") && guides.some((guide) => "#" + guide.id === location.hash)) history.replaceState(null, "", "#connect");
+    });
+    addEventListener("hashchange", guideFromHash);
+    guideFromHash();
+  }
+
+  // Workspace address fills in example URLs on this page only. Tokens are never collected.
+  const workspaceInput = document.getElementById("workspace-address");
+  if (workspaceInput) {
+    const field = workspaceInput.closest(".ws-field");
+    const hint = document.getElementById("workspace-address-hint");
+    const defaultHint = hint.textContent;
+    const fillWorkspace = () => {
+      const value = workspaceInput.value.trim();
+      const valid = !value || /^[a-zA-Z0-9_.-]{1,64}$/.test(value);
+      field.classList.toggle("invalid", !valid);
+      workspaceInput.setAttribute("aria-invalid", String(!valid));
+      hint.textContent = valid ? defaultHint : "Use letters, numbers, dots, dashes or underscores.";
+      document.querySelectorAll('.ph[data-ph="YOUR_WORKSPACE"]').forEach((slot) => {
+        slot.textContent = valid && value ? value : "YOUR_WORKSPACE";
+        slot.classList.toggle("filled", Boolean(valid && value));
+      });
+    };
+    workspaceInput.addEventListener("input", fillWorkspace);
+    fillWorkspace();
+  }
+
   // Copy buttons share one handler and announce the result.
   document.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-copy-target]");
     if (!button) return;
     const source = document.getElementById(button.dataset.copyTarget);
     const label = button.querySelector("span");
-    const status = document.getElementById(button.dataset.copyTarget === "setup-command" ? "setup-copy-result" : "prompt-copy-result");
+    const status = document.getElementById(button.dataset.copyTarget === "setup-command" ? "setup-copy-result" : button.closest("#guide-drawer") ? "drawer-copy-result" : "prompt-copy-result");
     try {
       await navigator.clipboard.writeText(source.textContent.trim());
       button.classList.add("copied");

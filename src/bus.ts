@@ -1,4 +1,6 @@
 import { getDb } from "./db.js";
+import { randomUUID } from "node:crypto";
+import { setTimeout as abortableDelay } from "node:timers/promises";
 import { BusError } from "./util/errors.js";
 import { runLocalHook } from "./util/hooks.js";
 import { now, sleep } from "./util/time.js";
@@ -792,6 +794,79 @@ export interface InboxPreviewOptions {
   limit?: number;
   wait_s?: number;
   preview_chars?: number;
+}
+
+/** Native host delivery is opt-in; legacy inbox/ack semantics stay unchanged. */
+export async function wakeInbox(opts: Pick<InboxOptions, "agent" | "project" | "team" | "since_id" | "wait_s">, signal: AbortSignal) {
+  validateName(opts.agent);
+  validateProject(opts.project);
+  if (opts.team !== undefined && opts.team !== TEAM_WILDCARD) validateTeam(opts.team);
+  if (opts.wait_s !== undefined && (!Number.isFinite(opts.wait_s) || opts.wait_s < 0)) throw new BusError("INVALID_INPUT", "Invalid wait_s");
+  if (opts.since_id !== undefined && (!Number.isSafeInteger(opts.since_id) || opts.since_id < 0)) throw new BusError("INVALID_INPUT", "Invalid cursor");
+  const db = getDb();
+  const deadline = now() + Math.min(opts.wait_s ?? 110, MAX_INBOX_WAIT_S) * 1000;
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const result = db.transaction(() => {
+        const agent = requireAgent(opts.agent);
+        heartbeat(opts.agent);
+        if (agent.paused) return { messages: [], paused: true };
+        // Always replay unacknowledged older IDs: priority ordering and expired
+        // leases mean a high-water cursor cannot safely exclude older work.
+        const message = readInbox({ ...opts, since_id: 0, limit: 1, claim_s: 300 })[0];
+        if (!message) return { messages: [] };
+        const token = randomUUID();
+        db.prepare(`INSERT INTO wake_receipts(message_id, token) VALUES (?, ?)
+          ON CONFLICT(message_id) DO UPDATE SET token = excluded.token`).run(message.id, token);
+        const receipt = db.prepare("SELECT reply_id FROM wake_receipts WHERE message_id = ?").get(message.id) as { reply_id: number | null };
+        return { messages: [{ ...message, claim_token: token, claim_deadline: message.claim_deadline!, wake_handled: receipt.reply_id !== null }] };
+      }).immediate();
+      if (result.messages.length || result.paused || now() >= deadline) return result;
+      markAgentListening(opts.agent, deadline);
+      await abortableDelay(Math.min(POLL_INTERVAL_MS, Math.max(1, deadline - now())), undefined, { signal });
+    }
+  } finally {
+    db.prepare("UPDATE agents SET listening_until = NULL WHERE name = ?").run(opts.agent);
+  }
+}
+
+function requireWakeReceipt(agent: string, id: number, token: string) {
+  validateName(agent);
+  requireAgent(agent);
+  const row = getMessageRow(id);
+  const receipt = getDb().prepare("SELECT token, reply_id FROM wake_receipts WHERE message_id = ?")
+    .get(id) as { token: string; reply_id: number | null } | undefined;
+  if (row.to_agent !== agent || !receipt || receipt.token !== token) throw new BusError("INVALID_INPUT", "Invalid wake receipt");
+  if (row.status === "pending" && (row.claimed_by !== agent || (row.claim_deadline ?? 0) <= now())) throw new BusError("INVALID_INPUT", "Wake lease expired");
+  return { row, receipt };
+}
+
+export function wakeReply(opts: { agent: string; message_id: number; claim_token: string; message: string }): Message {
+  if (typeof opts.message !== "string" || !opts.message.trim() || opts.message.length > 50000) throw new BusError("INVALID_INPUT", "Invalid wake reply");
+  return getDb().transaction(() => {
+    const { row, receipt } = requireWakeReceipt(opts.agent, opts.message_id, opts.claim_token);
+    if (receipt.reply_id !== null) return toMessage(getMessageRow(receipt.reply_id));
+    if (row.status !== "pending") throw new BusError("INVALID_INPUT", "Delivery is no longer pending");
+    const agent = requireAgent(opts.agent);
+    const result = insertMessage({ from: opts.agent, to: row.from_agent, content: opts.message, kind: "reply", reply_to: row.id },
+      row.thread_id ?? newThreadId(), agent.project, agent.area, agent.team);
+    getDb().prepare("UPDATE wake_receipts SET reply_id = ? WHERE message_id = ?").run(result.id, row.id);
+    getDb().prepare("UPDATE messages SET replied_at = ? WHERE id = ?").run(now(), row.id);
+    heartbeat(opts.agent);
+    return result;
+  }).immediate();
+}
+
+export function wakeAck(opts: { agent: string; message_id: number; claim_token: string }): Message {
+  return getDb().transaction(() => {
+    const { row, receipt } = requireWakeReceipt(opts.agent, opts.message_id, opts.claim_token);
+    if (receipt.reply_id === null) throw new BusError("INVALID_INPUT", "Handle and reply before acknowledgement");
+    if (row.status === "pending") getDb().prepare(`UPDATE messages SET status = ?, delivered_at = ?,
+      claim_deadline = NULL, claimed_by = NULL WHERE id = ?`).run(row.kind === "ask" ? "answered" : "delivered", now(), row.id);
+    heartbeat(opts.agent);
+    return toMessage(getMessageRow(row.id));
+  }).immediate();
 }
 
 export async function inbox(opts: InboxOptions): Promise<Message[]> {

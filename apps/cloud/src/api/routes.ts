@@ -19,6 +19,7 @@ import {
 } from "../auth/workspaces";
 import { cloudToolStatus } from "../mcp/tool-registry";
 import { clearSessionCookie, createSessionCookie, currentUser } from "../auth/session";
+import { assertAuthOrigin, signupEnabled, socialAuthRoute } from "../auth/social";
 
 function requireSlug(params: RegExpMatchArray): string {
   const slug = params.groups?.slug;
@@ -40,6 +41,9 @@ function parseRole(role: unknown): "owner" | "manager" | "agent" | "viewer" {
 }
 
 export async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
+  const social = await socialAuthRoute(request, env);
+  if (social) return social;
+  if (url.pathname.startsWith("/api/auth/") && request.method === "POST") assertAuthOrigin(request);
   const attachment = await attachmentRoute(request, env, url);
   if (attachment) return attachment;
   if (url.pathname === "/api/health") {
@@ -74,6 +78,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
   }
 
   if (url.pathname === "/api/auth/signup" && request.method === "POST") {
+    if (!signupEnabled(env)) throw new HttpError(403, "SIGNUP_CLOSED", "New account registration is currently closed.");
     const input = await readJson<{ email?: string; password?: string; name?: string }>(request);
     const user = await createUser(env, input.email ?? "", input.password ?? "", input.name);
     return json({ user }, { status: 201, headers: { "set-cookie": await createSessionCookie(env, user.id) } });
@@ -173,7 +178,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     const input = await readJson<{ op?: string; input?: unknown }>(request);
     if (!input.op) throw new Error("op is required");
     if (["human_chat_post", "human_task_create"].includes(input.op) || input.op.startsWith("attachment_")) throw new HttpError(403, "FORBIDDEN", "Use the workspace forms for human actions.");
-    const result = await callWorkspace(env, context, input.op, input.input ?? {});
+    const result = await callWorkspace(env, context, input.op, input.input ?? {}, request.signal);
     return json({ ok: true, result });
   }
 

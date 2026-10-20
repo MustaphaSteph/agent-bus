@@ -15,6 +15,40 @@ connected tools; do not silently switch transports. The setup command is a CLI
 helper, not an additional MCP tool. See docs/setup.md for token handling,
 noninteractive options, backups, and restart requirements.
 
+Cloud OAuth connectors: `/mcp` supports sign-in and workspace consent for hosted
+Claude/ChatGPT clients; no npm installation is needed. Check cloud_workspace
+before work. Read-only grants cannot register/send/update. Never request a user's
+password or token in chat. See apps/cloud/docs/connectors.md for deployment and
+client verification prerequisites. Legacy `/mcp/<workspace>` bearer clients remain.
+
+Cloud delivery: inbox leases by default (60 seconds, configurable claim_s up to
+3600). Handle each message before ack({agent,message_id,claim_token}); never ack
+just because it was fetched. Resume since_id from the highest handled/acked ID,
+not an unhandled next_cursor. Reopen successful polls immediately; back off on failures;
+older unacknowledged work remains eligible. Deduplicate side effects by message ID.
+Use mark_delivered:false for inspection only; Cloud rejects true. Local defaults
+below are unchanged. Manager-configured signed webhooks notify a public receiver
+but neither acknowledge messages nor prove automatic ChatGPT wake-up. See
+apps/cloud/docs/delivery.md for receiving integration requirements and test limits.
+Persistent receiving integrations: agent-bus cloud --host <host> listen <workspace>
+--agent <name> --handler <executable>, with AGENT_BUS_CLOUD_TOKEN in the environment.
+The trusted handler receives JSON stdin and exits zero only after handling.
+
+Native Local bridges (source build): claude-channel --agent <name> and
+codex-listen --agent <name> --thread <id> --cwd <path>. Same AGENT_BUS_DIR as the
+sender, no Cloud token. Register first, keep the host running, and give each
+bridge exclusive ownership of its agent inbox. Token-bound leases, durable
+deduplicated replies, ack only after handling; ordinary Local inbox/listen are
+unchanged. See docs/native-wake.md for the isolated test setup and host limits.
+
+Native Cloud bridges (source build): cloud claude-channel <workspace> --agent
+<name> runs a Claude Code stdio channel; channel_complete records a reply before
+ack. cloud codex-listen <workspace> --agent <name> --thread <id> --cwd <path>
+uses a dedicated stopped Codex App Server thread. Neither bypasses approvals.
+Remote MCP Events exposes inbox.message_available with verified signed callbacks,
+finite subscriptions and revocation. A received callback is not a handled message.
+Actual ChatGPT automatic wake is unverified. See docs/native-wake.md.
+
 Cloud workflow parity: see apps/cloud/docs/behavior-parity.md for verified
 task/review/report behavior and remaining coverage. Matching tool names is not
 proof of complete parity. Use submit_review for Cloud review verdicts; task
