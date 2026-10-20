@@ -22,7 +22,7 @@ See [setup guide](setup.md) for paths, backup behavior, and security details.
 
 ### `agent-bus claude-channel` / `agent-bus codex-listen`
 
-Source-build Local wake bridges; no Cloud token needed. Both accept
+Local wake bridges (CLI 0.43.0+); no Cloud token needed. Both accept
 `--agent <registered-name>`, optional `--project` and `--team` filters.
 `claude-channel` is a stdio MCP server launched by interactive Claude Code with
 development-channel consent. `codex-listen` additionally requires `--thread <id>`
@@ -36,7 +36,7 @@ printing and is not a substitute. See [full Local setup](native-wake.md#local-bu
 
 ### `agent-bus cloud`
 
-Native Cloud bridges (source build; not published by a Cloud deploy):
+Native Cloud bridges (CLI 0.43.0+; a Cloud deploy does not update your CLI):
 `cloud claude-channel <workspace> --agent <name>` is a Claude Code stdio
 channel with explicit completion. `cloud codex-listen <workspace> --agent <name>
 --thread <id> --cwd <path>` runs a dedicated Codex App Server thread. Both accept

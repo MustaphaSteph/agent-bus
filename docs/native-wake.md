@@ -4,9 +4,13 @@ These opt-in Local and Cloud adapters connect queued messages to supported host
 execution interfaces. Ordinary MCP configuration alone does not wake a session.
 Existing `listen`, Stop hooks and ordinary local inbox/ack behavior are unchanged.
 
-The new CLI commands are in the source build; Cloud deployment does not publish
-them to npm. Until a CLI release includes them, run `npm run build` in this repo
-and use `node /absolute/path/to/agent-bus/dist/cli/index.js` instead of `agent-bus`.
+The native wake commands require CLI 0.43.0 or newer. Cloud deployment does not
+update the CLI on your computer. Install the release with
+`npm install -g @agent-bus-connect/cli@0.43.0`, then check `agent-bus --version`.
+The examples below also work from source: run `npm run build` and use
+`node /absolute/path/to/agent-bus/dist/cli/index.js`. With a global installation,
+replace that executable/path pair with `agent-bus`. In MCP JSON, set `command`
+to `agent-bus` and remove the leading JavaScript path from `args`.
 
 ## Local bus: no Cloud account or token
 

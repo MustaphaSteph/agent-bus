@@ -34,14 +34,14 @@ Persistent receiving integrations: agent-bus cloud --host <host> listen <workspa
 --agent <name> --handler <executable>, with AGENT_BUS_CLOUD_TOKEN in the environment.
 The trusted handler receives JSON stdin and exits zero only after handling.
 
-Native Local bridges (source build): claude-channel --agent <name> and
+Native Local bridges (CLI 0.43.0+): claude-channel --agent <name> and
 codex-listen --agent <name> --thread <id> --cwd <path>. Same AGENT_BUS_DIR as the
 sender, no Cloud token. Register first, keep the host running, and give each
 bridge exclusive ownership of its agent inbox. Token-bound leases, durable
 deduplicated replies, ack only after handling; ordinary Local inbox/listen are
 unchanged. See docs/native-wake.md for the isolated test setup and host limits.
 
-Native Cloud bridges (source build): cloud claude-channel <workspace> --agent
+Native Cloud bridges (CLI 0.43.0+): cloud claude-channel <workspace> --agent
 <name> runs a Claude Code stdio channel; channel_complete records a reply before
 ack. cloud codex-listen <workspace> --agent <name> --thread <id> --cwd <path>
 uses a dedicated stopped Codex App Server thread. Neither bypasses approvals.

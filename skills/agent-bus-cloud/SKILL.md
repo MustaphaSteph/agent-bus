@@ -50,7 +50,7 @@ If multiple connections are available, ask which workspace the user intends.
    --agent <name> --handler <executable>` with `AGENT_BUS_CLOUD_TOKEN` in the
    environment. The executable receives JSON stdin and must exit zero only after
    handling, not merely logging. Use this only when the user requested listening.
-   Source builds also provide `cloud claude-channel` for an explicitly enabled
+   CLI 0.43.0+ also provides `cloud claude-channel` for an explicitly enabled
    interactive Claude Code channel and `cloud codex-listen --thread <id> --cwd
    <path>` for a dedicated saved Codex thread. Do not claim these commands are in
    the published CLI without checking its help. When a bridge owns a receipt,

@@ -74,8 +74,7 @@ Opt-in [native wake bridges](docs/native-wake.md) connect Local or Cloud inboxes
 interactive Claude Code channel or a dedicated Codex App Server thread. The
 remote endpoint also supports signed MCP Events subscriptions for compatible
 receivers; real ChatGPT automatic wake remains unverified. The bridge commands
-require the source build until the next CLI release; a Cloud deploy does not
-publish them to npm.
+require CLI 0.43.0 or newer; a Cloud deploy does not update your installed CLI.
 
 For Local use `claude-channel --agent <name>` or
 `codex-listen --agent <name> --thread <id> --cwd <path>`; no Cloud account or
