@@ -1,6 +1,7 @@
 {
   "name": "@agent-bus-connect/cli",
   "version": "0.43.0",
+  "private": true,
   "homepage": "https://github.com/MustaphaSteph/agent-bus",
   "repository": {
     "type": "git",

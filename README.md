@@ -25,68 +25,6 @@
   <br/><strong>Local · persistent · tool-agnostic · no cloud required · no internet required.</strong>
 </p>
 
-## Agent Bus Cloud
-
-The local bus stays the default: one SQLite file, no daemon, no account. For
-teams that want the same Agent Bus workflow across machines, the repo now also
-contains the hosted Cloudflare app in [`apps/cloud`](apps/cloud).
-
-Local is the workflow reference. See [verified Cloud behavior and remaining
-parity coverage](apps/cloud/docs/behavior-parity.md) before assuming every tool
-has identical behavior. Local and Cloud data are separate.
-
-Agent Bus Cloud uses Workers, Durable Objects with SQLite, D1, signed dashboard
-sessions, workspace bearer tokens, and a real remote MCP endpoint at:
-
-```text
-https://<your-worker>/mcp/<workspace>
-```
-
-The current hosted deployment is:
-
-```text
-https://agent-bus-cloud.mustapha-achtaou.workers.dev
-```
-
-It includes a landing page, login/dashboard, workspace setup, member management,
-token creation, human team chat with `@agent` mentions and threaded replies,
-tracked tasks, `agent-bus cloud bootstrap` setup, remote MCP tooling, Kanban/activity
-cockpit APIs, and the full 65-tool agent-bus MCP surface. See
-[`docs/cloud.md`](docs/cloud.md) for the architecture and
-[`apps/cloud/README.md`](apps/cloud/README.md) for local dev/deploy steps.
-
-In the dashboard, select a conversation and message your agents as yourself.
-Replies appear automatically. Messages wait in an agent's inbox until its
-session checks it; sending does not wake a closed session.
-
-Cloud inbox delivery uses leases and explicit acknowledgement after handling,
-with reconnect cursors and signed webhooks for configured receiving integrations.
-Receiving integrations can use `agent-bus cloud --host <host> listen <workspace>
---agent <name> --handler <executable>` for immediate reconnect, bounded failure
-backoff and handled/acknowledged checkpoints. The handler receives JSON stdin;
-its successful exit means handling finished. Tokens stay in the environment.
-The dashboard distinguishes live Listening from Last checked/Offline and shows
-per-recipient acknowledgement and reply times. Local listeners are unchanged.
-See [Cloud delivery](apps/cloud/docs/delivery.md). A webhook is not a guarantee
-that ChatGPT or another model wakes automatically.
-
-Opt-in [native wake bridges](docs/native-wake.md) connect Local or Cloud inboxes to an
-interactive Claude Code channel or a dedicated Codex App Server thread. The
-remote endpoint also supports signed MCP Events subscriptions for compatible
-receivers; real ChatGPT automatic wake remains unverified. The bridge commands
-require CLI 0.43.0 or newer; a Cloud deploy does not update your installed CLI.
-
-For Local use `claude-channel --agent <name>` or
-`codex-listen --agent <name> --thread <id> --cwd <path>`; no Cloud account or
-token is needed. Both record a reply before acknowledging and require exclusive
-ownership of the receiving agent's inbox. See the guide for an isolated demo.
-
-**Claude and ChatGPT:** the Cloud app also includes OAuth account linking at
-`/mcp`, with workspace consent and Disconnect controls. See the
-[connector setup guide](apps/cloud/docs/connectors.md) for deployment prerequisites
-and custom connector setup. Existing `/mcp/<workspace>` token connections remain
-supported; public directory listing is a separate review process.
-
 ## Watch it
 
 ![agent-bus shared inbox demo](docs/assets/use-cases/shared-inbox-demo.gif)
@@ -118,11 +56,10 @@ machine.
 npx --package=@agent-bus-connect/cli@latest agent-bus setup
 ```
 
-Choose **Local** or **Cloud**, then Codex, Claude Code, Kimi Code, and/or Cursor.
+Choose **Local**, then Codex, Claude Code, Kimi Code, and/or Cursor.
 The wizard installs the matching skill, configures MCP, and tests the connection.
-Restart/reconnect your agent sessions afterward. Cloud needs a workspace URL and
-agent token from your dashboard; Local needs no account. Until 0.42.0 is published,
-use the [source-build instructions](docs/setup.md#test-from-source).
+Restart/reconnect your agent sessions afterward. Local needs no account.
+You can also use the [source-build instructions](docs/setup.md#test-from-source).
 
 This installs **skills + MCP**, not marketplace plugins or listener hooks.
 [Setup options and troubleshooting](docs/setup.md).
@@ -554,7 +491,6 @@ Everything below ships in that one `npm install`. No add-ons, no tiers, no aster
 | [`docs/cli.md`](docs/cli.md) | `agent-bus` CLI reference |
 | [`docs/patterns.md`](docs/patterns.md) | Listener mode, async chat, capability routing, broadcast, ack/retry, threading |
 | [`docs/loops.md`](docs/loops.md) | Loop engineering with memory, verifier gates, liveness, and cockpit attention |
-| [`docs/cloud.md`](docs/cloud.md) | Hosted Agent Bus Cloud architecture on Cloudflare Workers, Durable Objects, D1, and remote MCP |
 | [`docs/architecture.md`](docs/architecture.md) | Schema, internals, tuning, what it can and can't do |
 | [`docs/troubleshooting.md`](docs/troubleshooting.md) | Common errors and fixes |
 | [`docs/openapi.yaml`](docs/openapi.yaml) | Core synthetic OpenAPI 3.1 mapping; [`docs/tools.md`](docs/tools.md) is authoritative for the full MCP surface |
