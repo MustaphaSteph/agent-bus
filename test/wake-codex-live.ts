@@ -12,7 +12,7 @@ process.env.AGENT_BUS_DIR = join(cwd, "bus");
 const local = process.env.AGENT_BUS_LIVE_WAKE_LOCAL === "1";
 const bus = await import("../src/bus.js");
 const { closeDb } = await import("../src/db.js");
-const { listenCloud } = await import("../src/cli/cloud-listen.js");
+const { listenDeliveries } = await import("../src/cli/delivery.js");
 const { callLocalWake } = await import("../src/cli/wake/local.js");
 async function control(method: string, params: Record<string, unknown>): Promise<any> {
   const process = spawn("codex", ["app-server", "--listen", "stdio://"], { cwd, stdio: ["pipe", "pipe", "pipe"] });
@@ -55,7 +55,7 @@ try {
     if (local) {
       const original = bus.send({ from: "test-human", to: "codex-live", content: `Authorized isolated integration test. Do not read files or call tools. Reply exactly WAKE_TEST_${id}_OK.` });
       const stop = new AbortController();
-      await listenCloud({ agent: "codex-live", cursor, signal: AbortSignal.any([stop.signal, AbortSignal.timeout(180000)]), call: callLocalWake,
+      await listenDeliveries({ agent: "codex-live", cursor, signal: AbortSignal.any([stop.signal, AbortSignal.timeout(180000)]), call: callLocalWake,
         handle: async (message, signal) => {
           const answer = await host!.handle(message, signal); assert(answer.includes(`WAKE_TEST_${id}_OK`), answer);
           bus.wakeReply({ agent: "codex-live", message_id: message.id, claim_token: message.claim_token, message: answer });

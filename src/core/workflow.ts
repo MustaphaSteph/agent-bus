@@ -1,4 +1,4 @@
-// Runtime-independent policies shared by the local SQLite bus and Cloud.
+// Runtime-independent task policies for the local SQLite bus.
 export const TASK_TRANSITIONS = {
   backlog: ["open", "canceled"],
   open: ["backlog", "claimed", "canceled"],

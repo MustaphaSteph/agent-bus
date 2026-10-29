@@ -72,7 +72,6 @@ import {
   writeScopeConfig,
 } from "../util/project.js";
 import { parseSince, printActivity, printCockpit, printNow } from "./coordination.js";
-import { registerCloudCommands } from "./cloud.js";
 import { registerLocalWakeCommands } from "./wake/commands.js";
 import { registerSetupCommands } from "./setup.js";
 import { formatMessage, previewText } from "./format.js";
@@ -93,7 +92,6 @@ program
   .description("Local message bus for Claude Code, Codex and other MCP agents.")
   .version(packageVersion());
 
-registerCloudCommands(program);
 registerLocalWakeCommands(program);
 registerSetupCommands(program);
 

@@ -3,12 +3,12 @@ dist/
 *.log
 .DS_Store
 test/.tmp/
-apps/cloud/.wrangler/
-apps/cloud/.dev.vars
+apps/
+.wrangler/
+.dev.vars*
+.env*
 
 # Local agent context files
-AGENTS.md
-CLAUDE.md
 
 # Local-only brainstorm / planning notes — not for publication
 ideas/

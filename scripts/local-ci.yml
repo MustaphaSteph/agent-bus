@@ -1,0 +1,25 @@
+name: Local release boundary
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:setup
+      - run: npm run test:delivery
+      - run: npm run test:wake
+      - run: npm run test:wake:local
+      - run: npx tsx test/cross-process.ts
+      - run: npm run check:publication

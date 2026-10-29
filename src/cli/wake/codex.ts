@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface } from "node:readline";
 import { realpathSync } from "node:fs";
-import type { CloudDelivery } from "../cloud-listen.js";
+import type { Delivery } from "../delivery.js";
 
 type ObjectValue = Record<string, unknown>;
 type Rpc = { id?: string | number; method?: string; params?: ObjectValue; result?: ObjectValue; error?: unknown };
@@ -14,7 +14,7 @@ export class CodexWake {
   private failTurn?: (error: Error) => void;
   private closed = false;
   constructor(private options: { thread: string; cwd: string; sandbox: "read-only" | "workspace-write"; executable?: string; args?: string[] }) {
-    const { AGENT_BUS_CLOUD_TOKEN: _busToken, ...hostEnv } = process.env;
+    const hostEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^AGENT_BUS_.*TOKEN$/.test(key)));
     this.child = spawn(options.executable ?? "codex", options.args ?? ["app-server", "--listen", "stdio://"], {
       cwd: options.cwd, env: hostEnv, shell: false, stdio: ["pipe", "pipe", "pipe"],
     });
@@ -63,7 +63,7 @@ export class CodexWake {
     if (thread.status?.type === "active") throw new Error("Codex thread is already active; use a dedicated stopped thread");
     await this.request("thread/resume", { threadId: this.options.thread, sandbox: this.options.sandbox, approvalPolicy: "untrusted" });
   }
-  async handle(message: CloudDelivery, signal: AbortSignal): Promise<string> {
+  async handle(message: Delivery, signal: AbortSignal): Promise<string> {
     signal.throwIfAborted();
     let turnId: string | undefined;
     let output = "";

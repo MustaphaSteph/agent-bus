@@ -8,13 +8,12 @@ coordination from a single "main" session that has helpers on the bus.
 Patterns 1+ are the lower-level building blocks each helper or
 automation uses.
 
-## Native host delivery (Local or Cloud, opt-in)
+## Native host delivery (Local, opt-in)
 
 Use a dedicated bridge agent when you want incoming messages to start a host
 turn without repeatedly prompting it. Local source builds provide
 `claude-channel --agent <name>` and
-`codex-listen --agent <name> --thread <id> --cwd <path>`; Cloud variants use
-the `cloud` prefix and workspace. Follow [native wake setup](native-wake.md).
+`codex-listen --agent <name> --thread <id> --cwd <path>`. Follow [native wake setup](native-wake.md).
 
 Register the agent, authorize a bounded task, and give the bridge exclusive
 inbox ownership. Claude completes through `channel_complete`; Codex completes

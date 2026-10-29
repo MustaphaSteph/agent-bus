@@ -9,7 +9,7 @@ path for additional host-specific slash commands and listener hooks.
 npx --package=@agent-bus-connect/cli@latest agent-bus setup
 ```
 
-Select Local or Cloud, then your clients. Setup installs bundled skills,
+Select Local, then your clients. Setup installs the bundled skill,
 checks the connection, and writes user MCP configuration with backups.
 Restart/reconnect afterward. See [setup guide](setup.md) for secure token input,
 supported clients, and source-build use before this version is published.

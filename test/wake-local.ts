@@ -14,7 +14,7 @@ process.env.AGENT_BUS_DIR = dir;
 process.env.AGENT_BUS_POLL_MS = "10";
 const bus = await import("../src/bus.js");
 const { getDb, closeDb } = await import("../src/db.js");
-const { listenCloud } = await import("../src/cli/cloud-listen.js");
+const { listenDeliveries } = await import("../src/cli/delivery.js");
 const { callLocalWake } = await import("../src/cli/wake/local.js");
 const { CodexWake } = await import("../src/cli/wake/codex.js");
 let count = 0;
@@ -91,7 +91,7 @@ try {
     const controller = new AbortController(); let retries = 0; let calls = 0; let handled = 0; let ackCalls = 0;
     try {
       await host.start();
-      await listenCloud({ agent: "codex-local", cursor: 0, signal: controller.signal,
+      await listenDeliveries({ agent: "codex-local", cursor: 0, signal: controller.signal,
         call: async (tool, input, abort) => {
           if (++calls === 1) throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
           const result = await callLocalWake(tool, input, abort);
@@ -130,7 +130,7 @@ try {
     try {
       await once(child, "message");
       getDb().pragma("busy_timeout = 10");
-      await listenCloud({ agent: "receiver", cursor: 0, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), call: callLocalWake,
+      await listenDeliveries({ agent: "receiver", cursor: 0, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]), call: callLocalWake,
         wait: async () => { retries++; const released = once(child, "message"); child.send("release"); await released; },
         handle: async message => { bus.wakeReply({ agent: "receiver", message_id: message.id, claim_token: message.claim_token, message: "handled after lock" }); },
         saveCursor: id => { assert.equal(id, msg.id); controller.abort(); },

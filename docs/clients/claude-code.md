@@ -63,4 +63,3 @@ listen as <agent-name> in team <team-name>
 The listener should wait on team-scoped messages/tasks, respond when
 there is work, update visible task/status state, then return to waiting
 only if that is the assigned role.
-

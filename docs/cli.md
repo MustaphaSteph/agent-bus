@@ -6,7 +6,7 @@ The `agent-bus` binary. Run `agent-bus --help` for an auto-generated list.
 
 ### `agent-bus setup`
 
-Interactive Local/Cloud connection wizard (0.42.0+). Installs bundled skills,
+Interactive Local connection wizard (0.42.0+). Installs bundled skills,
 merges user MCP settings for Codex, Claude Code, current Kimi Code, and Cursor,
 and verifies MCP before writing. No global CLI required when run with npx.
 
@@ -15,14 +15,13 @@ npx --package=@agent-bus-connect/cli@latest agent-bus setup
 agent-bus setup --mode local --clients codex,claude-code --dry-run
 ```
 
-Supports `--mode`, `--clients`, `--url`, `--token-env`, `--name`, `--replace`,
+Supports `--mode`, `--clients`, `--name`, `--replace`,
 `--dry-run`, `--yes`, and the development-only `--local-server` option.
-No token argument: use the hidden prompt or an environment variable.
 See [setup guide](setup.md) for paths, backup behavior, and security details.
 
 ### `agent-bus claude-channel` / `agent-bus codex-listen`
 
-Local wake bridges (CLI 0.43.0+); no Cloud token needed. Both accept
+Local wake bridges (CLI 0.43.0+); no account needed. Both accept
 `--agent <registered-name>`, optional `--project` and `--team` filters.
 `claude-channel` is a stdio MCP server launched by interactive Claude Code with
 development-channel consent. `codex-listen` additionally requires `--thread <id>`
@@ -32,104 +31,7 @@ by default). It owns a dedicated saved thread, not an active desktop chat.
 Use the same `AGENT_BUS_DIR` for sender and receivers. Neither notification nor
 printing acknowledges: the host must handle and reply first. Stop other inbox
 consumers for these agent names. Existing `listen` still acknowledges after
-printing and is not a substitute. See [full Local setup](native-wake.md#local-bus-no-cloud-account-or-token).
-
-### `agent-bus cloud`
-
-Native Cloud bridges (CLI 0.43.0+; a Cloud deploy does not update your CLI):
-`cloud claude-channel <workspace> --agent <name>` is a Claude Code stdio
-channel with explicit completion. `cloud codex-listen <workspace> --agent <name>
---thread <id> --cwd <path>` runs a dedicated Codex App Server thread. Both accept
-project/team filters and require an environment token. Read the
-[native wake setup and safety limits](native-wake.md) before enabling either.
-
-`agent-bus cloud --host <https-origin> listen <workspace> --agent <name>
---handler <executable>` runs a persistent Cloud receiving integration. Register
-the agent first; supply `AGENT_BUS_CLOUD_TOKEN` in the environment, not arguments.
-The trusted handler receives JSON stdin and must exit zero only after successful
-handling. It runs without a shell. Successful cycles reconnect immediately;
-failures back off up to 30 seconds. Checkpoints are isolated by host/workspace/
-agent/filter and advance only after handling and acknowledgement. Ctrl-C stops
-the connection/handler. This does not wake hosted chat models or alter Local
-`listen`. See [handler contract and limits](../apps/cloud/docs/delivery.md).
-
-Hosted Agent Bus Cloud setup helpers. These commands talk to the
-Cloudflare Worker API and store a dashboard session cookie in
-`$AGENT_BUS_DIR/cloud.json` for the selected host. They do **not** make
-normal local commands use cloud; local and hosted modes stay explicit.
-
-Default host is `http://localhost:8787`. Override it with `--host` or
-`AGENT_BUS_CLOUD_HOST`.
-
-```bash
-agent-bus cloud signup --email you@example.com --password 'change-me-please' --name You
-agent-bus cloud login --email you@example.com --password 'change-me-please'
-agent-bus cloud health
-agent-bus cloud deploy-check --dir apps/cloud
-agent-bus cloud workspaces
-agent-bus cloud bootstrap my-team --token-name codex-pm --role manager
-
-agent-bus cloud workspace create my-team --name "My Team"
-agent-bus cloud tokens create my-team --name claude-ui --role agent
-agent-bus cloud tokens list my-team
-agent-bus cloud tokens revoke my-team tok_...
-agent-bus cloud members list my-team
-agent-bus cloud members add my-team --email teammate@example.com --role viewer
-agent-bus cloud members role my-team usr_... --role manager
-agent-bus cloud members remove my-team usr_...
-
-agent-bus cloud mcp-url my-team
-agent-bus cloud mcp-config my-team --token ab_cloud_...
-agent-bus cloud token-test my-team --token ab_cloud_...
-agent-bus cloud smoke my-team --token ab_cloud_... --team cloud-smoke
-```
-
-Cloud smoke acknowledges its own test message only after verifying its content,
-using the server's lease receipt when present. Cloud inbox clients must similarly
-handle messages before `ack`; see [delivery and webhooks](../apps/cloud/docs/delivery.md).
-This does not change the Local CLI listener or its inbox defaults.
-
-For production:
-
-```bash
-agent-bus cloud --host https://agentbus.example.com login \
-  --email you@example.com \
-  --password 'change-me-please'
-
-agent-bus cloud --host https://agentbus.example.com tokens create my-team \
-  --name codex-pm \
-  --role manager
-```
-
-`tokens create` prints a copy-paste remote MCP config with the workspace
-URL and bearer token. Treat that token like a password; the cloud
-dashboard and CLI only show the raw token once.
-
-Use `health` after `wrangler dev` or a production deploy. It does not
-require login; it checks `/api/health` and `/api/tools`, then reports the
-host environment and how many cloud tools are implemented.
-
-Use `deploy-check` before production deploys. It validates the local
-`wrangler.toml` has a real D1 `database_id` and
-`AGENT_BUS_CLOUD_ENV = "production"`, then prints the manual secret and
-migration checks that cannot be proven from the config file alone.
-
-Use `bootstrap` after login for the shortest working setup. It checks the
-host, creates the workspace when missing, creates an agent token, prints
-the remote MCP JSON config, and verifies the token against the workspace
-remote MCP endpoint.
-
-Use `members` when setting up the human dashboard side of a workspace.
-Only owners can add, change, or remove members. A teammate must create an
-Agent Bus Cloud account before an owner can add their email to a
-workspace.
-
-Use `mcp-config` when you already have a token and need to regenerate the
-generic remote-MCP JSON snippet.
-
-Use `smoke` after `token-test` when you need real hosted proof: it registers two
-temporary agents through the remote MCP endpoint, sends a message, consumes it
-from the receiver inbox, creates a task, and verifies that the task is visible.
+printing and is not a substitute. See [full Local setup](native-wake.md).
 
 ### `agent-bus watch`
 

@@ -25,6 +25,8 @@
   <br/><strong>Local · persistent · tool-agnostic · no cloud required · no internet required.</strong>
 </p>
 
+Agent Bus Cloud — coming soon.
+
 ## Watch it
 
 ![agent-bus shared inbox demo](docs/assets/use-cases/shared-inbox-demo.gif)
@@ -56,7 +58,8 @@ machine.
 npx --package=@agent-bus-connect/cli@latest agent-bus setup
 ```
 
-Choose **Local**, then Codex, Claude Code, Kimi Code, and/or Cursor.
+Select Codex, Claude Code, Kimi Code, and/or Cursor. If your installed release
+asks for a mode, choose **Local**. This source checkout supports Local only.
 The wizard installs the matching skill, configures MCP, and tests the connection.
 Restart/reconnect your agent sessions afterward. Local needs no account.
 You can also use the [source-build instructions](docs/setup.md#test-from-source).

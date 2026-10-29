@@ -1,7 +1,6 @@
 {
   "name": "@agent-bus-connect/cli",
   "version": "0.43.0",
-  "private": true,
   "homepage": "https://github.com/MustaphaSteph/agent-bus",
   "repository": {
     "type": "git",
@@ -33,15 +32,14 @@
     "agent-bus-mcp": "dist/mcp/server.js"
   },
   "files": [
-    "skills",
+    "skills/agent-bus",
     "dist",
     "docs",
     "llms.txt",
-    "README.md",
-    "AGENTS.md"
+    "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
     "dev:mcp": "tsx src/mcp/server.ts",
     "dev:cli": "tsx src/cli/index.ts",
@@ -50,13 +48,12 @@
     "test:wake:local": "npm run build && tsx test/wake-local.ts",
     "test:setup": "npm run build && tsx test/setup.ts",
     "test:setup:package": "npm run build && node test/setup-package.mjs",
-    "test:cloud": "npm --prefix apps/cloud test",
-    "check:cloud": "npm --prefix apps/cloud run check",
-    "check:cloud:deploy": "npm --prefix apps/cloud run check:deploy",
     "docs:preview": "npx --yes @redocly/cli@latest preview-docs docs/openapi.yaml",
     "docs:lint": "npx --yes @redocly/cli@latest lint docs/openapi.yaml",
     "docs:build": "npx --yes @redocly/cli@latest build-docs docs/openapi.yaml -o docs/api-static.html",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run check:publication",
+    "test:delivery": "tsx test/delivery.ts",
+    "check:publication": "node scripts/check-publication.mjs"
   },
   "engines": {
     "node": ">=20"

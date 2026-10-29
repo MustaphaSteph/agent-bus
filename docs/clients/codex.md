@@ -55,4 +55,3 @@ Codex cannot be woken by MCP alone while the model is idle. Use one of:
 
 After receiving the needed bus answer, summarize it and continue local
 work. Do not keep polling the bus unless the user explicitly asks.
-
